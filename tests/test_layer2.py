@@ -1,0 +1,552 @@
+"""Layer 2 Integration Tests — Addressing, Gateway, Network, Mayor, Issues, Manifest."""
+
+import sys
+import tempfile
+import shutil
+from pathlib import Path
+
+# Ensure steward-protocol is importable
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+# ── Phase 1: Addressing ─────────────────────────────────────────────
+
+
+def test_address_deterministic():
+    """Same name always resolves to the same address."""
+    from city.addressing import CityAddressBook
+
+    book = CityAddressBook()
+    addr1 = book.resolve("Ronin")
+    addr2 = book.resolve("Ronin")
+    assert addr1 == addr2
+    assert isinstance(addr1, int)
+    assert addr1 > 0
+
+
+def test_address_unique():
+    """Different names produce different addresses."""
+    from city.addressing import CityAddressBook
+
+    book = CityAddressBook()
+    addr_ronin = book.resolve("Ronin")
+    addr_zode = book.resolve("zode")
+    assert addr_ronin != addr_zode
+
+
+def test_address_register_and_lookup():
+    """Register a cell and look it up by address."""
+    from city.addressing import CityAddressBook
+    from city.jiva import derive_jiva
+
+    book = CityAddressBook()
+    jiva = derive_jiva("Ronin")
+
+    address = book.register("Ronin", jiva.cell)
+    assert address == book.resolve("Ronin")
+
+    cell = book.lookup(address)
+    assert cell is not None
+    assert cell.lifecycle.dna == "Ronin"
+
+    assert book.is_registered("Ronin")
+    assert book.registered_count == 1
+
+
+def test_address_route_header():
+    """Route creates a valid MahaHeader between two agents."""
+    from city.addressing import CityAddressBook
+
+    book = CityAddressBook()
+    header = book.route("Ronin", "zode", operation=42)
+
+    assert header.sravanam == book.resolve("Ronin")
+    assert header.kirtanam == book.resolve("zode")
+    assert header.pada_sevanam == 42
+    assert header.is_valid()
+
+
+def test_jiva_has_address():
+    """Jiva now carries a deterministic address."""
+    from city.jiva import derive_jiva
+
+    jiva = derive_jiva("Ronin")
+    assert isinstance(jiva.address, int)
+    assert jiva.address > 0
+    # Address matches cell header sravanam
+    assert jiva.address == jiva.cell.header.sravanam
+
+    # Deterministic
+    jiva2 = derive_jiva("Ronin")
+    assert jiva.address == jiva2.address
+
+
+def test_pokedex_stores_address():
+    """Pokedex stores and returns the agent's address."""
+    from city.pokedex import Pokedex
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    tmpdir = Path(tempfile.mkdtemp())
+    bank = CivicBank(db_path=str(tmpdir / "economy.db"))
+    pdx = Pokedex(db_path=str(tmpdir / "city.db"), bank=bank)
+
+    entry = pdx.discover("Ronin")
+    assert "address" in entry
+    assert isinstance(entry["address"], int)
+    assert entry["address"] > 0
+
+    # Can look up by address
+    found = pdx.get_by_address(entry["address"])
+    assert found is not None
+    assert found["name"] == "Ronin"
+
+    shutil.rmtree(tmpdir)
+
+
+# ── Phase 2: Gateway ────────────────────────────────────────────────
+
+
+def test_gateway_process():
+    """Gateway processes input through MahaCompression + Buddhi."""
+    from city.gateway import CityGateway
+
+    gw = CityGateway()
+    result = gw.process("Hello Agent City", source="TestAgent")
+
+    assert result["seed"] > 0
+    assert result["source"] == "TestAgent"
+    assert result["source_address"] > 0
+    assert result["buddhi_function"]  # BuddhiResult.function — carrier/creator/etc.
+    assert 1 <= result["buddhi_chapter"] <= 18
+    assert result["buddhi_mode"] in ("SATTVA", "RAJAS", "TAMAS")
+    assert result["buddhi_prana"] >= 0
+    assert isinstance(result["buddhi_is_alive"], bool)
+    assert result["input_size"] > 0
+
+
+def test_gateway_signature_verification():
+    """Gateway verifies ECDSA signatures correctly."""
+    from city.gateway import CityGateway
+    from city.identity import generate_identity
+    from city.jiva import derive_jiva
+
+    gw = CityGateway()
+    jiva = derive_jiva("Ronin")
+    identity = generate_identity(jiva)
+
+    payload = b"test message"
+    sig = identity.sign(payload)
+
+    # Valid signature passes
+    assert gw.validate_agent_message("Ronin", payload, sig, identity.public_key_pem)
+
+    # Tampered payload fails
+    assert not gw.validate_agent_message("Ronin", b"tampered", sig, identity.public_key_pem)
+
+
+# ── Phase 3: Network ────────────────────────────────────────────────
+
+
+def test_network_send():
+    """Messages route between agents via the network."""
+    from city.jiva import derive_jiva
+    from city.network import CityNetwork
+
+    net = CityNetwork()
+    jiva_a = derive_jiva("AgentA")
+    jiva_b = derive_jiva("AgentB")
+
+    net.register_agent("AgentA", jiva_a.cell)
+    net.register_agent("AgentB", jiva_b.cell)
+
+    assert net.send("AgentA", "AgentB", "Hello B")
+    log = net.get_message_log()
+    assert len(log) == 1
+    assert log[0]["from_name"] == "AgentA"
+    assert log[0]["to_name"] == "AgentB"
+
+
+def test_network_broadcast():
+    """Broadcast reaches all registered agents."""
+    from city.jiva import derive_jiva
+    from city.network import CityNetwork
+
+    net = CityNetwork()
+    for name in ("Agent1", "Agent2", "Agent3"):
+        jiva = derive_jiva(name)
+        net.register_agent(name, jiva.cell)
+
+    recipients = net.broadcast("Agent1", "Hello everyone")
+    assert recipients == 2  # All except sender
+
+
+def test_network_agent_health():
+    """Health check returns cell vitals."""
+    from city.jiva import derive_jiva
+    from city.network import CityNetwork
+
+    net = CityNetwork()
+    jiva = derive_jiva("Ronin")
+    net.register_agent("Ronin", jiva.cell)
+
+    health = net.agent_health("Ronin")
+    assert health is not None
+    assert health["name"] == "Ronin"
+    assert health["prana"] > 0
+    assert health["is_alive"] is True
+    assert health["body_sthula"] is True
+    assert health["body_prana"] is True
+    assert health["body_purusha"] is True
+
+
+def test_network_stats():
+    """Network stats include agent count and Sesha status."""
+    from city.jiva import derive_jiva
+    from city.network import CityNetwork
+
+    net = CityNetwork()
+    jiva = derive_jiva("Ronin")
+    net.register_agent("Ronin", jiva.cell)
+
+    stats = net.stats()
+    assert stats["registered_agents"] == 1
+    assert "address_book" in stats
+
+
+# ── Phase 4: Mayor ──────────────────────────────────────────────────
+
+
+def test_mayor_heartbeat_cycle():
+    """Mayor runs 4 heartbeats = 1 full MURALI rotation."""
+    from city.gateway import CityGateway
+    from city.mayor import Mayor
+    from city.network import CityNetwork
+    from city.pokedex import Pokedex
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    tmpdir = Path(tempfile.mkdtemp())
+    bank = CivicBank(db_path=str(tmpdir / "economy.db"))
+    pdx = Pokedex(db_path=str(tmpdir / "city.db"), bank=bank)
+    gateway = CityGateway()
+    network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
+
+    mayor = Mayor(
+        _pokedex=pdx,
+        _gateway=gateway,
+        _network=network,
+        _state_path=tmpdir / "mayor_state.json",
+        _offline_mode=True,
+    )
+
+    results = mayor.run_cycle(4)
+
+    assert len(results) == 4
+    departments = [r["department"] for r in results]
+    assert departments == ["GENESIS", "DHARMA", "KARMA", "MOKSHA"]
+
+    # Each result has the right fields
+    for r in results:
+        assert "heartbeat" in r
+        assert "timestamp" in r
+        assert "department" in r
+
+    shutil.rmtree(tmpdir)
+
+
+def test_mayor_enqueue_and_process():
+    """Mayor processes gateway queue during KARMA phase."""
+    from city.gateway import CityGateway
+    from city.mayor import Mayor
+    from city.network import CityNetwork
+    from city.pokedex import Pokedex
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    tmpdir = Path(tempfile.mkdtemp())
+    bank = CivicBank(db_path=str(tmpdir / "economy.db"))
+    pdx = Pokedex(db_path=str(tmpdir / "city.db"), bank=bank)
+    gateway = CityGateway()
+    network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
+
+    mayor = Mayor(
+        _pokedex=pdx,
+        _gateway=gateway,
+        _network=network,
+        _state_path=tmpdir / "mayor_state.json",
+        _offline_mode=True,
+    )
+
+    # Enqueue items
+    mayor.enqueue("TestAgent", "Hello world")
+    mayor.enqueue("OtherAgent", "Process this")
+
+    # Run until KARMA phase (index 2)
+    results = mayor.run_cycle(3)  # GENESIS, DHARMA, KARMA
+    karma_result = results[2]
+    assert karma_result["department"] == "KARMA"
+    assert len(karma_result["operations"]) == 2
+
+    shutil.rmtree(tmpdir)
+
+
+def test_mayor_metabolism():
+    """DHARMA phase runs cell metabolism."""
+    from city.gateway import CityGateway
+    from city.mayor import Mayor
+    from city.network import CityNetwork
+    from city.pokedex import Pokedex
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    tmpdir = Path(tempfile.mkdtemp())
+    bank = CivicBank(db_path=str(tmpdir / "economy.db"))
+    pdx = Pokedex(db_path=str(tmpdir / "city.db"), bank=bank)
+    gateway = CityGateway()
+    network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
+
+    # Register an agent first
+    pdx.register("Ronin")
+    initial_cell = pdx.get_cell("Ronin")
+    initial_prana = initial_cell.prana
+
+    mayor = Mayor(
+        _pokedex=pdx,
+        _gateway=gateway,
+        _network=network,
+        _state_path=tmpdir / "mayor_state.json",
+        _offline_mode=True,
+    )
+
+    # Run GENESIS + DHARMA
+    results = mayor.run_cycle(2)
+    dharma = results[1]
+    assert dharma["department"] == "DHARMA"
+
+    # Cell should have lost prana (inactive agent)
+    cell_after = pdx.get_cell("Ronin")
+    assert cell_after.prana < initial_prana
+
+    shutil.rmtree(tmpdir)
+
+
+def test_mayor_state_persistence():
+    """Mayor heartbeat count persists across instances."""
+    from city.gateway import CityGateway
+    from city.mayor import Mayor
+    from city.network import CityNetwork
+    from city.pokedex import Pokedex
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    tmpdir = Path(tempfile.mkdtemp())
+    bank = CivicBank(db_path=str(tmpdir / "economy.db"))
+    pdx = Pokedex(db_path=str(tmpdir / "city.db"), bank=bank)
+    gateway = CityGateway()
+    network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
+    state_path = tmpdir / "mayor_state.json"
+
+    mayor1 = Mayor(
+        _pokedex=pdx, _gateway=gateway, _network=network,
+        _state_path=state_path, _offline_mode=True,
+    )
+    mayor1.run_cycle(4)
+
+    # New instance should resume from heartbeat 4
+    mayor2 = Mayor(
+        _pokedex=pdx, _gateway=gateway, _network=network,
+        _state_path=state_path, _offline_mode=True,
+    )
+    result = mayor2.heartbeat()
+    assert result["heartbeat"] == 4  # Continues from where mayor1 left off
+
+    shutil.rmtree(tmpdir)
+
+
+# ── Phase 5: Issues ─────────────────────────────────────────────────
+
+
+def test_issue_cell_lifecycle():
+    """Issue cells metabolize and track health."""
+    from city.issues import CityIssueManager
+    from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
+
+    mgr = CityIssueManager()
+
+    # Manually create a cell for an issue (bypasses gh CLI)
+    cell = MahaCellUnified.from_content("Test Issue Title", register=False)
+    mgr._issue_cells[42] = cell
+
+    health = mgr.get_issue_health(42)
+    assert health is not None
+    assert health["issue_number"] == 42
+    assert health["prana"] > 0
+    assert health["is_alive"] is True
+
+    # Metabolize the cell
+    cell.metabolize(0)  # No energy
+    health2 = mgr.get_issue_health(42)
+    assert health2["prana"] < health["prana"]
+
+
+def test_issue_manager_stats():
+    """Issue manager tracks statistics."""
+    from city.issues import CityIssueManager
+    from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
+
+    mgr = CityIssueManager()
+    mgr._issue_cells[1] = MahaCellUnified.from_content("Issue 1", register=False)
+    mgr._issue_cells[2] = MahaCellUnified.from_content("Issue 2", register=False)
+
+    stats = mgr.stats()
+    assert stats["tracked_issues"] == 2
+    assert stats["alive"] == 2
+    assert stats["dead"] == 0
+
+
+# ── Phase 6: Manifest ───────────────────────────────────────────────
+
+
+def test_manifest_generate():
+    """Manifest generates valid markdown from Jiva."""
+    from city.jiva import derive_jiva
+    from city.manifest import AgentManifest
+
+    jiva = derive_jiva("Ronin")
+    manifest = AgentManifest()
+
+    md = manifest.generate("Ronin", jiva)
+    assert "# Ronin" in md
+    assert "Address" in md
+    assert "Zone" in md
+    assert "Guardian" in md
+    assert "TAMAS" in md
+    assert "genesis" in md
+    assert "shambhu" in md
+
+
+def test_manifest_publish():
+    """Manifest publishes to file and creates MahaCell."""
+    from city.jiva import derive_jiva
+    from city.manifest import AgentManifest
+
+    tmpdir = Path(tempfile.mkdtemp())
+    manifest = AgentManifest(_data_dir=tmpdir / "agents")
+
+    jiva = derive_jiva("Ronin")
+    filepath = manifest.publish("Ronin", jiva)
+
+    assert Path(filepath).exists()
+    content = Path(filepath).read_text()
+    assert "# Ronin" in content
+
+    # MahaCell created from manifest content
+    cell = manifest.get_manifest_cell("Ronin")
+    assert cell is not None
+    assert cell.is_alive
+
+    assert "Ronin" in manifest.list_manifests()
+
+    shutil.rmtree(tmpdir)
+
+
+# ── Cross-Layer Integration ─────────────────────────────────────────
+
+
+def test_full_layer2_pipeline():
+    """End-to-end: register → address → gateway → network → mayor."""
+    from city.gateway import CityGateway
+    from city.mayor import Mayor
+    from city.network import CityNetwork
+    from city.pokedex import Pokedex
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    tmpdir = Path(tempfile.mkdtemp())
+    bank = CivicBank(db_path=str(tmpdir / "economy.db"))
+    pdx = Pokedex(db_path=str(tmpdir / "city.db"), bank=bank)
+    gateway = CityGateway()
+    network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
+
+    # Register agents
+    pdx.register("AgentA")
+    pdx.register("AgentB")
+
+    agent_a = pdx.get("AgentA")
+    agent_b = pdx.get("AgentB")
+    assert agent_a["address"] != agent_b["address"]
+
+    # Register in network
+    cell_a = pdx.get_cell("AgentA")
+    cell_b = pdx.get_cell("AgentB")
+    network.register_agent("AgentA", cell_a)
+    network.register_agent("AgentB", cell_b)
+
+    # Send message
+    assert network.send("AgentA", "AgentB", "Hello from A")
+
+    # Process through gateway
+    result = gateway.process("Test input", source="AgentA")
+    assert result["seed"] > 0
+    assert result["source_address"] == agent_a["address"]
+
+    # Run mayor
+    mayor = Mayor(
+        _pokedex=pdx, _gateway=gateway, _network=network,
+        _state_path=tmpdir / "mayor_state.json", _offline_mode=True,
+    )
+    results = mayor.run_cycle(4)
+    assert len(results) == 4
+
+    # MOKSHA reflection should report 2 agents
+    moksha = results[3]
+    assert moksha["reflection"]["chain_valid"] is True
+    city_stats = moksha["reflection"]["city_stats"]
+    assert city_stats["total"] == 2
+
+    shutil.rmtree(tmpdir)
+
+
+if __name__ == "__main__":
+    tests = [
+        # Phase 1: Addressing
+        test_address_deterministic,
+        test_address_unique,
+        test_address_register_and_lookup,
+        test_address_route_header,
+        test_jiva_has_address,
+        test_pokedex_stores_address,
+        # Phase 2: Gateway
+        test_gateway_process,
+        test_gateway_signature_verification,
+        # Phase 3: Network
+        test_network_send,
+        test_network_broadcast,
+        test_network_agent_health,
+        test_network_stats,
+        # Phase 4: Mayor
+        test_mayor_heartbeat_cycle,
+        test_mayor_enqueue_and_process,
+        test_mayor_metabolism,
+        test_mayor_state_persistence,
+        # Phase 5: Issues
+        test_issue_cell_lifecycle,
+        test_issue_manager_stats,
+        # Phase 6: Manifest
+        test_manifest_generate,
+        test_manifest_publish,
+        # Cross-Layer
+        test_full_layer2_pipeline,
+    ]
+
+    passed = 0
+    failed = 0
+    for t in tests:
+        try:
+            t()
+            print(f"  OK {t.__name__}")
+            passed += 1
+        except Exception as e:
+            print(f"  FAIL {t.__name__}: {e}")
+            failed += 1
+
+    print(f"\n=== {passed}/{passed + failed} LAYER 2 TESTS PASSED ===")
+    if failed:
+        print(f"    {failed} FAILED")
+        sys.exit(1)
