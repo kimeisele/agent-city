@@ -70,12 +70,14 @@ def main() -> None:
     governance_kwargs: dict = {}
     if args.governance:
         from city.contracts import create_default_contracts
+        from city.council import CityCouncil
         from city.executor import IntentExecutor
         from city.issues import CityIssueManager
 
         governance_kwargs["_contracts"] = create_default_contracts()
         governance_kwargs["_executor"] = IntentExecutor(_cwd=Path.cwd())
         governance_kwargs["_issues"] = CityIssueManager()
+        governance_kwargs["_council"] = CityCouncil()
 
     mayor = Mayor(
         _pokedex=pokedex,
