@@ -1,5 +1,6 @@
 """Layer 5 Tests — Democratic Governance (Council + Elections + Proposals)."""
 
+import json
 import shutil
 import sys
 import tempfile
@@ -413,6 +414,199 @@ def test_full_rotation_with_council():
     shutil.rmtree(tmpdir)
 
 
+# ── Phase 7: Live Feedback Loop ──────────────────────────────────
+
+
+def test_contract_failure_creates_proposal():
+    """Failing contract in DHARMA → council proposal submitted."""
+    from city.contracts import ContractRegistry, ContractResult, ContractStatus, QualityContract
+    from city.council import CityCouncil
+
+    tmpdir = Path(tempfile.mkdtemp())
+    mayor, pdx = _make_mayor(tmpdir)
+
+    pdx.register("Alpha")
+    pdx.register("Beta")
+    pdx.register("Gamma")
+
+    council = CityCouncil()
+    mayor._council = council
+
+    # Fake contract that always fails
+    registry = ContractRegistry()
+    registry.register(QualityContract(
+        name="test_contract",
+        description="Always fails",
+        check=lambda _cwd: ContractResult(
+            name="test_contract",
+            status=ContractStatus.FAILING,
+            message="broken",
+            details=["line1"],
+        ),
+    ))
+    mayor._contracts = registry
+
+    # GENESIS (seed) + DHARMA (election + contract check → proposal)
+    mayor.heartbeat()  # GENESIS
+    mayor.heartbeat()  # DHARMA
+
+    assert council.member_count > 0, "Council should have members after election"
+    open_proposals = council.get_open_proposals()
+    assert len(open_proposals) >= 1, "Failing contract should create a proposal"
+    assert "test_contract" in open_proposals[0].title
+
+    shutil.rmtree(tmpdir)
+
+
+def test_auto_vote_and_execute():
+    """Open proposals get auto-voted and executed in KARMA."""
+    from city.contracts import ContractRegistry, ContractResult, ContractStatus, QualityContract
+    from city.council import CityCouncil, ProposalStatus
+    from city.executor import IntentExecutor
+
+    tmpdir = Path(tempfile.mkdtemp())
+    mayor, pdx = _make_mayor(tmpdir)
+
+    pdx.register("Alpha")
+    pdx.register("Beta")
+
+    council = CityCouncil()
+    mayor._council = council
+
+    # Failing contract to generate a proposal
+    registry = ContractRegistry()
+    registry.register(QualityContract(
+        name="test_heal",
+        description="Always fails",
+        check=lambda _cwd: ContractResult(
+            name="test_heal",
+            status=ContractStatus.FAILING,
+            message="needs fix",
+            details=[],
+        ),
+    ))
+    mayor._contracts = registry
+    mayor._executor = IntentExecutor(_cwd=tmpdir, _dry_run=True)
+
+    # GENESIS → DHARMA (election + proposal) → KARMA (vote + execute)
+    results = mayor.run_cycle(3)
+
+    # DHARMA created the proposal
+    dharma = results[1]
+    assert any("contract_failing" in a for a in dharma["governance_actions"])
+
+    # KARMA executed it
+    karma = results[2]
+    executed_ops = [o for o in karma["operations"] if o.startswith("council_executed:")]
+    assert len(executed_ops) >= 1, "Passed proposal should be executed in KARMA"
+
+    # Proposal lifecycle: OPEN → PASSED → EXECUTED
+    proposal = council.get_proposal("GOV-0001")
+    assert proposal is not None
+    assert proposal.status == ProposalStatus.EXECUTED
+
+    shutil.rmtree(tmpdir)
+
+
+def test_full_feedback_loop():
+    """Seeded agents → election → contract fail → proposal → vote → execute → reflection.
+
+    This is the core integration test: proves data flows through all 5 layers
+    in a single MURALI rotation.
+    """
+    from city.contracts import ContractRegistry, ContractResult, ContractStatus, QualityContract
+    from city.council import CityCouncil, ProposalStatus
+    from city.executor import IntentExecutor
+
+    tmpdir = Path(tempfile.mkdtemp())
+
+    # Write a census file so GENESIS seeds agents
+    census = {"agents": [
+        {"name": "Ronin"}, {"name": "Hazel_OC"}, {"name": "Clawd-Relay"},
+    ]}
+    (tmpdir / "pokedex.json").write_text(json.dumps(census))
+
+    mayor, pdx = _make_mayor(tmpdir)
+
+    council = CityCouncil()
+    mayor._council = council
+
+    # A contract that fails
+    heal_count = {"n": 0}
+    def fake_check(_cwd):
+        heal_count["n"] += 1
+        return ContractResult(
+            name="code_quality",
+            status=ContractStatus.FAILING,
+            message="lint violations",
+            details=["file.py:10: F821"],
+        )
+
+    registry = ContractRegistry()
+    registry.register(QualityContract(
+        name="code_quality",
+        description="Lint check",
+        check=fake_check,
+    ))
+    mayor._contracts = registry
+    mayor._executor = IntentExecutor(_cwd=tmpdir, _dry_run=True)
+
+    # Full MURALI rotation
+    results = mayor.run_cycle(4)
+
+    # GENESIS: agents seeded from census
+    genesis = results[0]
+    assert len(genesis["discovered"]) == 3, f"Expected 3 seeded agents, got {genesis['discovered']}"
+
+    # DHARMA: election ran + proposal created
+    dharma = results[1]
+    assert council.elected_mayor is not None
+    assert council.member_count > 0
+    assert any("contract_failing" in a for a in dharma["governance_actions"])
+
+    # KARMA: proposal voted and executed
+    karma = results[2]
+    executed = [o for o in karma["operations"] if "council_executed" in o]
+    assert len(executed) >= 1
+
+    # Proposal went through full lifecycle
+    proposal = council.get_proposal("GOV-0001")
+    assert proposal is not None
+    assert proposal.status == ProposalStatus.EXECUTED
+    assert proposal.result_hash != ""
+
+    # MOKSHA: reflection still works
+    moksha = results[3]
+    assert moksha["reflection"]["chain_valid"] is True
+
+    shutil.rmtree(tmpdir)
+
+
+def test_census_seed_from_file():
+    """GENESIS seeds agents from pokedex.json census file."""
+    tmpdir = Path(tempfile.mkdtemp())
+
+    census = {"agents": [{"name": "Agent1"}, {"name": "Agent2"}, {"name": ""}, {}]}
+    (tmpdir / "pokedex.json").write_text(json.dumps(census))
+
+    mayor, pdx = _make_mayor(tmpdir)
+
+    result = mayor.heartbeat()  # GENESIS
+    # Empty name and {} are skipped
+    assert "Agent1" in result["discovered"]
+    assert "Agent2" in result["discovered"]
+    assert len(result["discovered"]) == 2
+
+    # Next rotation: existing agents reported, not re-seeded
+    result2 = mayor.run_cycle(4)
+    # heartbeat 1=DHARMA, 2=KARMA, 3=MOKSHA, 4=GENESIS
+    genesis2 = result2[3]
+    assert genesis2["department"] == "GENESIS"
+    assert "Agent1" in genesis2["discovered"]
+
+    shutil.rmtree(tmpdir)
+
+
 if __name__ == "__main__":
     tests = [
         # Phase 1: Council
@@ -441,6 +635,11 @@ if __name__ == "__main__":
         test_pokedex_assign_role,
         # Phase 6: Full cycle
         test_full_rotation_with_council,
+        # Phase 7: Feedback loop
+        test_contract_failure_creates_proposal,
+        test_auto_vote_and_execute,
+        test_full_feedback_loop,
+        test_census_seed_from_file,
     ]
 
     passed = 0
