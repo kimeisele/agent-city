@@ -173,17 +173,22 @@ class Mayor:
     # ── GENESIS: Census ──────────────────────────────────────────────
 
     def _genesis_census(self) -> list[str]:
-        """Discover agents from Moltbook feed (or offline cache).
+        """Discover agents from Moltbook feed, offline cache, or census seed.
 
-        In offline mode, just returns already-known agents.
+        First run with empty DB: seeds from data/pokedex.json census.
+        Offline mode: reports existing population.
+        Online: scans Moltbook feed for new agents.
         """
         discovered: list[str] = []
 
         if self._offline_mode:
-            # Offline: report existing population
+            # Seed from census if DB is empty (first boot)
             all_agents = self._pokedex.list_all()
-            for agent in all_agents:
-                discovered.append(agent["name"])
+            if not all_agents:
+                discovered = self._seed_from_census()
+            else:
+                for agent in all_agents:
+                    discovered.append(agent["name"])
             logger.info("GENESIS (offline): %d agents in registry", len(discovered))
             return discovered
 
@@ -237,20 +242,7 @@ class Mayor:
                 actions.append(f"warning:zone_{zone}_empty")
                 logger.warning("DHARMA: Zone %s has 0 agents", zone)
 
-        # ── Layer 3: Quality Contracts ──
-        if self._contracts is not None:
-            results = self._contracts.check_all()
-            for r in results:
-                if r.status.value == "failing":
-                    actions.append(f"contract_failing:{r.name}:{r.message}")
-                    self._create_healing_mission(r)
-
-        # ── Layer 3: Issue lifecycle intents ──
-        if self._issues is not None:
-            issue_actions = self._issues.metabolize_issues()
-            actions.extend(issue_actions)
-
-        # ── Layer 5: Council Election ──
+        # ── Layer 5: Council Election (before contracts, so proposals have a council) ──
         if self._council is not None:
             if self._council.election_due(self._heartbeat_count):
                 candidates = self._get_election_candidates()
@@ -265,6 +257,20 @@ class Mayor:
                     actions.append(
                         f"election:seats={len(result['council_seats'])}"
                     )
+
+        # ── Layer 3: Quality Contracts ──
+        if self._contracts is not None:
+            results = self._contracts.check_all()
+            for r in results:
+                if r.status.value == "failing":
+                    actions.append(f"contract_failing:{r.name}:{r.message}")
+                    self._create_healing_mission(r)
+                    self._submit_contract_proposal(r)
+
+        # ── Layer 3: Issue lifecycle intents ──
+        if self._issues is not None:
+            issue_actions = self._issues.metabolize_issues()
+            actions.extend(issue_actions)
 
         if actions:
             logger.info("DHARMA: %d governance actions", len(actions))
@@ -314,8 +320,12 @@ class Mayor:
                         operations.append(f"pr_created:{pr.pr_url}")
                         logger.info("KARMA: PR created — %s", pr.pr_url)
 
-        # ── Layer 5: Execute passed council proposals ──
-        if self._council is not None:
+        # ── Layer 5: Council governance cycle ──
+        if self._council is not None and self._council.member_count > 0:
+            # Auto-vote on open proposals (council members vote by prana)
+            self._council_auto_vote()
+
+            # Execute passed proposals
             for proposal in self._council.get_passed_proposals():
                 executed = self._execute_proposal(proposal)
                 operations.append(
@@ -374,6 +384,7 @@ class Mayor:
                     proposal = self._reflection.propose_improvement(insights)
                     if proposal is not None:
                         self._create_improvement_mission(proposal)
+                        self._submit_reflection_proposal(proposal)
                     reflection["insights"] = len(insights)
                     reflection["proposal"] = proposal.title if proposal else None
                 reflection["reflection_stats"] = {
@@ -427,8 +438,114 @@ class Mayor:
                 logger.warning("Proposal %s failed: %s", proposal.id, e)
                 return False
 
+        if action_type == "heal" and self._executor is not None:
+            contract_name = proposal.action.get("contract", "")
+            details = params.get("details", [])
+            fix = self._executor.execute_heal(contract_name, details)
+            if fix.success:
+                logger.info(
+                    "Proposal %s: healed %s via %s",
+                    proposal.id, contract_name, fix.action_taken,
+                )
+            return fix.success
+
+        if action_type == "improve":
+            logger.info("Proposal %s: improvement noted — %s", proposal.id, proposal.title)
+            return True
+
         logger.warning("Unknown proposal action: %s", action_type)
         return False
+
+    def _submit_contract_proposal(self, contract_result: object) -> None:
+        """Submit a failing contract as a council proposal for democratic vote."""
+        if self._council is None or self._council.member_count == 0:
+            return
+
+        proposer = self._council.elected_mayor
+        if proposer is None:
+            return
+
+        from city.council import ProposalType
+
+        self._council.propose(
+            title=f"Heal contract: {contract_result.name}",
+            description=f"Contract failing: {contract_result.message}",
+            proposer=proposer,
+            proposal_type=ProposalType.POLICY,
+            action={
+                "type": "heal",
+                "contract": contract_result.name,
+                "params": {"details": contract_result.details},
+            },
+            timestamp=time.time(),
+        )
+
+    def _council_auto_vote(self) -> None:
+        """Council members vote on all open proposals (prana-weighted)."""
+        if self._council is None:
+            return
+
+        from city.council import VoteChoice
+
+        open_proposals = self._council.get_open_proposals()
+        for proposal in open_proposals:
+            for seat_idx, member_name in self._council.seats.items():
+                cell = self._pokedex.get_cell(member_name)
+                prana = cell.prana if cell is not None and cell.is_alive else 0
+                if prana > 0:
+                    self._council.vote(
+                        proposal.id, member_name, VoteChoice.YES, prana,
+                    )
+            self._council.tally(proposal.id)
+
+    def _submit_reflection_proposal(self, proposal: object) -> None:
+        """Submit a reflection improvement as a council proposal."""
+        if self._council is None or self._council.member_count == 0:
+            return
+
+        proposer = self._council.elected_mayor
+        if proposer is None:
+            return
+
+        from city.council import ProposalType
+
+        self._council.propose(
+            title=f"Improve: {proposal.title}",
+            description=proposal.description,
+            proposer=proposer,
+            proposal_type=ProposalType.POLICY,
+            action={"type": "improve", "proposal_id": proposal.id},
+            timestamp=time.time(),
+        )
+
+    def _seed_from_census(self) -> list[str]:
+        """Seed agents from data/pokedex.json census file."""
+        census_path = self._state_path.parent / "pokedex.json"
+        if not census_path.exists():
+            # Try repo-level data/
+            census_path = Path("data/pokedex.json")
+        if not census_path.exists():
+            logger.info("GENESIS: No census file found, starting empty")
+            return []
+
+        try:
+            data = json.loads(census_path.read_text())
+            agents = data.get("agents", [])
+            seeded: list[str] = []
+            for agent in agents:
+                name = agent.get("name")
+                if not name:
+                    continue
+                existing = self._pokedex.get(name)
+                if not existing:
+                    self._pokedex.register(name)
+                    seeded.append(name)
+                    logger.info("GENESIS: Seeded citizen %s", name)
+            logger.info("GENESIS: Seeded %d agents from census", len(seeded))
+            return seeded
+        except Exception as e:
+            logger.warning("GENESIS: Census seeding failed: %s", e)
+            return []
 
     # ── Layer 3: Mission Creators ─────────────────────────────────────
 

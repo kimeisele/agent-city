@@ -3,7 +3,6 @@
 import sys
 import tempfile
 import shutil
-import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -432,7 +431,7 @@ def test_critical_finding_creates_mission():
 
 def test_reflection_patterns_analyzed():
     """Reflection analyzes patterns and records execution."""
-    from vibe_core.protocols.reflection import BasicReflection, ExecutionRecord
+    from vibe_core.protocols.reflection import BasicReflection
 
     tmpdir = Path(tempfile.mkdtemp())
     reflection = BasicReflection()
