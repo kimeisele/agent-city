@@ -111,6 +111,9 @@ class Mayor:
     # Layer 4 action delegation (optional for backward compatibility)
     _executor: object = None  # IntentExecutor
 
+    # Layer 5 democratic governance (optional for backward compatibility)
+    _council: object = None  # CityCouncil
+
     # Internal state
     _last_audit_time: float = field(default=0.0)
 
@@ -247,6 +250,22 @@ class Mayor:
             issue_actions = self._issues.metabolize_issues()
             actions.extend(issue_actions)
 
+        # ── Layer 5: Council Election ──
+        if self._council is not None:
+            if self._council.election_due(self._heartbeat_count):
+                candidates = self._get_election_candidates()
+                if candidates:
+                    result = self._council.run_election(
+                        candidates, self._heartbeat_count,
+                    )
+                    if result["elected_mayor"]:
+                        actions.append(
+                            f"election:mayor={result['elected_mayor']}"
+                        )
+                    actions.append(
+                        f"election:seats={len(result['council_seats'])}"
+                    )
+
         if actions:
             logger.info("DHARMA: %d governance actions", len(actions))
         return actions
@@ -294,6 +313,15 @@ class Mayor:
                     if pr is not None and pr.success:
                         operations.append(f"pr_created:{pr.pr_url}")
                         logger.info("KARMA: PR created — %s", pr.pr_url)
+
+        # ── Layer 5: Execute passed council proposals ──
+        if self._council is not None:
+            for proposal in self._council.get_passed_proposals():
+                executed = self._execute_proposal(proposal)
+                operations.append(
+                    f"council_executed:{proposal.id}:{executed}"
+                )
+                self._council.mark_executed(proposal.id)
 
         if operations:
             logger.info("KARMA: %d operations processed", len(operations))
@@ -356,6 +384,51 @@ class Mayor:
                 logger.warning("MOKSHA: Reflection analysis failed: %s", e)
 
         return reflection
+
+    # ── Layer 5: Council Helpers ──────────────────────────────────────
+
+    def _get_election_candidates(self) -> list[dict]:
+        """Build candidate list from living citizens with prana data."""
+        citizens = self._pokedex.list_citizens()
+        candidates = []
+        for c in citizens:
+            cell = self._pokedex.get_cell(c["name"])
+            if cell is not None and cell.is_alive:
+                candidates.append({
+                    "name": c["name"],
+                    "prana": cell.prana,
+                    "guardian": c["classification"]["guardian"],
+                    "position": c["classification"]["position"],
+                })
+        return candidates
+
+    def _execute_proposal(self, proposal: object) -> bool:
+        """Execute a passed council proposal. Returns True on success."""
+        action_type = proposal.action.get("type")
+        params = proposal.action.get("params", {})
+
+        if action_type == "freeze" and params.get("target"):
+            try:
+                self._pokedex.freeze(
+                    params["target"], f"council_proposal:{proposal.id}",
+                )
+                return True
+            except (ValueError, Exception) as e:
+                logger.warning("Proposal %s failed: %s", proposal.id, e)
+                return False
+
+        if action_type == "unfreeze" and params.get("target"):
+            try:
+                self._pokedex.unfreeze(
+                    params["target"], f"council_proposal:{proposal.id}",
+                )
+                return True
+            except (ValueError, Exception) as e:
+                logger.warning("Proposal %s failed: %s", proposal.id, e)
+                return False
+
+        logger.warning("Unknown proposal action: %s", action_type)
+        return False
 
     # ── Layer 3: Mission Creators ─────────────────────────────────────
 

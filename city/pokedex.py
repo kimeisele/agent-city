@@ -159,6 +159,15 @@ class Pokedex:
 
         self._conn.commit()
 
+        # Migration: civic_role column (Layer 5)
+        try:
+            cur.execute("SELECT civic_role FROM agents LIMIT 0")
+        except Exception:
+            cur.execute(
+                "ALTER TABLE agents ADD COLUMN civic_role TEXT DEFAULT 'citizen'"
+            )
+            self._conn.commit()
+
     # ── Public API ────────────────────────────────────────────────────
 
     def discover(self, name: str, moltbook_profile: dict | None = None) -> dict:
@@ -338,6 +347,30 @@ class Pokedex:
         cur = self._conn.cursor()
         cur.execute("SELECT * FROM agents ORDER BY name")
         return [self._row_to_dict(r) for r in cur.fetchall()]
+
+    def list_by_role(self, role: str) -> list[dict]:
+        """List all agents with a given civic role."""
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT * FROM agents WHERE civic_role = ? ORDER BY name", (role,)
+        )
+        return [self._row_to_dict(r) for r in cur.fetchall()]
+
+    def assign_role(self, name: str, role: str, reason: str = "election") -> dict:
+        """Assign a civic role to an agent. Records event in ledger."""
+        agent = self.get(name)
+        if agent is None:
+            raise ValueError(f"Agent {name} not found")
+        old_role = agent.get("civic_role", "citizen")
+        now = datetime.now(timezone.utc).isoformat()
+        cur = self._conn.cursor()
+        cur.execute(
+            "UPDATE agents SET civic_role = ?, updated_at = ? WHERE name = ?",
+            (role, now, name),
+        )
+        self._record_event(name, "role_change", old_role, role, reason)
+        self._conn.commit()
+        return self.get(name)
 
     def stats(self) -> dict:
         """City-wide statistics."""
@@ -524,6 +557,7 @@ class Pokedex:
                 "karma": d["moltbook_karma"],
                 "followers": d["moltbook_followers"],
             } if d["moltbook_karma"] is not None else None,
+            "civic_role": d.get("civic_role", "citizen"),
             "discovered_at": d["discovered_at"],
             "registered_at": d["registered_at"],
             "updated_at": d["updated_at"],
