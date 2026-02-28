@@ -108,6 +108,9 @@ class Mayor:
     _audit: object = None  # AuditKernel
     _reflection: object = None  # BasicReflection
 
+    # Layer 4 action delegation (optional for backward compatibility)
+    _executor: object = None  # IntentExecutor
+
     # Internal state
     _last_audit_time: float = field(default=0.0)
 
@@ -272,6 +275,25 @@ class Mayor:
             for intent in intents:
                 operations.append(f"sankalpa_intent:{intent.title}")
                 logger.info("KARMA: Sankalpa intent — %s", intent.title)
+
+        # ── Layer 4: Execute HEAL intents on failing contracts ──
+        if self._executor is not None and self._contracts is not None:
+            for contract in self._contracts.failing():
+                details = contract.last_result.details if contract.last_result else []
+                fix = self._executor.execute_heal(contract.name, details)
+                operations.append(
+                    f"heal:{fix.contract_name}:{fix.action_taken}:{fix.success}"
+                )
+                logger.info(
+                    "KARMA: Heal %s — %s (success=%s)",
+                    fix.contract_name, fix.action_taken, fix.success,
+                )
+
+                if fix.success and fix.files_changed:
+                    pr = self._executor.create_fix_pr(fix, self._heartbeat_count)
+                    if pr is not None and pr.success:
+                        operations.append(f"pr_created:{pr.pr_url}")
+                        logger.info("KARMA: PR created — %s", pr.pr_url)
 
         if operations:
             logger.info("KARMA: %d operations processed", len(operations))
