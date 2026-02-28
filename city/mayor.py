@@ -28,13 +28,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypedDict
 
+from vibe_core.mahamantra.protocols import QUARTERS
+
 from city.gateway import CityGateway
 from city.network import CityNetwork
 from city.pokedex import Pokedex
 
 logger = logging.getLogger("AGENT_CITY.MAYOR")
 
-# MURALI departments — same pattern as Moltbook plugin
+# MURALI departments — SSOT from steward-protocol QUARTERS (4)
 GENESIS = 0
 DHARMA = 1
 KARMA = 2
@@ -46,10 +48,6 @@ DEPARTMENT_NAMES = {
     KARMA: "KARMA",
     MOKSHA: "MOKSHA",
 }
-
-# THE_FLUTE_CYCLE from steward-protocol (static LUT, 16 entries)
-# We use heartbeat_count % 4 for department routing (same as Moltbook)
-QUARTERS = 4
 
 # Audit cooldown — prevent over-auditing (15 minutes)
 AUDIT_COOLDOWN_S = 15 * 60
@@ -116,10 +114,12 @@ class Mayor:
 
     # Internal state
     _last_audit_time: float = field(default=0.0)
+    _recent_events: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._load_state()
+        self._wire_event_handlers()
 
     def heartbeat(self) -> HeartbeatResult:
         """Execute one heartbeat cycle.
@@ -127,7 +127,15 @@ class Mayor:
         Routes to the correct MURALI department based on heartbeat_count % 4.
         """
         start_time = time.time()
-        department = self._heartbeat_count % QUARTERS
+
+        # Advance VenuOrchestrator — drives MURALI phase rotation
+        try:
+            from vibe_core.mahamantra import mahamantra
+            mahamantra.venu.step()
+        except Exception as e:
+            logger.warning("VenuOrchestrator step failed: %s", e)
+
+        department = self._resolve_murali_phase()
         dept_name = DEPARTMENT_NAMES[department]
 
         logger.info(
@@ -169,6 +177,19 @@ class Mayor:
         for _ in range(cycles):
             results.append(self.heartbeat())
         return results
+
+    def _resolve_murali_phase(self) -> int:
+        """Resolve current MURALI phase.
+
+        THE_FLUTE_CYCLE is a 16-beat cycle (4 beats per department).
+        Agent City uses 4-beat MURALI rotation (1 beat per department).
+        So we use heartbeat_count % QUARTERS directly — same as MuraliRouter's
+        fallback path, and correct for 4-beat cycles.
+
+        VenuOrchestrator is still stepped per heartbeat (in heartbeat())
+        so the flute advances, but department routing uses the 4-beat pattern.
+        """
+        return self._heartbeat_count % QUARTERS
 
     # ── GENESIS: Census ──────────────────────────────────────────────
 
@@ -350,7 +371,16 @@ class Mayor:
             "heartbeat": self._heartbeat_count,
             "city_stats": stats,
             "network_stats": network_stats,
+            "events_since_last": len(self._recent_events),
         }
+
+        # Drain event buffer into reflection
+        if self._recent_events:
+            logger.info(
+                "MOKSHA: %d city events since last reflection",
+                len(self._recent_events),
+            )
+            self._recent_events.clear()
 
         if not chain_valid:
             logger.warning("MOKSHA: Event chain integrity BROKEN")
@@ -635,6 +665,30 @@ class Mayor:
             duration_ms=duration_ms,
         )
         self._reflection.record_execution(record)
+
+    # ── Event Handlers ─────────────────────────────────────────────
+
+    def _wire_event_handlers(self) -> None:
+        """Subscribe to AnantaShesha events via CityNetwork's anchor."""
+        try:
+            from vibe_core.ouroboros.ananta_shesha import get_system_anchor
+            anchor = get_system_anchor()
+            for event_type in ("AGENT_REGISTERED", "AGENT_UNREGISTERED",
+                               "AGENT_MESSAGE", "AGENT_BROADCAST"):
+                anchor.add_handler(event_type, self._on_city_event)
+        except Exception as e:
+            logger.warning("Event handler wiring failed: %s", e)
+
+    def _on_city_event(self, event: object) -> None:
+        """Handle city events from AnantaShesha. Buffers for MOKSHA reflection."""
+        self._recent_events.append({
+            "type": event.event_type,
+            "data": event.data,
+            "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, 'isoformat') else str(event.timestamp),
+        })
+        # Cap buffer to prevent unbounded growth
+        if len(self._recent_events) > 200:
+            self._recent_events = self._recent_events[-100:]
 
     # ── External Interface ───────────────────────────────────────────
 

@@ -23,13 +23,15 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TypedDict
 
+from vibe_core.mahamantra.protocols import MALA, SHARANAGATI
+
 logger = logging.getLogger("AGENT_CITY.COUNCIL")
 
 # SSOT: Council seats = SHARANAGATI = KSHETRA // QUARTERS = 24 // 4
-COUNCIL_SEATS = 6
+COUNCIL_SEATS: int = SHARANAGATI
 
 # SSOT: Election cycle = MALA = 108 heartbeats
-ELECTION_CYCLE = 108
+ELECTION_CYCLE: int = MALA
 
 # Voting thresholds (from governance_vote.yaml)
 DEMOCRATIC_THRESHOLD = 0.5
