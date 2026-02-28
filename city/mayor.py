@@ -6,9 +6,9 @@ Runs the city via MURALI 4-phase cycle, exactly like the Moltbook plugin.
 
 MURALI Departments:
   0 GENESIS: Census (discover agents from Moltbook feed)
-  1 DHARMA:  Governance (cell homeostasis, zone health, proposals)
-  2 KARMA:   Operations (process gateway queue, agent interactions)
-  3 MOKSHA:  Reflection (verify event chain, verify integrity, stats)
+  1 DHARMA:  Governance (cell homeostasis, zone health, contracts, sankalpa missions)
+  2 KARMA:   Operations (process gateway queue, sankalpa intents)
+  3 MOKSHA:  Reflection (audit, reflection analysis, stats, chain verification)
 
 Cell metabolism per heartbeat:
 - Each active agent's cell: metabolize(0) → loses METABOLIC_COST (3) prana
@@ -51,6 +51,9 @@ DEPARTMENT_NAMES = {
 # We use heartbeat_count % 4 for department routing (same as Moltbook)
 QUARTERS = 4
 
+# Audit cooldown — prevent over-auditing (15 minutes)
+AUDIT_COOLDOWN_S = 15 * 60
+
 
 class HeartbeatResult(TypedDict):
     """Result of a single heartbeat cycle."""
@@ -80,6 +83,13 @@ class Mayor:
 
     Runs MURALI 4-phase cycles. Each heartbeat advances one department.
     4 heartbeats = 1 full MURALI rotation.
+
+    Layer 3 governance (all optional, backward-compatible):
+    - _contracts: Quality contract registry (DHARMA phase)
+    - _issues: Issue manager with smart lifecycle (DHARMA phase)
+    - _sankalpa: Mission orchestrator (KARMA phase)
+    - _audit: Audit kernel (MOKSHA phase)
+    - _reflection: Execution analysis (MOKSHA phase, every heartbeat)
     """
 
     _pokedex: Pokedex
@@ -91,6 +101,16 @@ class Mayor:
     _active_agents: set[str] = field(default_factory=set)
     _gateway_queue: list[dict] = field(default_factory=list)
 
+    # Layer 3 governance wiring (all optional for backward compatibility)
+    _contracts: object = None  # ContractRegistry
+    _issues: object = None  # CityIssueManager
+    _sankalpa: object = None  # SankalpaOrchestrator
+    _audit: object = None  # AuditKernel
+    _reflection: object = None  # BasicReflection
+
+    # Internal state
+    _last_audit_time: float = field(default=0.0)
+
     def __post_init__(self) -> None:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._load_state()
@@ -100,6 +120,7 @@ class Mayor:
 
         Routes to the correct MURALI department based on heartbeat_count % 4.
         """
+        start_time = time.time()
         department = self._heartbeat_count % QUARTERS
         dept_name = DEPARTMENT_NAMES[department]
 
@@ -112,7 +133,7 @@ class Mayor:
             "heartbeat": self._heartbeat_count,
             "department": dept_name,
             "department_idx": department,
-            "timestamp": time.time(),
+            "timestamp": start_time,
             "discovered": [],
             "governance_actions": [],
             "operations": [],
@@ -127,6 +148,10 @@ class Mayor:
             result["operations"] = self._karma_operations()
         elif department == MOKSHA:
             result["reflection"] = self._moksha_reflection()
+
+        # Record execution for reflection (every heartbeat)
+        duration_ms = (time.time() - start_time) * 1000
+        self._record_execution(dept_name, duration_ms)
 
         self._heartbeat_count += 1
         self._save_state()
@@ -182,9 +207,10 @@ class Mayor:
     # ── DHARMA: Governance ───────────────────────────────────────────
 
     def _dharma_governance(self) -> list[str]:
-        """Cell homeostasis, zone health, metabolism.
+        """Cell homeostasis, zone health, contracts, issue lifecycle.
 
-        Runs metabolize_all() on all living agents.
+        Runs metabolize_all() on all living agents, then checks quality
+        contracts and processes issue intents.
         """
         actions: list[str] = []
 
@@ -205,6 +231,19 @@ class Mayor:
                 actions.append(f"warning:zone_{zone}_empty")
                 logger.warning("DHARMA: Zone %s has 0 agents", zone)
 
+        # ── Layer 3: Quality Contracts ──
+        if self._contracts is not None:
+            results = self._contracts.check_all()
+            for r in results:
+                if r.status.value == "failing":
+                    actions.append(f"contract_failing:{r.name}:{r.message}")
+                    self._create_healing_mission(r)
+
+        # ── Layer 3: Issue lifecycle intents ──
+        if self._issues is not None:
+            issue_actions = self._issues.metabolize_issues()
+            actions.extend(issue_actions)
+
         if actions:
             logger.info("DHARMA: %d governance actions", len(actions))
         return actions
@@ -212,7 +251,7 @@ class Mayor:
     # ── KARMA: Operations ────────────────────────────────────────────
 
     def _karma_operations(self) -> list[str]:
-        """Process gateway queue and agent interactions."""
+        """Process gateway queue, sankalpa intents."""
         operations: list[str] = []
 
         # Process queued gateway items
@@ -227,6 +266,13 @@ class Mayor:
                 operations.append(f"error:{source}:{e}")
                 logger.warning("KARMA: Gateway processing failed for %s: %s", source, e)
 
+        # ── Layer 3: Sankalpa strategic thinking ──
+        if self._sankalpa is not None:
+            intents = self._sankalpa.think()
+            for intent in intents:
+                operations.append(f"sankalpa_intent:{intent.title}")
+                logger.info("KARMA: Sankalpa intent — %s", intent.title)
+
         if operations:
             logger.info("KARMA: %d operations processed", len(operations))
         return operations
@@ -234,12 +280,12 @@ class Mayor:
     # ── MOKSHA: Reflection ───────────────────────────────────────────
 
     def _moksha_reflection(self) -> dict:
-        """Verify event chain, verify integrity, collect stats."""
+        """Verify event chain, audit, reflection analysis, stats."""
         stats = self._pokedex.stats()
         chain_valid = self._pokedex.verify_event_chain()
         network_stats = self._network.stats()
 
-        reflection = {
+        reflection: dict = {
             "chain_valid": chain_valid,
             "heartbeat": self._heartbeat_count,
             "city_stats": stats,
@@ -253,7 +299,130 @@ class Mayor:
                 "MOKSHA: Reflection — %d agents, chain valid, %d events",
                 stats.get("total", 0), stats.get("events", 0),
             )
+
+        # ── Layer 3: Audit ──
+        if self._audit is not None and self._should_audit():
+            try:
+                finding_count = self._audit.run_all()
+                self._last_audit_time = time.time()
+                summary = self._audit.summary()
+                reflection["audit"] = summary
+
+                # Critical findings → healing missions
+                for finding in self._audit.critical_findings():
+                    self._create_audit_mission(finding)
+
+                logger.info("MOKSHA: Audit complete — %d findings", finding_count)
+            except Exception as e:
+                logger.warning("MOKSHA: Audit failed: %s", e)
+
+        # ── Layer 3: Reflection pattern analysis ──
+        if self._reflection is not None:
+            try:
+                insights = self._reflection.analyze_patterns()
+                if insights:
+                    proposal = self._reflection.propose_improvement(insights)
+                    if proposal is not None:
+                        self._create_improvement_mission(proposal)
+                    reflection["insights"] = len(insights)
+                    reflection["proposal"] = proposal.title if proposal else None
+                reflection["reflection_stats"] = {
+                    "executions_analyzed": self._reflection.get_stats().executions_analyzed,
+                    "insights_generated": self._reflection.get_stats().insights_generated,
+                }
+            except Exception as e:
+                logger.warning("MOKSHA: Reflection analysis failed: %s", e)
+
         return reflection
+
+    # ── Layer 3: Mission Creators ─────────────────────────────────────
+
+    def _create_healing_mission(self, contract_result: object) -> None:
+        """Create a Sankalpa mission from a failing contract."""
+        if self._sankalpa is None:
+            return
+
+        from vibe_core.mahamantra.protocols.sankalpa.types import (
+            MissionPriority,
+            MissionStatus,
+            SankalpaMission,
+        )
+
+        mission_id = f"heal_{contract_result.name}_{self._heartbeat_count}"
+        mission = SankalpaMission(
+            id=mission_id,
+            name=f"Heal: {contract_result.name}",
+            description=f"Quality contract failing: {contract_result.message}",
+            priority=MissionPriority.HIGH,
+            status=MissionStatus.ACTIVE,
+            owner="mayor",
+        )
+        self._sankalpa.registry.add_mission(mission)
+        logger.info("DHARMA: Created healing mission %s", mission_id)
+
+    def _create_audit_mission(self, finding: object) -> None:
+        """Create a Sankalpa mission from a critical audit finding."""
+        if self._sankalpa is None:
+            return
+
+        from vibe_core.mahamantra.protocols.sankalpa.types import (
+            MissionPriority,
+            MissionStatus,
+            SankalpaMission,
+        )
+
+        mission_id = f"audit_{finding.source}_{self._heartbeat_count}"
+        mission = SankalpaMission(
+            id=mission_id,
+            name=f"Audit: {finding.source}",
+            description=f"Critical finding: {finding.description}",
+            priority=MissionPriority.CRITICAL,
+            status=MissionStatus.ACTIVE,
+            owner="mayor",
+        )
+        self._sankalpa.registry.add_mission(mission)
+        logger.info("MOKSHA: Created audit mission %s", mission_id)
+
+    def _create_improvement_mission(self, proposal: object) -> None:
+        """Create a Sankalpa mission from a reflection improvement proposal."""
+        if self._sankalpa is None:
+            return
+
+        from vibe_core.mahamantra.protocols.sankalpa.types import (
+            MissionPriority,
+            MissionStatus,
+            SankalpaMission,
+        )
+
+        mission_id = f"improve_{proposal.id}_{self._heartbeat_count}"
+        mission = SankalpaMission(
+            id=mission_id,
+            name=f"Improve: {proposal.title}",
+            description=proposal.description,
+            priority=MissionPriority.MEDIUM,
+            status=MissionStatus.ACTIVE,
+            owner="mayor",
+        )
+        self._sankalpa.registry.add_mission(mission)
+        logger.info("MOKSHA: Created improvement mission %s", mission_id)
+
+    def _should_audit(self) -> bool:
+        """Check if enough time has passed since last audit."""
+        return (time.time() - self._last_audit_time) > AUDIT_COOLDOWN_S
+
+    def _record_execution(self, department: str, duration_ms: float) -> None:
+        """Record a heartbeat execution via Reflection protocol."""
+        if self._reflection is None:
+            return
+
+        from vibe_core.protocols.reflection import ExecutionRecord
+
+        record = ExecutionRecord(
+            command=f"mayor.heartbeat.{department}",
+            success=True,
+            duration_ms=duration_ms,
+        )
+        self._reflection.record_execution(record)
 
     # ── External Interface ───────────────────────────────────────────
 

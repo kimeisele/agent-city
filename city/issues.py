@@ -17,6 +17,7 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass, field
+from enum import Enum
 
 from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
 
@@ -25,6 +26,22 @@ logger = logging.getLogger("AGENT_CITY.ISSUES")
 # Prana constants from MahaCellUnified
 GENESIS_PRANA = 13700
 METABOLIC_COST = 3
+
+# Low prana threshold — below this, iterative/contract issues signal urgency
+LOW_PRANA_THRESHOLD = 1000
+
+
+class IssueType(str, Enum):
+    """Issue lifecycle types.
+
+    EPHEMERAL: Fire-and-forget. Auto-closes when prana hits 0.
+    ITERATIVE: Multi-sprint work. Never auto-closes. Signals "needs attention" on low prana.
+    CONTRACT:  Quality contract. Never auto-closes. Signals "audit needed" on low prana.
+    """
+
+    EPHEMERAL = "ephemeral"
+    ITERATIVE = "iterative"
+    CONTRACT = "contract"
 
 
 def _gh_run(args: list[str]) -> str | None:
@@ -53,6 +70,7 @@ class CityIssueManager:
 
     _repo: str = ""
     _issue_cells: dict[int, MahaCellUnified] = field(default_factory=dict)
+    _issue_types: dict[int, IssueType] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self._repo:
@@ -60,7 +78,13 @@ class CityIssueManager:
             out = _gh_run(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])
             self._repo = out or ""
 
-    def create_issue(self, title: str, body: str, labels: list[str] | None = None) -> dict | None:
+    def create_issue(
+        self,
+        title: str,
+        body: str,
+        labels: list[str] | None = None,
+        issue_type: IssueType = IssueType.EPHEMERAL,
+    ) -> dict | None:
         """Create a GitHub Issue and bind a MahaCell to it.
 
         Returns issue metadata or None on failure.
@@ -84,20 +108,36 @@ class CityIssueManager:
         # Create living cell from issue title
         cell = MahaCellUnified.from_content(title, register=False)
         self._issue_cells[issue_number] = cell
+        self._issue_types[issue_number] = issue_type
 
-        logger.info("Created issue #%d with MahaCell (prana=%d)", issue_number, cell.prana)
+        logger.info(
+            "Created issue #%d (%s) with MahaCell (prana=%d)",
+            issue_number, issue_type.value, cell.prana,
+        )
         return {
             "number": issue_number,
             "url": url,
             "title": title,
             "prana": cell.prana,
             "integrity": cell.membrane_integrity,
+            "issue_type": issue_type.value,
         }
 
-    def metabolize_issues(self) -> list[str]:
-        """DHARMA phase: prana decay, activity check, auto-close dead issues.
+    def set_issue_type(self, issue_number: int, issue_type: IssueType) -> None:
+        """Set the lifecycle type for a tracked issue."""
+        self._issue_types[issue_number] = issue_type
 
-        Returns list of actions taken (e.g. "closed:#42:prana_exhaustion").
+    def get_issue_type(self, issue_number: int) -> IssueType:
+        """Get the lifecycle type for an issue (default: EPHEMERAL)."""
+        return self._issue_types.get(issue_number, IssueType.EPHEMERAL)
+
+    def metabolize_issues(self) -> list[str]:
+        """DHARMA phase: prana decay, activity check, type-aware lifecycle.
+
+        Returns list of actions taken:
+        - "closed:#42:prana_exhaustion" — ephemeral issue auto-closed
+        - "intent_needed:#42:low_prana" — iterative issue needs attention
+        - "contract_check:#42:audit_needed" — contract issue needs audit
         """
         actions: list[str] = []
 
@@ -124,23 +164,38 @@ class CityIssueManager:
                 self._issue_cells[number] = MahaCellUnified.from_content(title, register=False)
 
             cell = self._issue_cells[number]
+            issue_type = self.get_issue_type(number)
 
             # Activity = number of recent comments (proxy for engagement)
             comments = issue.get("comments", [])
             energy = len(comments) * 5 if isinstance(comments, list) else 0
 
+            # All types decay prana (signals urgency)
             cell.metabolize(energy)
 
-            if not cell.is_alive:
-                # Auto-close dead issues
-                close_result = _gh_run([
-                    "issue", "close", str(number),
-                    "--comment", "Auto-closed: issue cell prana exhausted (no activity).",
-                ])
-                if close_result is not None:
-                    actions.append(f"closed:#{number}:prana_exhaustion")
-                    logger.info("Auto-closed issue #%d (prana exhausted)", number)
-                del self._issue_cells[number]
+            if issue_type == IssueType.EPHEMERAL:
+                if not cell.is_alive:
+                    close_result = _gh_run([
+                        "issue", "close", str(number),
+                        "--comment", "Auto-closed: issue cell prana exhausted (no activity).",
+                    ])
+                    if close_result is not None:
+                        actions.append(f"closed:#{number}:prana_exhaustion")
+                        logger.info("Auto-closed issue #%d (prana exhausted)", number)
+                    del self._issue_cells[number]
+                    self._issue_types.pop(number, None)
+
+            elif issue_type == IssueType.ITERATIVE:
+                # Never auto-close. Signal when prana is low.
+                if cell.prana < LOW_PRANA_THRESHOLD:
+                    actions.append(f"intent_needed:#{number}:low_prana")
+                    logger.info("Iterative issue #%d low prana (%d)", number, cell.prana)
+
+            elif issue_type == IssueType.CONTRACT:
+                # Never auto-close. Signal audit needed when prana is low.
+                if cell.prana < LOW_PRANA_THRESHOLD:
+                    actions.append(f"contract_check:#{number}:audit_needed")
+                    logger.info("Contract issue #%d needs audit (prana=%d)", number, cell.prana)
 
         return actions
 
