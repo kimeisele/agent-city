@@ -35,6 +35,10 @@ def main() -> None:
     )
     parser.add_argument("--db", type=str, default="data/city.db", help="Database path")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
+    parser.add_argument(
+        "--governance", action="store_true",
+        help="Wire Layer 3+4 governance (contracts, executor, issues)",
+    )
     args = parser.parse_args()
 
     # Logging
@@ -62,11 +66,23 @@ def main() -> None:
 
     from city.mayor import Mayor
 
+    # Layer 3+4 governance wiring (optional)
+    governance_kwargs: dict = {}
+    if args.governance:
+        from city.contracts import create_default_contracts
+        from city.executor import IntentExecutor
+        from city.issues import CityIssueManager
+
+        governance_kwargs["_contracts"] = create_default_contracts()
+        governance_kwargs["_executor"] = IntentExecutor(_cwd=Path.cwd())
+        governance_kwargs["_issues"] = CityIssueManager()
+
     mayor = Mayor(
         _pokedex=pokedex,
         _gateway=gateway,
         _network=network,
         _offline_mode=args.offline,
+        **governance_kwargs,
     )
 
     print(f"=== Agent City Heartbeat — {args.cycles} cycles ===")
