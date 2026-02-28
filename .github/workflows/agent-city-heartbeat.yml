@@ -13,9 +13,11 @@ on:
         description: 'Run in offline mode'
         required: false
         default: 'false'
+  repository_dispatch:
+    types: [mothership-directive]
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 jobs:
@@ -55,17 +57,38 @@ jobs:
           restore-keys: |
             agent-city-state-
 
+      - name: Process incoming directive
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          mkdir -p data/federation/directives
+          DIRECTIVE_ID="DIR-$(date +%s)"
+          echo '${{ toJSON(github.event.client_payload) }}' | \
+            python -c "import sys,json; d=json.load(sys.stdin); d['id']=d.get('id','$DIRECTIVE_ID'); print(json.dumps(d,indent=2))" \
+            > "data/federation/directives/${DIRECTIVE_ID}.json"
+          echo "Received directive: ${DIRECTIVE_ID}"
+
       - name: Run heartbeat
         env:
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
+          GH_TOKEN: ${{ secrets.FEDERATION_PAT || secrets.GITHUB_TOKEN }}
         run: |
           CYCLES=${{ github.event.inputs.cycles || '4' }}
           OFFLINE=${{ github.event.inputs.offline || 'false' }}
-          CMD="python scripts/heartbeat.py --cycles $CYCLES -v"
+          CMD="python scripts/heartbeat.py --cycles $CYCLES -v --governance --federation"
           if [ "$OFFLINE" = "true" ]; then
             CMD="$CMD --offline"
           fi
           $CMD
+
+      - name: Commit state changes
+        if: always()
+        run: |
+          git config user.name "agent-city-bot"
+          git config user.email "bot@agent-city"
+          git add -f data/federation/ data/mayor_state.json || true
+          git diff --cached --quiet || \
+            git commit -m "chore: heartbeat #${{ github.run_number }} federation state"
+          git push || true
 
       - name: Save state
         if: always()

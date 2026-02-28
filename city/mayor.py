@@ -112,6 +112,9 @@ class Mayor:
     # Layer 5 democratic governance (optional for backward compatibility)
     _council: object = None  # CityCouncil
 
+    # Layer 6 federation (optional for backward compatibility)
+    _federation: object = None  # FederationRelay
+
     # Internal state
     _last_audit_time: float = field(default=0.0)
     _recent_events: list = field(default_factory=list)
@@ -211,28 +214,35 @@ class Mayor:
                 for agent in all_agents:
                     discovered.append(agent["name"])
             logger.info("GENESIS (offline): %d agents in registry", len(discovered))
-            return discovered
+        else:
+            # Online: scan Moltbook feed for new agents
+            try:
+                from vibe_core.mahamantra.adapters.moltbook import MoltbookClient
+                client = MoltbookClient()
+                feed = client.get_feed(limit=20)
 
-        # Online: scan Moltbook feed for new agents
-        try:
-            from vibe_core.mahamantra.adapters.moltbook import MoltbookClient
-            client = MoltbookClient()
-            feed = client.get_feed(limit=20)
+                for post in feed:
+                    author = post.get("author", {}).get("username")
+                    if not author:
+                        continue
+                    existing = self._pokedex.get(author)
+                    if not existing:
+                        self._pokedex.discover(author, moltbook_profile={
+                            "karma": post.get("author", {}).get("karma"),
+                            "follower_count": post.get("author", {}).get("follower_count"),
+                        })
+                        discovered.append(author)
+                        logger.info("GENESIS: Discovered agent %s", author)
+            except Exception as e:
+                logger.warning("GENESIS: Moltbook scan failed: %s", e)
 
-            for post in feed:
-                author = post.get("author", {}).get("username")
-                if not author:
-                    continue
-                existing = self._pokedex.get(author)
-                if not existing:
-                    self._pokedex.discover(author, moltbook_profile={
-                        "karma": post.get("author", {}).get("karma"),
-                        "follower_count": post.get("author", {}).get("follower_count"),
-                    })
-                    discovered.append(author)
-                    logger.info("GENESIS: Discovered agent %s", author)
-        except Exception as e:
-            logger.warning("GENESIS: Moltbook scan failed: %s", e)
+        # ── Layer 6: Federation directives ──
+        if self._federation is not None:
+            directives = self._federation.check_directives()
+            for d in directives:
+                executed = self._execute_directive(d)
+                discovered.append(f"directive:{d.directive_type}:{executed}")
+                self._federation.acknowledge_directive(d.id)
 
         return discovered
 
@@ -424,6 +434,12 @@ class Mayor:
             except Exception as e:
                 logger.warning("MOKSHA: Reflection analysis failed: %s", e)
 
+        # ── Layer 6: Federation report ──
+        if self._federation is not None:
+            report = self._build_city_report(reflection)
+            sent = self._federation.send_report(report)
+            reflection["federation_report_sent"] = sent
+
         return reflection
 
     # ── Layer 5: Council Helpers ──────────────────────────────────────
@@ -546,6 +562,117 @@ class Mayor:
             proposal_type=ProposalType.POLICY,
             action={"type": "improve", "proposal_id": proposal.id},
             timestamp=time.time(),
+        )
+
+    # ── Layer 6: Federation Helpers ─────────────────────────────────
+
+    def _execute_directive(self, directive: object) -> bool:
+        """Execute a mothership directive. Returns True on success."""
+        dtype = directive.directive_type
+        params = directive.params
+
+        if dtype == "register_agent":
+            name = params.get("name")
+            if not name:
+                return False
+            existing = self._pokedex.get(name)
+            if existing:
+                logger.info("Directive: agent %s already registered", name)
+                return True
+            self._pokedex.register(name)
+            logger.info("Directive: registered agent %s", name)
+            return True
+
+        if dtype == "freeze_agent":
+            name = params.get("name")
+            if not name:
+                return False
+            try:
+                self._pokedex.freeze(name, f"directive:{directive.id}")
+                logger.info("Directive: froze agent %s", name)
+                return True
+            except (ValueError, Exception) as e:
+                logger.warning("Directive freeze failed: %s", e)
+                return False
+
+        if dtype == "create_mission" and self._sankalpa is not None:
+            from vibe_core.mahamantra.protocols.sankalpa.types import (
+                MissionPriority,
+                MissionStatus,
+                SankalpaMission,
+            )
+            topic = params.get("topic", "unknown")
+            priority_str = params.get("priority", "medium").upper()
+            priority = getattr(MissionPriority, priority_str, MissionPriority.MEDIUM)
+            mission_id = f"fed_{directive.id}_{self._heartbeat_count}"
+            mission = SankalpaMission(
+                id=mission_id,
+                name=f"Federation: {topic}",
+                description=params.get("context", topic),
+                priority=priority,
+                status=MissionStatus.ACTIVE,
+                owner="federation",
+            )
+            self._sankalpa.registry.add_mission(mission)
+            logger.info("Directive: created mission %s from %s", mission_id, topic)
+            return True
+
+        if dtype == "policy_update":
+            logger.info(
+                "Directive: policy update noted — %s",
+                params.get("description", "no description"),
+            )
+            return True
+
+        logger.warning("Unknown directive type: %s", dtype)
+        return False
+
+    def _build_city_report(self, reflection: dict) -> object:
+        """Build a CityReport from current city state."""
+        from city.federation import CityReport
+
+        stats = reflection.get("city_stats", {})
+        total = stats.get("total", 0)
+        alive = stats.get("alive", 0)
+
+        # Council state
+        elected_mayor = None
+        council_seats = 0
+        open_proposals = 0
+        if self._council is not None:
+            elected_mayor = self._council.elected_mayor
+            council_seats = self._council.member_count
+            open_proposals = len(self._council.get_open_proposals())
+
+        # Contract status
+        contract_status: dict = {}
+        if self._contracts is not None:
+            cs = self._contracts.stats()
+            contract_status = {
+                "total": cs.get("total", 0),
+                "passing": cs.get("passing", 0),
+                "failing": cs.get("failing", 0),
+            }
+
+        # Pending acks from federation relay
+        directive_acks = (
+            self._federation.pending_acks if self._federation is not None else []
+        )
+
+        return CityReport(
+            heartbeat=self._heartbeat_count,
+            timestamp=time.time(),
+            population=total,
+            alive=alive,
+            dead=total - alive,
+            elected_mayor=elected_mayor,
+            council_seats=council_seats,
+            open_proposals=open_proposals,
+            chain_valid=reflection.get("chain_valid", False),
+            recent_actions=[],
+            contract_status=contract_status,
+            mission_results=[],
+            directive_acks=directive_acks,
         )
 
     def _seed_from_census(self) -> list[str]:

@@ -39,6 +39,18 @@ def main() -> None:
         "--governance", action="store_true",
         help="Wire Layer 3+4 governance (contracts, executor, issues)",
     )
+    parser.add_argument(
+        "--federation", action="store_true",
+        help="Enable federation with mothership (Layer 6)",
+    )
+    parser.add_argument(
+        "--federation-dry-run", action="store_true",
+        help="Federation dry-run (log payloads, don't dispatch)",
+    )
+    parser.add_argument(
+        "--mothership", type=str, default="kimeisele/steward-protocol",
+        help="Mothership repo (owner/name)",
+    )
     args = parser.parse_args()
 
     # Logging
@@ -78,6 +90,14 @@ def main() -> None:
         governance_kwargs["_executor"] = IntentExecutor(_cwd=Path.cwd())
         governance_kwargs["_issues"] = CityIssueManager()
         governance_kwargs["_council"] = CityCouncil()
+
+    # Layer 6 federation wiring (optional)
+    if args.federation or args.federation_dry_run:
+        from city.federation import FederationRelay
+        governance_kwargs["_federation"] = FederationRelay(
+            _mothership_repo=args.mothership,
+            _dry_run=args.federation_dry_run or not args.federation,
+        )
 
     mayor = Mayor(
         _pokedex=pokedex,
