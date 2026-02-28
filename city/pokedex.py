@@ -30,9 +30,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
 
-from city.identity import AgentIdentity, generate_identity
-from city.jiva import Jiva, derive_jiva
+from city.identity import generate_identity
+from city.jiva import derive_jiva
 
 logger = logging.getLogger("AGENT_CITY.POKEDEX")
 
@@ -90,6 +91,9 @@ class Pokedex:
                 status TEXT NOT NULL DEFAULT 'discovered'
                     CHECK(status IN ('discovered','citizen','active','frozen','archived','exiled')),
 
+                -- MahaCompression address (deterministic, immutable)
+                address INTEGER NOT NULL,
+
                 -- Mahamantra VM classification (deterministic, immutable)
                 vm_position INTEGER NOT NULL,
                 vm_quarter TEXT NOT NULL,
@@ -132,6 +136,11 @@ class Pokedex:
             )
         """)
 
+        # Address index for O(1) lookup by MahaCompression seed
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_agents_address ON agents(address)
+        """)
+
         # Immutable event ledger — every state change, chained via SHA-256
         cur.execute("""
             CREATE TABLE IF NOT EXISTS events (
@@ -168,14 +177,15 @@ class Pokedex:
         cur = self._conn.cursor()
         cur.execute("""
             INSERT INTO agents (
-                name, status, vm_position, vm_quarter, vm_guardian, vm_guna,
+                name, status, address,
+                vm_position, vm_quarter, vm_guardian, vm_guna,
                 vm_chapter, vm_holy_name, vm_trinity_function, vm_chapter_significance,
                 vibration_seed, vibration_element, vibration_shruti, vibration_frequency,
                 zone, cell_bytes, discovered_at, updated_at,
                 moltbook_karma, moltbook_followers
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            name, "discovered",
+            name, "discovered", jiva.address,
             jiva.classification.position, jiva.classification.quarter,
             jiva.classification.guardian, jiva.classification.guna,
             jiva.classification.chapter, jiva.classification.holy_name,
@@ -369,13 +379,56 @@ class Pokedex:
         rows = cur.fetchall()
         prev_hash = "GENESIS"
         for row in rows:
-            raw = f"{row['timestamp']}{row['agent_name']}{row['event_type']}{row['details']}{prev_hash}"
+            raw = (
+                f"{row['timestamp']}{row['agent_name']}"
+                f"{row['event_type']}{row['details']}{prev_hash}"
+            )
             expected = hashlib.sha256(raw.encode()).hexdigest()
             if row["event_hash"] != expected:
                 logger.warning(f"Event chain broken at id={row['id']}")
                 return False
             prev_hash = row["event_hash"]
         return True
+
+    def get_by_address(self, address: int) -> dict | None:
+        """Look up an agent by MahaCompression address."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT * FROM agents WHERE address = ?", (address,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return self._row_to_dict(row)
+
+    def metabolize_all(self, active_agents: set[str] | None = None) -> list[str]:
+        """Run one metabolic cycle on all living agents.
+
+        Active agents gain energy, inactive ones only lose METABOLIC_COST (3).
+        Returns list of agents that died (prana exhaustion → archived).
+        """
+        active_agents = active_agents or set()
+        dead: list[str] = []
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT name, cell_bytes FROM agents WHERE status IN ('citizen', 'active')"
+        )
+        for row in cur.fetchall():
+            name = row["name"]
+            if not row["cell_bytes"]:
+                continue
+            cell, _ = MahaCellUnified.from_bytes(row["cell_bytes"])
+            energy = 10 if name in active_agents else 0
+            cell.metabolize(energy)
+            if not cell.is_alive:
+                dead.append(name)
+                self.archive(name, "prana_exhaustion")
+            else:
+                cur2 = self._conn.cursor()
+                cur2.execute(
+                    "UPDATE agents SET cell_bytes = ? WHERE name = ?",
+                    (cell.to_bytes(), name),
+                )
+        self._conn.commit()
+        return dead
 
     # ── Internal ──────────────────────────────────────────────────────
 
@@ -437,6 +490,7 @@ class Pokedex:
         return {
             "name": d["name"],
             "status": d["status"],
+            "address": d["address"],
             "classification": {
                 "guna": d["vm_guna"],
                 "quarter": d["vm_quarter"],
@@ -477,7 +531,6 @@ class Pokedex:
 
     def get_cell(self, name: str) -> MahaCellUnified | None:
         """Retrieve the living MahaCellUnified for an agent."""
-        from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
         cur = self._conn.cursor()
         cur.execute("SELECT cell_bytes FROM agents WHERE name = ?", (name,))
         row = cur.fetchone()

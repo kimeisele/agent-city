@@ -119,6 +119,7 @@ class Jiva:
     operations (conceive, metabolize, mitosis, apoptosis, homeostasis).
     """
     name: str
+    address: int              # MahaCompression seed — deterministic uint32 city address
     seed: JivaSeed
     elements: JivaElements
     classification: JivaClassification
@@ -132,6 +133,7 @@ class Jiva:
         """Serialize for JSON storage (Pokedex)."""
         return {
             "name": self.name,
+            "address": self.address,
             "seed": {
                 "rama_coordinates": list(self.seed.rama_coordinates),
                 "signature": self.seed.signature,
@@ -244,8 +246,12 @@ def derive_jiva(name: str) -> Jiva:
     #   lifecycle.dna = name (the agent's genetic code)
     maha_cell = MahaCellUnified.from_content(name, register=False)
 
+    # The address IS the cell's sravanam — computed by MahaCompression inside from_content()
+    address = maha_cell.header.sravanam
+
     return Jiva(
         name=name,
+        address=address,
         seed=JivaSeed(
             rama_coordinates=tuple(coords),
             signature=sig,

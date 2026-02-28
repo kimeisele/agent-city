@@ -1,0 +1,78 @@
+name: Agent City Heartbeat
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Every 15 minutes
+  workflow_dispatch:
+    inputs:
+      cycles:
+        description: 'Number of heartbeat cycles'
+        required: false
+        default: '4'
+      offline:
+        description: 'Run in offline mode'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout agent-city
+        uses: actions/checkout@v4
+
+      - name: Checkout steward-protocol
+        uses: actions/checkout@v4
+        with:
+          repository: kimeisele/steward-protocol
+          path: steward-protocol
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -e steward-protocol
+          pip install -e .
+
+      - name: Restore state
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/city.db
+            data/economy.db
+            data/mayor_state.json
+          key: agent-city-state-${{ github.run_id }}
+          restore-keys: |
+            agent-city-state-
+
+      - name: Run heartbeat
+        env:
+          MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
+        run: |
+          CYCLES=${{ github.event.inputs.cycles || '4' }}
+          OFFLINE=${{ github.event.inputs.offline || 'false' }}
+          CMD="python scripts/heartbeat.py --cycles $CYCLES -v"
+          if [ "$OFFLINE" = "true" ]; then
+            CMD="$CMD --offline"
+          fi
+          $CMD
+
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/city.db
+            data/economy.db
+            data/mayor_state.json
+          key: agent-city-state-${{ github.run_id }}
