@@ -23,10 +23,6 @@ from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
 
 logger = logging.getLogger("AGENT_CITY.ISSUES")
 
-# Prana constants from MahaCellUnified
-GENESIS_PRANA = 13700
-METABOLIC_COST = 3
-
 # Low prana threshold — below this, iterative/contract issues signal urgency
 LOW_PRANA_THRESHOLD = 1000
 

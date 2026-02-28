@@ -117,7 +117,8 @@ class ContractRegistry:
 # ── Built-in Contract Checks ─────────────────────────────────────────
 
 
-# Slop patterns — same as Moltbook constitution
+# Slop patterns — word-level detection for city source files
+# (different from Moltbook constitution which uses phrase-level patterns for LLM output)
 SLOP_PATTERNS = [
     "delve", "tapestry", "landscape", "realm", "paradigm",
     "synergy", "ecosystem", "leverage", "holistic",
