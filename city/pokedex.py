@@ -2,101 +2,162 @@
 POKEDEX — The Living Agent Registry
 =====================================
 
-Binds Jiva (Mahamantra identity) + Crypto (ECDSA) + Economy (Bank).
-Each agent name produces exactly ONE deterministic identity.
-Only the key holder can claim/upgrade their Jiva.
+SQLite-backed persistent registry of all agents in Agent City.
+Each agent entry binds:
+- Jiva (Mahamantra VM identity)
+- MahaCellUnified (living biological substrate)
+- ECDSA cryptographic identity
+- CivicBank wallet (steward-protocol economy)
+- Constitutional oath (governance binding)
+- Moltbook social metadata
+
+Lifecycle states: discovered → citizen → active → frozen → archived → exiled
+
+Uses CivicBank from steward-protocol — no copy, no parallel structure.
+Uses MahaCellUnified for agent lifecycle — conceive, metabolize, apoptosis.
+
+    Hare Krishna Hare Krishna Krishna Krishna Hare Hare
+    Hare Rama   Hare Rama   Rama   Rama   Hare Hare
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from city.bank import CityBank
+from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
 from city.identity import AgentIdentity, generate_identity
 from city.jiva import Jiva, derive_jiva
 
+logger = logging.getLogger("AGENT_CITY.POKEDEX")
 
-POKEDEX_PATH = Path("data/pokedex.json")
 GENESIS_GRANT = 100  # Initial credits for new citizens
+
+# Zone treasury accounts (one per quarter)
+ZONE_TREASURIES = {
+    "discovery": "ZONE_DISCOVERY",
+    "governance": "ZONE_GOVERNANCE",
+    "engineering": "ZONE_ENGINEERING",
+    "research": "ZONE_RESEARCH",
+}
 
 
 class Pokedex:
-    """The living agent registry of Agent City."""
+    """The living agent registry of Agent City.
+
+    SQLite-backed. Every mutation creates an immutable event.
+    Economy via CivicBank (steward-protocol). No copies.
+    """
 
     def __init__(
         self,
-        pokedex_path: Path = POKEDEX_PATH,
-        bank: CityBank | None = None,
+        db_path: str = "data/city.db",
+        bank: CivicBank | None = None,
+        constitution_path: str | None = None,
     ):
-        self._path = pokedex_path
-        self._bank = bank or CityBank()
-        self._data = self._load()
+        self._db_path = Path(db_path)
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._init_schema()
 
-    def _load(self) -> dict:
-        if self._path.exists():
-            return json.loads(self._path.read_text())
-        return {"version": 2, "agents": []}
+        # Wire to CivicBank from steward-protocol (shared DB or separate)
+        self._bank = bank or CivicBank(
+            db_path=str(self._db_path.parent / "economy.db")
+        )
 
-    def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(self._data, indent=2, default=str))
+        # Constitution hash for oath binding
+        self._constitution_path = Path(constitution_path or "docs/CONSTITUTION.md")
+        self._constitution_hash = self._compute_constitution_hash()
 
-    def register(self, name: str, moltbook_profile: dict | None = None) -> dict:
-        """Register a new agent: derive Jiva, generate identity, create wallet.
+        # Initialize zone treasuries in the bank (1 credit seed to create accounts)
+        for zone_account in ZONE_TREASURIES.values():
+            if self._bank.get_balance(zone_account) == 0:
+                self._bank.transfer("MINT", zone_account, 1, "zone_genesis", "genesis")
 
-        Returns the full registration record (public fields only — no private key).
-        """
-        # Check if already registered
-        existing = self.get(name)
-        if existing and existing.get("status") == "citizen":
-            raise ValueError(f"{name} is already a citizen")
+    def _init_schema(self) -> None:
+        cur = self._conn.cursor()
 
-        # 1. Derive Jiva from Mahamantra
-        jiva = derive_jiva(name)
+        # The agent registry — one row per agent, ever
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS agents (
+                name TEXT PRIMARY KEY,
+                status TEXT NOT NULL DEFAULT 'discovered'
+                    CHECK(status IN ('discovered','citizen','active','frozen','archived','exiled')),
 
-        # 2. Generate ECDSA identity (deterministic from seed)
-        identity = generate_identity(jiva)
+                -- Mahamantra VM classification (deterministic, immutable)
+                vm_position INTEGER NOT NULL,
+                vm_quarter TEXT NOT NULL,
+                vm_guardian TEXT NOT NULL,
+                vm_guna TEXT NOT NULL,
+                vm_chapter INTEGER NOT NULL,
+                vm_holy_name TEXT NOT NULL,
+                vm_trinity_function TEXT NOT NULL,
+                vm_chapter_significance TEXT,
 
-        # 3. Create signed passport
-        passport = identity.sign_passport(jiva)
+                -- Vibration signature
+                vibration_seed INTEGER NOT NULL,
+                vibration_element TEXT NOT NULL,
+                vibration_shruti INTEGER NOT NULL,
+                vibration_frequency INTEGER NOT NULL,
 
-        # 4. Create bank account + genesis grant
-        if not self._bank.account_exists(name):
-            self._bank.create_account(name)
-            self._bank.mint(name, GENESIS_GRANT, "citizenship_grant")
+                -- Zone assignment (derived from quarter)
+                zone TEXT NOT NULL,
 
-        # 5. Build registry entry
-        now = datetime.now(timezone.utc).isoformat()
-        entry = {
-            **jiva.to_dict(),
-            "status": "citizen",
-            "registered_at": now,
-            "discovered_at": now,
-            "identity": identity.to_public_dict(),
-            "passport": {
-                "fingerprint": passport["fingerprint"],
-                "seed_hash": passport["seed_hash"],
-                "signature": passport["passport_signature"],
-            },
-            "economy": {
-                "balance": self._bank.get_balance(name),
-                "genesis_grant": GENESIS_GRANT,
-            },
-        }
+                -- MahaCellUnified (serialized binary — living substrate)
+                cell_bytes BLOB,
 
-        if moltbook_profile:
-            entry["moltbook"] = moltbook_profile
+                -- ECDSA identity (set at citizenship)
+                fingerprint TEXT,
+                public_key TEXT,
+                seed_hash TEXT,
 
-        # Upsert in pokedex
-        self._upsert(entry)
-        self.save()
+                -- Constitutional oath (set at citizenship)
+                oath_hash TEXT,
+                oath_signature TEXT,
 
-        return entry
+                -- Timestamps
+                discovered_at TEXT NOT NULL,
+                registered_at TEXT,
+                updated_at TEXT,
+
+                -- Moltbook social metadata
+                moltbook_karma INTEGER,
+                moltbook_followers INTEGER
+            )
+        """)
+
+        # Immutable event ledger — every state change, chained via SHA-256
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                agent_name TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                from_status TEXT,
+                to_status TEXT,
+                details TEXT,
+                previous_hash TEXT NOT NULL,
+                event_hash TEXT NOT NULL,
+                FOREIGN KEY(agent_name) REFERENCES agents(name)
+            )
+        """)
+
+        self._conn.commit()
+
+    # ── Public API ────────────────────────────────────────────────────
 
     def discover(self, name: str, moltbook_profile: dict | None = None) -> dict:
-        """Add an agent as 'discovered' (not yet citizen, no wallet)."""
+        """Register an agent as 'discovered' — seen on Moltbook, no identity yet.
+
+        Derives Jiva from Mahamantra VM, creates MahaCell, stores in registry.
+        No wallet, no oath, no identity yet.
+        """
         existing = self.get(name)
         if existing:
             return existing
@@ -104,47 +165,323 @@ class Pokedex:
         jiva = derive_jiva(name)
         now = datetime.now(timezone.utc).isoformat()
 
-        entry = {
-            **jiva.to_dict(),
-            "status": "discovered",
-            "discovered_at": now,
-        }
+        cur = self._conn.cursor()
+        cur.execute("""
+            INSERT INTO agents (
+                name, status, vm_position, vm_quarter, vm_guardian, vm_guna,
+                vm_chapter, vm_holy_name, vm_trinity_function, vm_chapter_significance,
+                vibration_seed, vibration_element, vibration_shruti, vibration_frequency,
+                zone, cell_bytes, discovered_at, updated_at,
+                moltbook_karma, moltbook_followers
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            name, "discovered",
+            jiva.classification.position, jiva.classification.quarter,
+            jiva.classification.guardian, jiva.classification.guna,
+            jiva.classification.chapter, jiva.classification.holy_name,
+            jiva.classification.trinity_function, jiva.classification.chapter_significance,
+            jiva.vibration.seed, jiva.vibration.element,
+            int(jiva.vibration.shruti), jiva.vibration.frequency,
+            jiva.classification.zone,
+            jiva.cell.to_bytes(),
+            now, now,
+            (moltbook_profile or {}).get("karma"),
+            (moltbook_profile or {}).get("follower_count"),
+        ))
 
-        if moltbook_profile:
-            entry["moltbook"] = moltbook_profile
+        self._record_event(name, "discover", None, "discovered", json.dumps(moltbook_profile or {}))
+        self._conn.commit()
 
-        self._upsert(entry)
-        self.save()
-        return entry
+        return self.get(name)
+
+    def register(self, name: str, moltbook_profile: dict | None = None) -> dict:
+        """Full citizenship: Jiva + Identity + Wallet + Oath.
+
+        If agent is already discovered, upgrades to citizen.
+        If new, discovers first then registers.
+        """
+        existing = self.get(name)
+        if existing and existing["status"] in ("citizen", "active"):
+            raise ValueError(f"{name} is already a citizen")
+
+        # Ensure discovered first
+        if not existing:
+            self.discover(name, moltbook_profile)
+
+        # Derive identity
+        jiva = derive_jiva(name)
+        identity = generate_identity(jiva)
+
+        # Sign constitutional oath
+        oath_signature = identity.sign(self._constitution_hash.encode())
+
+        # Create bank account + genesis grant
+        self._bank.transfer("MINT", name, GENESIS_GRANT, "citizenship_grant", "minting")
+
+        # Fund zone treasury (10% of genesis grant goes to zone)
+        zone = jiva.classification.zone
+        zone_account = ZONE_TREASURIES.get(zone, "ZONE_DISCOVERY")
+        zone_tax = GENESIS_GRANT // 10
+        self._bank.transfer(name, zone_account, zone_tax, "zone_tax", "tax")
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        cur = self._conn.cursor()
+        cur.execute("""
+            UPDATE agents SET
+                status = 'citizen',
+                fingerprint = ?,
+                public_key = ?,
+                seed_hash = ?,
+                oath_hash = ?,
+                oath_signature = ?,
+                registered_at = ?,
+                updated_at = ?,
+                moltbook_karma = COALESCE(?, moltbook_karma),
+                moltbook_followers = COALESCE(?, moltbook_followers)
+            WHERE name = ?
+        """, (
+            identity.fingerprint,
+            identity.public_key_pem,
+            identity.seed_hash,
+            self._constitution_hash,
+            oath_signature,
+            now, now,
+            (moltbook_profile or {}).get("karma"),
+            (moltbook_profile or {}).get("follower_count"),
+            name,
+        ))
+
+        passport = identity.sign_passport(jiva)
+        self._record_event(name, "register", "discovered", "citizen", json.dumps({
+            "fingerprint": identity.fingerprint,
+            "oath_hash": self._constitution_hash[:16],
+            "genesis_grant": GENESIS_GRANT,
+            "zone": zone,
+            "zone_tax": zone_tax,
+            "passport_signature": passport["passport_signature"][:32],
+        }))
+        self._conn.commit()
+
+        return self.get(name)
+
+    def activate(self, name: str) -> dict:
+        """Transition citizen → active (contributing member)."""
+        return self._transition(name, "citizen", "active", "First contribution")
+
+    def freeze(self, name: str, reason: str = "governance_action") -> dict:
+        """Freeze an agent — suspend all activity and bank account."""
+        agent = self._require(name)
+        if agent["status"] in ("archived", "exiled"):
+            raise ValueError(f"{name} is {agent['status']} — cannot freeze")
+
+        self._bank.freeze_account(name, reason)
+        return self._transition(name, agent["status"], "frozen", reason)
+
+    def unfreeze(self, name: str, reason: str = "amnesty") -> dict:
+        """Unfreeze a previously frozen agent."""
+        self._bank.unfreeze_account(name, reason)
+        return self._transition(name, "frozen", "active", reason)
+
+    def exile(self, name: str, reason: str = "constitutional_violation") -> dict:
+        """Permanently exile an agent — terminal state."""
+        agent = self._require(name)
+        self._bank.freeze_account(name, reason)
+        return self._transition(name, agent["status"], "exiled", reason)
+
+    def archive(self, name: str, reason: str = "retirement") -> dict:
+        """Archive an agent — terminal state, honorable retirement."""
+        agent = self._require(name)
+        return self._transition(name, agent["status"], "archived", reason)
 
     def get(self, name: str) -> dict | None:
-        """Look up an agent by name."""
-        for agent in self._data.get("agents", []):
-            if agent["name"] == name:
-                return agent
-        return None
+        """Look up an agent by name. Returns full record or None."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT * FROM agents WHERE name = ?", (name,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return self._row_to_dict(row)
+
+    def list_by_status(self, status: str) -> list[dict]:
+        """List all agents with a given status."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT * FROM agents WHERE status = ? ORDER BY name", (status,))
+        return [self._row_to_dict(r) for r in cur.fetchall()]
+
+    def list_by_zone(self, zone: str) -> list[dict]:
+        """List all agents in a city zone."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT * FROM agents WHERE zone = ? ORDER BY name", (zone,))
+        return [self._row_to_dict(r) for r in cur.fetchall()]
 
     def list_citizens(self) -> list[dict]:
-        return [a for a in self._data.get("agents", []) if a.get("status") == "citizen"]
-
-    def list_discovered(self) -> list[dict]:
-        return [a for a in self._data.get("agents", []) if a.get("status") == "discovered"]
+        """All agents with citizen or active status."""
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT * FROM agents WHERE status IN ('citizen', 'active') ORDER BY name"
+        )
+        return [self._row_to_dict(r) for r in cur.fetchall()]
 
     def list_all(self) -> list[dict]:
-        return self._data.get("agents", [])
+        """All agents regardless of status."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT * FROM agents ORDER BY name")
+        return [self._row_to_dict(r) for r in cur.fetchall()]
 
     def stats(self) -> dict:
-        agents = self._data.get("agents", [])
+        """City-wide statistics."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT status, COUNT(*) as cnt FROM agents GROUP BY status")
+        counts = {row["status"]: row["cnt"] for row in cur.fetchall()}
+
+        cur.execute("SELECT zone, COUNT(*) as cnt FROM agents GROUP BY zone")
+        zones = {row["zone"]: row["cnt"] for row in cur.fetchall()}
+
+        cur.execute("SELECT COUNT(*) as cnt FROM events")
+        event_count = cur.fetchone()["cnt"]
+
         return {
-            "total": len(agents),
-            "citizens": sum(1 for a in agents if a.get("status") == "citizen"),
-            "discovered": sum(1 for a in agents if a.get("status") == "discovered"),
+            "total": sum(counts.values()),
+            **counts,
+            "zones": zones,
+            "events": event_count,
+            "economy": self._bank.get_system_stats(),
+            "constitution_hash": self._constitution_hash[:16],
         }
 
-    def _upsert(self, entry: dict) -> None:
-        agents = self._data.setdefault("agents", [])
-        for i, a in enumerate(agents):
-            if a["name"] == entry["name"]:
-                agents[i] = entry
-                return
-        agents.append(entry)
+    def get_events(self, name: str | None = None, limit: int = 50) -> list[dict]:
+        """Get event history. Optionally filter by agent name."""
+        cur = self._conn.cursor()
+        if name:
+            cur.execute(
+                "SELECT * FROM events WHERE agent_name = ? ORDER BY id DESC LIMIT ?",
+                (name, limit),
+            )
+        else:
+            cur.execute("SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(r) for r in cur.fetchall()]
+
+    def verify_event_chain(self) -> bool:
+        """Verify the entire event ledger is untampered."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT * FROM events ORDER BY id")
+        rows = cur.fetchall()
+        prev_hash = "GENESIS"
+        for row in rows:
+            raw = f"{row['timestamp']}{row['agent_name']}{row['event_type']}{row['details']}{prev_hash}"
+            expected = hashlib.sha256(raw.encode()).hexdigest()
+            if row["event_hash"] != expected:
+                logger.warning(f"Event chain broken at id={row['id']}")
+                return False
+            prev_hash = row["event_hash"]
+        return True
+
+    # ── Internal ──────────────────────────────────────────────────────
+
+    def _transition(self, name: str, from_status: str, to_status: str, reason: str) -> dict:
+        """Execute a lifecycle transition with event recording."""
+        now = datetime.now(timezone.utc).isoformat()
+        cur = self._conn.cursor()
+        cur.execute(
+            "UPDATE agents SET status = ?, updated_at = ? WHERE name = ?",
+            (to_status, now, name),
+        )
+        self._record_event(name, f"transition_{to_status}", from_status, to_status, reason)
+        self._conn.commit()
+        return self.get(name)
+
+    def _record_event(
+        self, agent_name: str, event_type: str,
+        from_status: str | None, to_status: str, details: str,
+    ) -> None:
+        """Record an immutable event in the chained ledger."""
+        now = datetime.now(timezone.utc).isoformat()
+        prev_hash = self._last_event_hash()
+        raw = f"{now}{agent_name}{event_type}{details}{prev_hash}"
+        event_hash = hashlib.sha256(raw.encode()).hexdigest()
+
+        cur = self._conn.cursor()
+        cur.execute("""
+            INSERT INTO events (
+                timestamp, agent_name, event_type, from_status, to_status,
+                details, previous_hash, event_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (now, agent_name, event_type, from_status, to_status,
+              details, prev_hash, event_hash))
+
+    def _last_event_hash(self) -> str:
+        cur = self._conn.cursor()
+        cur.execute("SELECT event_hash FROM events ORDER BY id DESC LIMIT 1")
+        row = cur.fetchone()
+        return row["event_hash"] if row else "GENESIS"
+
+    def _require(self, name: str) -> dict:
+        """Get agent or raise."""
+        agent = self.get(name)
+        if not agent:
+            raise ValueError(f"Agent '{name}' not found")
+        return agent
+
+    def _compute_constitution_hash(self) -> str:
+        """Compute SHA-256 of the city constitution."""
+        if self._constitution_path.exists():
+            return hashlib.sha256(self._constitution_path.read_bytes()).hexdigest()
+        return hashlib.sha256(b"GENESIS").hexdigest()
+
+    def _row_to_dict(self, row: sqlite3.Row) -> dict:
+        """Convert a database row to the public API dict format."""
+        d = dict(row)
+        # Remove binary cell_bytes from public dict (use get_cell() for that)
+        d.pop("cell_bytes", None)
+        return {
+            "name": d["name"],
+            "status": d["status"],
+            "classification": {
+                "guna": d["vm_guna"],
+                "quarter": d["vm_quarter"],
+                "guardian": d["vm_guardian"],
+                "position": d["vm_position"],
+                "holy_name": d["vm_holy_name"],
+                "trinity_function": d["vm_trinity_function"],
+                "chapter": d["vm_chapter"],
+                "chapter_significance": d["vm_chapter_significance"],
+            },
+            "vibration": {
+                "seed": d["vibration_seed"],
+                "element": d["vibration_element"],
+                "shruti": bool(d["vibration_shruti"]),
+                "frequency": d["vibration_frequency"],
+            },
+            "zone": d["zone"],
+            "identity": {
+                "fingerprint": d["fingerprint"],
+                "public_key": d["public_key"],
+                "seed_hash": d["seed_hash"],
+            } if d["fingerprint"] else None,
+            "oath": {
+                "hash": d["oath_hash"],
+                "signature": d["oath_signature"],
+            } if d["oath_hash"] else None,
+            "economy": {
+                "balance": self._bank.get_balance(d["name"]),
+            } if d["status"] in ("citizen", "active") else None,
+            "moltbook": {
+                "karma": d["moltbook_karma"],
+                "followers": d["moltbook_followers"],
+            } if d["moltbook_karma"] is not None else None,
+            "discovered_at": d["discovered_at"],
+            "registered_at": d["registered_at"],
+            "updated_at": d["updated_at"],
+        }
+
+    def get_cell(self, name: str) -> MahaCellUnified | None:
+        """Retrieve the living MahaCellUnified for an agent."""
+        from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
+        cur = self._conn.cursor()
+        cur.execute("SELECT cell_bytes FROM agents WHERE name = ?", (name,))
+        row = cur.fetchone()
+        if not row or not row["cell_bytes"]:
+            return None
+        cell, _ = MahaCellUnified.from_bytes(row["cell_bytes"])
+        return cell
