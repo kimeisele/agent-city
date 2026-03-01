@@ -188,6 +188,7 @@ def default_definitions(
         SVC_SANKALPA,
         SVC_SPAWNER,
         SVC_MOLTBOOK_ASSISTANT,
+        SVC_PATHOGEN_INDEX,
     )
 
     defs: list[ServiceDefinition] = []
@@ -306,6 +307,11 @@ def default_definitions(
                 name=SVC_MOLTBOOK_ASSISTANT,
                 factory=lambda ctx: _build_moltbook_assistant(ctx),
             ),
+            ServiceDefinition(
+                name=SVC_PATHOGEN_INDEX,
+                factory=lambda ctx: _build_pathogen_index(ctx),
+                deps=(SVC_REACTOR,),
+            ),
         ]
     )
 
@@ -409,6 +415,19 @@ def _build_learning(ctx: BuildContext) -> object | None:
             learning.stats().get("synapses", 0),
         )
     return learning
+
+
+def _build_pathogen_index(ctx: BuildContext) -> object:
+    from city.pathogen_index import PathogenIndex
+
+    idx = PathogenIndex()
+    reactor = ctx.registry.get("reactor")
+    if reactor is not None:
+        idx.connect_reactor(reactor)
+        logger.info("PathogenIndex: %d pathogens, connected to CityReactor", len(idx.list_pathogens()))
+    else:
+        logger.info("PathogenIndex: %d pathogens (no reactor)", len(idx.list_pathogens()))
+    return idx
 
 
 def _build_immune(ctx: BuildContext) -> object | None:
