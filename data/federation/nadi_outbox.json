@@ -1,0 +1,19 @@
+[
+  {
+    "source": "moksha",
+    "target": "steward-protocol",
+    "operation": "city_report",
+    "payload": {
+      "heartbeat": 123,
+      "population": 20,
+      "alive": 0,
+      "chain_valid": true,
+      "pr_results": [],
+      "mission_results": []
+    },
+    "priority": 2,
+    "correlation_id": "",
+    "timestamp": 1772376109.8870692,
+    "ttl_s": 900.0
+  }
+]
