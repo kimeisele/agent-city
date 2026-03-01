@@ -17,8 +17,11 @@ bridging the immune system with the city's self-awareness.
 
 from __future__ import annotations
 
+import ast
 import logging
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from city.reactor import CityIntent, MetricStore, PainRule
@@ -32,19 +35,43 @@ logger = logging.getLogger("AGENT_CITY.PATHOGEN_INDEX")
 
 
 @dataclass
+class Antidote:
+    """The cure for a pathogen.
+
+    test_id:   The test that verifies this pathogen is gone (e.g. 'tests/test_foo.py::test_bar')
+    remedy_id: ShuddhiEngine rule_id for automated CST fix
+    strategy:  How to apply — 'test_first' (TDD), 'auto_fix', 'escalate'
+    """
+
+    test_id: str = ""
+    remedy_id: str = ""
+    strategy: str = "escalate"  # test_first | auto_fix | escalate
+
+
+@dataclass
 class PathogenEntry:
     """A known code pathogen — like a Pokedex entry for diseases.
 
-    keyword:     Detection pattern (matched case-insensitive in detail strings)
-    remedy_id:   ShuddhiEngine rule_id that can heal this pathogen
-    severity:    critical, high, medium, low
-    description: Human-readable explanation
+    keyword:        Detection pattern (matched case-insensitive in detail strings)
+    remedy_id:      ShuddhiEngine rule_id (backward compat, also in antidote)
+    severity:       critical, high, medium, low
+    description:    Human-readable explanation
+    antidote:       The cure — test + remedy + strategy
+    auto_discovered: True if the immune system found this itself
+    first_seen:     Unix timestamp of first encounter
+    last_seen:      Unix timestamp of most recent encounter
+    encounter_count: How many times this pathogen was seen
     """
 
     keyword: str
     remedy_id: str
     severity: str = "medium"
     description: str = ""
+    antidote: Antidote = field(default_factory=Antidote)
+    auto_discovered: bool = False
+    first_seen: float = field(default_factory=time.time)
+    last_seen: float = field(default_factory=time.time)
+    encounter_count: int = 1
 
 
 # =============================================================================
@@ -120,25 +147,52 @@ class PathogenIndex:
         remedy_id: str,
         severity: str = "medium",
         description: str = "",
-    ) -> None:
-        """Register a new pathogen (or overwrite existing).
+        antidote: Antidote | None = None,
+        auto_discovered: bool = False,
+    ) -> PathogenEntry:
+        """Register a new pathogen (or update encounter on existing).
 
         Args:
             keyword: Detection pattern (case-insensitive matching).
             remedy_id: ShuddhiEngine rule_id for healing.
             severity: critical, high, medium, low.
             description: Human-readable explanation.
+            antidote: The cure — test_id + remedy_id + strategy.
+            auto_discovered: True if found by the immune system itself.
+
+        Returns:
+            The registered (or updated) PathogenEntry.
         """
+        now = time.time()
+        if antidote is None:
+            antidote = Antidote(remedy_id=remedy_id)
+
+        if keyword in self._entries:
+            # Update existing — bump encounter, keep first_seen
+            existing = self._entries[keyword]
+            existing.last_seen = now
+            existing.encounter_count += 1
+            if antidote.remedy_id:
+                existing.antidote = antidote
+                existing.remedy_id = antidote.remedy_id
+            logger.debug("Pathogen re-encountered: %s (count=%d)", keyword, existing.encounter_count)
+            return existing
+
         entry = PathogenEntry(
             keyword=keyword,
             remedy_id=remedy_id,
             severity=severity,
             description=description,
+            antidote=antidote,
+            auto_discovered=auto_discovered,
+            first_seen=now,
+            last_seen=now,
+            encounter_count=1,
         )
-        if keyword not in self._entries:
-            self._order.append(keyword)
+        self._order.append(keyword)
         self._entries[keyword] = entry
         logger.debug("Registered pathogen: %s → %s (%s)", keyword, remedy_id, severity)
+        return entry
 
     def lookup(self, detail: str) -> Optional[PathogenEntry]:
         """Find the first matching pathogen for a detail string.
@@ -182,14 +236,143 @@ class PathogenIndex:
 
     def stats(self) -> Dict[str, Any]:
         """Registry statistics."""
+        auto_count = sum(1 for e in self._entries.values() if e.auto_discovered)
         return {
             "registered": len(self._entries),
+            "innate": len(self._entries) - auto_count,
+            "learned": auto_count,
             "lookups": self._lookups,
             "hits": self._hits,
             "hit_rate": round(self._hits / self._lookups, 3) if self._lookups > 0 else 0.0,
         }
 
+    # ── Adaptive Immune Loop ──────────────────────────────────────────
+
+    def ingest_diagnostics(self, report: Dict[str, Any]) -> List[PathogenEntry]:
+        """Auto-discover pathogens from pytest JSON report.
+
+        For each test failure:
+        1. Try lookup() — if known, bump encounter_count
+        2. If unknown — auto-register as new pathogen
+           The failed test IS the antidote (test_id)
+
+        Args:
+            report: pytest-json-report dict with 'tests' key.
+
+        Returns:
+            List of new or updated PathogenEntries.
+        """
+        discovered: List[PathogenEntry] = []
+
+        for test in report.get("tests", []):
+            if test.get("outcome") != "failed":
+                continue
+
+            test_id = test.get("nodeid", "")
+            crash = test.get("call", {}).get("crash", {})
+            path = crash.get("path", "")
+            message = crash.get("message", "")
+
+            if not test_id:
+                continue
+
+            # Build a detail string for lookup
+            detail = f"{test_id}: {message}" if message else test_id
+
+            # Known pathogen? Bump encounter.
+            existing = self.lookup(detail)
+            if existing is not None:
+                existing.last_seen = time.time()
+                existing.encounter_count += 1
+                discovered.append(existing)
+                continue
+
+            # Unknown pathogen — auto-discover!
+            # Extract a keyword from the test node ID
+            keyword = _extract_keyword(test_id, message)
+
+            entry = self.register(
+                keyword=keyword,
+                remedy_id="",  # no auto-fix yet — needs learning
+                severity="high",
+                description=f"Auto-discovered from test failure: {message[:200]}",
+                antidote=Antidote(
+                    test_id=test_id,
+                    remedy_id="",
+                    strategy="test_first",  # the test IS the cure
+                ),
+                auto_discovered=True,
+            )
+            discovered.append(entry)
+            logger.info(
+                "Immune: auto-discovered pathogen '%s' (antidote: %s)",
+                keyword, test_id,
+            )
+
+        if discovered:
+            logger.info(
+                "Immune: ingested %d pathogens (%d new) from diagnostics",
+                len(discovered),
+                sum(1 for d in discovered if d.encounter_count == 1),
+            )
+        return discovered
+
+    def scan_source(self, source_code: str, file_path: str = "<unknown>") -> List[PathogenEntry]:
+        """AST-based security scan — Narasimha pattern from the Blueprint.
+
+        Scans Python source code for security anti-patterns:
+        - pickle/dill/cPickle imports (RCE risk)
+        - subprocess without timeout (DoS risk)
+        - eval/exec usage (code injection)
+        - xml.etree without defusedxml (XXE risk)
+
+        Each finding is auto-registered as a pathogen.
+
+        Args:
+            source_code: Python source code string.
+            file_path: Path for reporting.
+
+        Returns:
+            List of discovered PathogenEntries.
+        """
+        try:
+            tree = ast.parse(source_code)
+        except SyntaxError:
+            return []
+
+        visitor = _NarasimhaVisitor(file_path)
+        visitor.visit(tree)
+
+        discovered: List[PathogenEntry] = []
+        for finding in visitor.findings:
+            keyword = finding["keyword"]
+            entry = self.register(
+                keyword=keyword,
+                remedy_id=finding["remedy_id"],
+                severity=finding["severity"],
+                description=finding["description"],
+                antidote=Antidote(
+                    remedy_id=finding["remedy_id"],
+                    strategy="auto_fix" if finding["remedy_id"] else "escalate",
+                ),
+                auto_discovered=True,
+            )
+            discovered.append(entry)
+
+        return discovered
+
     # ── CityReactor Bridge ────────────────────────────────────────────
+
+    def get_antidote(self, detail: str) -> Optional[Antidote]:
+        """Find the antidote for a pathogen matching the detail string.
+
+        Returns:
+            The Antidote if a matching pathogen exists, else None.
+        """
+        entry = self.lookup(detail)
+        if entry is not None:
+            return entry.antidote
+        return None
 
     def connect_reactor(self, reactor: object) -> None:
         """Wire immune PainRules into the CityReactor.
@@ -306,3 +489,131 @@ class SecurityViolationRule(PainRule):
                 context={"violations": count},
             )
         return None
+
+
+# =============================================================================
+# NARASIMHA — AST Security Visitor (from the Blueprint)
+# =============================================================================
+
+# Banned imports → (code, severity, remedy_id, description)
+_BANNED_IMPORTS: Dict[str, tuple] = {
+    "pickle": ("SEC001", "critical", "ban_pickle",
+               "Pickle allows RCE via __reduce__. Use JSON."),
+    "cPickle": ("SEC001", "critical", "ban_pickle",
+                "cPickle allows RCE. Use JSON."),
+    "dill": ("SEC001", "critical", "ban_pickle",
+             "Dill allows RCE. Use JSON."),
+    "shelve": ("SEC001", "critical", "ban_pickle",
+               "Shelve uses pickle internally. Use JSON."),
+    "xml.etree.ElementTree": ("SEC002", "high", "ban_xml_stdlib",
+                               "XML parser vulnerable to XXE. Use defusedxml."),
+    "xml.sax": ("SEC002", "high", "ban_xml_stdlib",
+                "XML parser vulnerable to XXE. Use defusedxml."),
+    "xml.dom.minidom": ("SEC002", "high", "ban_xml_stdlib",
+                        "XML parser vulnerable to XXE. Use defusedxml."),
+    "telnetlib": ("SEC003", "medium", "",
+                  "Telnet is insecure. Use SSH."),
+}
+
+# Subprocess functions that need timeout
+_SUBPROCESS_FUNCS = {"call", "run", "check_output", "check_call", "Popen"}
+
+
+class _NarasimhaVisitor(ast.NodeVisitor):
+    """AST-based security scanner — Narasimha pattern.
+
+    Detects:
+    - Banned imports (pickle, xml.etree, etc.)
+    - subprocess without timeout
+    - eval/exec usage
+    """
+
+    def __init__(self, file_path: str = "<unknown>") -> None:
+        self.file_path = file_path
+        self.findings: List[Dict[str, str]] = []
+        self._aliases: Dict[str, str] = {}  # alias → real module name
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            name = alias.name
+            asname = alias.asname or alias.name
+            self._aliases[asname] = name
+
+            if name in _BANNED_IMPORTS:
+                code, severity, remedy_id, desc = _BANNED_IMPORTS[name]
+                self.findings.append({
+                    "keyword": f"{code.lower()}:{name}:{self.file_path}:{node.lineno}",
+                    "severity": severity,
+                    "remedy_id": remedy_id,
+                    "description": f"[{code}] L{node.lineno} {self.file_path}: {desc}",
+                })
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        module = node.module or ""
+        if module in _BANNED_IMPORTS:
+            code, severity, remedy_id, desc = _BANNED_IMPORTS[module]
+            self.findings.append({
+                "keyword": f"{code.lower()}:{module}:{self.file_path}:{node.lineno}",
+                "severity": severity,
+                "remedy_id": remedy_id,
+                "description": f"[{code}] L{node.lineno} {self.file_path}: {desc}",
+            })
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        func_name = _resolve_call_name(node.func)
+
+        # subprocess without timeout
+        if func_name and "subprocess" in func_name:
+            method = func_name.split(".")[-1]
+            if method in _SUBPROCESS_FUNCS:
+                has_timeout = any(
+                    getattr(k, "arg", None) == "timeout" for k in node.keywords
+                )
+                if not has_timeout:
+                    self.findings.append({
+                        "keyword": f"sec004:subprocess_no_timeout:{self.file_path}:{node.lineno}",
+                        "severity": "high",
+                        "remedy_id": "subprocess_timeout",
+                        "description": (
+                            f"[SEC004] L{node.lineno} {self.file_path}: "
+                            f"DoS risk — {func_name}() without timeout"
+                        ),
+                    })
+
+        # eval/exec
+        if isinstance(node.func, ast.Name) and node.func.id in ("eval", "exec"):
+            self.findings.append({
+                "keyword": f"sec005:{node.func.id}:{self.file_path}:{node.lineno}",
+                "severity": "critical",
+                "remedy_id": "",
+                "description": (
+                    f"[SEC005] L{node.lineno} {self.file_path}: "
+                    f"Code injection risk — {node.func.id}()"
+                ),
+            })
+
+        self.generic_visit(node)
+
+
+def _resolve_call_name(func_node: ast.expr) -> str | None:
+    """Flatten AST Attribute nodes into dotted names (e.g. os.path.join)."""
+    if isinstance(func_node, ast.Name):
+        return func_node.id
+    elif isinstance(func_node, ast.Attribute):
+        value = _resolve_call_name(func_node.value)
+        if value:
+            return f"{value}.{func_node.attr}"
+    return None
+
+
+def _extract_keyword(test_id: str, message: str) -> str:
+    """Extract a unique keyword from a test failure for pathogen registration.
+
+    Uses test_id as the primary keyword (unique per test).
+    Falls back to a sanitized message fragment.
+    """
+    # Use the test node ID directly — it's unique and stable
+    # e.g. "tests/test_foo.py::TestBar::test_baz"
+    return test_id.lower().replace(" ", "_")
