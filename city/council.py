@@ -215,7 +215,7 @@ class CityCouncil:
         Each candidate dict: {name, prana, guardian, position}.
         """
         eligible = [c for c in candidates if c.get("prana", 0) > 0]
-        eligible.sort(key=lambda c: (-c["prana"], c["name"]))
+        eligible.sort(key=lambda c: (-c.get("rank_score", c["prana"] / 21600), c["name"]))
 
         new_seats: dict[int, str] = {}
         for i, candidate in enumerate(eligible[:COUNCIL_SEATS]):

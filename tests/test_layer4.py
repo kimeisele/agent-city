@@ -61,16 +61,16 @@ def test_ruff_fix_still_failing_escalates():
     assert "violations remain" in result.message
 
 
-def test_slop_escalates():
-    """no_slop always escalates (can't auto-fix slop in source code)."""
+def test_audit_clean_escalates():
+    """audit_clean always escalates (can't auto-fix audit findings)."""
     from city.executor import IntentExecutor
 
     executor = IntentExecutor(_cwd=Path("/tmp/test"))
-    result = executor.execute_heal("no_slop", ["sloppy.py: contains 'delve'"])
+    result = executor.execute_heal("audit_clean", ["DriftAuditor: lineage broken"])
 
     assert result.success is False
     assert result.action_taken == "escalate"
-    assert result.contract_name == "no_slop"
+    assert result.contract_name == "audit_clean"
 
 
 def test_tests_escalate():
@@ -371,15 +371,15 @@ def test_full_rotation_heal_cycle():
 
     def fail_check(cwd: Path) -> ContractResult:
         return ContractResult(
-            name="no_slop",
+            name="audit_clean",
             status=ContractStatus.FAILING,
-            message="1 slop violation",
-            details=["sloppy.py: contains 'delve'"],
+            message="1 critical finding",
+            details=["DriftAuditor: lineage broken"],
         )
 
     contracts = ContractRegistry()
     contracts.register(QualityContract(
-        name="no_slop", description="No slop", check=fail_check,
+        name="audit_clean", description="Audit clean", check=fail_check,
     ))
 
     executor = IntentExecutor(_cwd=tmpdir, _dry_run=True)
@@ -400,12 +400,12 @@ def test_full_rotation_heal_cycle():
     contract_ops = [a for a in dharma["governance_actions"] if "contract_failing" in a]
     assert len(contract_ops) >= 1
 
-    # KARMA: heal attempted (escalated for no_slop)
+    # KARMA: heal attempted (escalated for audit_clean)
     karma = results[2]
     assert karma["department"] == "KARMA"
     heal_ops = [o for o in karma["operations"] if o.startswith("heal:")]
     assert len(heal_ops) >= 1
-    assert "escalate" in heal_ops[0]  # no_slop always escalates
+    assert "escalate" in heal_ops[0]  # audit_clean always escalates
     assert "False" in heal_ops[0]  # success=False
 
     # No PR created (escalation, not fix)
@@ -424,7 +424,7 @@ if __name__ == "__main__":
         # Phase 1: Executor unit tests
         test_ruff_fix_runs_subprocess,
         test_ruff_fix_still_failing_escalates,
-        test_slop_escalates,
+        test_audit_clean_escalates,
         test_tests_escalate,
         test_unknown_contract_escalates,
         test_dry_run_no_subprocess,

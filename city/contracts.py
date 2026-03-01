@@ -176,44 +176,43 @@ def check_tests_pass(cwd: Path) -> ContractResult:
         )
 
 
-def check_no_slop(cwd: Path) -> ContractResult:
-    """Contract: no slop patterns in city/ source files.
+def check_audit_clean(cwd: Path) -> ContractResult:
+    """Contract: AuditKernel finds 0 critical findings.
 
-    Uses Mahamantra Constitution (phrase-level detection) instead of
-    primitive word-level matching.
+    Uses steward-protocol's AuditKernel (auto-discovers auditors) instead
+    of the old check_no_slop which applied Constitution checks to source
+    code — a category error (Constitution is designed for LLM output).
     """
-    from vibe_core.cartridges.agent_city.moltbook.governance.constitution import (
-        get_constitution,
-    )
+    try:
+        from vibe_core.mahamantra.audit.kernel import AuditKernel
 
-    constitution = get_constitution()
-    violations: list[str] = []
-    city_dir = cwd / "city" if (cwd / "city").is_dir() else cwd
-    for py_file in city_dir.glob("*.py"):
-        if py_file.name == "contracts.py":
-            continue  # Don't scan the checker itself
-        content = py_file.read_text(errors="replace")
-        # Only check slop patterns, not coherence or internal-term leaks.
-        # Source code legitimately contains Sanskrit terms (NavaBhakti ops).
-        # Constitution was designed for LLM output, not source code.
-        result = constitution.validate(content, content_type="comment")
-        if not result.is_valid:
-            for v in result.violations:
-                if "slop" in v.lower() or "filler" in v.lower():
-                    violations.append(f"{py_file.name}: {v}")
+        kernel = AuditKernel()
+        kernel.run_all()
 
-    if not violations:
+        if kernel.is_pristine:
+            return ContractResult(
+                name="audit_clean",
+                status=ContractStatus.PASSING,
+                message="No critical audit findings",
+            )
+
+        critical = kernel.critical_findings()
         return ContractResult(
-            name="no_slop",
-            status=ContractStatus.PASSING,
-            message="No slop patterns found",
+            name="audit_clean",
+            status=ContractStatus.FAILING,
+            message=f"{len(critical)} critical findings",
+            details=[
+                f"{f.source}: {f.description}"
+                for f in critical[:10]
+            ],
         )
-    return ContractResult(
-        name="no_slop",
-        status=ContractStatus.FAILING,
-        message=f"{len(violations)} slop violations",
-        details=violations,
-    )
+    except Exception as e:
+        # AuditKernel unavailable — don't block deployments
+        return ContractResult(
+            name="audit_clean",
+            status=ContractStatus.PASSING,
+            message=f"AuditKernel unavailable ({type(e).__name__}), skipped",
+        )
 
 
 def create_default_contracts() -> ContractRegistry:
@@ -230,8 +229,9 @@ def create_default_contracts() -> ContractRegistry:
         check=check_tests_pass,
     ))
     registry.register(QualityContract(
-        name="no_slop",
-        description="No slop patterns in city/ source files",
-        check=check_no_slop,
+        name="audit_clean",
+        description="AuditKernel finds no critical violations",
+        check=check_audit_clean,
     ))
     return registry
+

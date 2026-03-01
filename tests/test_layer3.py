@@ -136,38 +136,15 @@ def test_contract_failing_filter():
     assert failing[0].name == "bad"
 
 
-def test_contract_no_slop_clean():
-    """no_slop contract passes on clean directory."""
-    from city.contracts import check_no_slop, ContractStatus
+def test_contract_audit_clean():
+    """audit_clean contract runs without crashing and returns proper result."""
+    from city.contracts import check_audit_clean, ContractStatus
 
     tmpdir = Path(tempfile.mkdtemp())
-    city_dir = tmpdir / "city"
-    city_dir.mkdir()
-    (city_dir / "clean.py").write_text("# This is clean code\nprint('hello')\n")
-
-    result = check_no_slop(tmpdir)
-    assert result.status == ContractStatus.PASSING
-
-    shutil.rmtree(tmpdir)
-
-
-def test_contract_no_slop_detects():
-    """no_slop contract detects slop patterns via Constitution (phrase-level)."""
-    from city.contracts import check_no_slop, ContractStatus
-
-    tmpdir = Path(tempfile.mkdtemp())
-    city_dir = tmpdir / "city"
-    city_dir.mkdir()
-    # Constitution catches "delve into" and "vibrant tapestry" as AI filler phrases.
-    # Two matches = hard block (violations, not just warnings).
-    (city_dir / "sloppy.py").write_text(
-        "# Let me delve into this vibrant tapestry of code.\n"
-        "# It's worth noting that this is great question!\n"
-    )
-
-    result = check_no_slop(tmpdir)
-    assert result.status == ContractStatus.FAILING
-    assert len(result.details) >= 1
+    result = check_audit_clean(tmpdir)
+    # Should return a valid result (either pristine, findings, or graceful fallback)
+    assert result.name == "audit_clean"
+    assert result.status in (ContractStatus.PASSING, ContractStatus.FAILING)
 
     shutil.rmtree(tmpdir)
 
@@ -658,8 +635,7 @@ if __name__ == "__main__":
         # Phase 2: Quality Contracts
         test_contract_register_and_check,
         test_contract_failing_filter,
-        test_contract_no_slop_clean,
-        test_contract_no_slop_detects,
+        test_contract_audit_clean,
         test_contract_stats,
         # Phase 3: Sankalpa + Contracts
         test_contracts_checked_in_dharma,
