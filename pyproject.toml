@@ -15,7 +15,7 @@ authors = [
 keywords = ["ai", "agents", "federation", "autonomous", "city"]
 
 dependencies = [
-    "steward-protocol @ git+https://github.com/kimeisele/steward-protocol.git",
+    "ecdsa>=0.18",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +26,9 @@ dev = [
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["city", "config", "scripts"]
 
 [tool.ruff]
 line-length = 100
