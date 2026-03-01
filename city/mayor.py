@@ -121,6 +121,9 @@ class Mayor:
     # Layer 7 Moltbook inbox (optional for backward compatibility)
     _moltbook_client: object = None  # MoltbookClient (steward-protocol)
 
+    # Nadi messaging (replaces gateway_queue for structured messaging)
+    _city_nadi: object = None  # CityNadi (city.nadi_hub)
+
     # Cognition layer (steward-protocol KnowledgeGraph + EventBus)
     _knowledge_graph: object = None  # UnifiedKnowledgeGraph
     _event_bus: object = None  # EventBus (Narada)
@@ -157,6 +160,7 @@ class Mayor:
             federation=self._federation,
             moltbook_bridge=self._moltbook_bridge,
             moltbook_client=self._moltbook_client,
+            city_nadi=self._city_nadi,
             knowledge_graph=self._knowledge_graph,
             event_bus=self._event_bus,
             last_audit_time=self._last_audit_time,

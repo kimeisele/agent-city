@@ -130,6 +130,20 @@ def main() -> None:
             _dry_run=args.federation_dry_run or not args.federation,
         )
 
+    # Nadi messaging: structured gateway queue (graceful fallback)
+    nadi_kwargs: dict = {}
+    try:
+        from city.nadi_hub import CityNadi
+        city_nadi = CityNadi()
+        if city_nadi.available:
+            nadi_kwargs["_city_nadi"] = city_nadi
+            logging.getLogger("HEARTBEAT").info("CityNadi wired (LocalNadi)")
+        else:
+            nadi_kwargs["_city_nadi"] = city_nadi
+            logging.getLogger("HEARTBEAT").info("CityNadi wired (NullNadi fallback)")
+    except Exception as e:
+        logging.getLogger("HEARTBEAT").debug("CityNadi unavailable: %s", e)
+
     # Cognition layer: KnowledgeGraph + EventBus (graceful fallback)
     cognition_kwargs: dict = {}
     try:
@@ -151,6 +165,7 @@ def main() -> None:
         _network=network,
         _offline_mode=args.offline,
         **governance_kwargs,
+        **nadi_kwargs,
         **cognition_kwargs,
     )
 

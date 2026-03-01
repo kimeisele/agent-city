@@ -35,6 +35,12 @@ def execute(ctx: PhaseContext) -> dict:
         "events_since_last": len(ctx.recent_events),
     }
 
+    # Nadi stats
+    if ctx.city_nadi is not None:
+        nadi_stats = ctx.city_nadi.stats()
+        if nadi_stats:
+            reflection["nadi_stats"] = nadi_stats
+
     # Cognition: EventBus history + stats
     if ctx.event_bus is not None:
         from city.cognition import get_bus_stats, get_event_history
