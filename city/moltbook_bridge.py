@@ -22,10 +22,14 @@ logger = logging.getLogger("AGENT_CITY.MOLTBOOK_BRIDGE")
 
 _bridge_cfg = get_config().get("moltbook_bridge", {})
 
-# Signal keyword sets for post classification
+# Signal keyword sets for post classification.
+# Aligned with steward-protocol's _CODE_SIGNALS in lifecycle.py —
+# both repos must use the same vocabulary for word-split signal detection.
 CODE_SIGNALS: frozenset[str] = frozenset({
     "bug", "fix", "feature", "implement", "refactor",
     "test", "pr", "merge", "patch", "regression",
+    "deploy", "infrastructure", "api", "security",
+    "performance", "migration",
 })
 GOVERNANCE_SIGNALS: frozenset[str] = frozenset({
     "election", "proposal", "council", "audit",
