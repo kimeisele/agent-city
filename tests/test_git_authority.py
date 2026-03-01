@@ -1,7 +1,5 @@
 """Tests for GitStateAuthority — config-driven git governance."""
-import json
 import pytest
-from pathlib import Path
 from city.git_client import GitStateAuthority
 
 

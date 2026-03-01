@@ -9,9 +9,7 @@ Contract interface: check(cwd: Path) -> ContractResult
   - FAILING: drift detected, details list which files changed
 """
 
-import hashlib
 import subprocess
-import pytest
 from pathlib import Path
 
 from city.contracts import ContractStatus
