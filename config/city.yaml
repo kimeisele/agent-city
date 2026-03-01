@@ -64,6 +64,9 @@ discussions:
   scan_limit: 10
   gh_timeout_s: 30
   report_every_n_moksha: 4
+  max_agent_comments_per_cycle: 3
+  response_cooldown_s: 600
+  skip_own_username: "github-actions[bot]"
 
 pr_lifecycle:
   stale_heartbeats: 40

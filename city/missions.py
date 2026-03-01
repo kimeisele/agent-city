@@ -261,6 +261,54 @@ def create_execution_mission(ctx: object, directive: object) -> bool:
     return True
 
 
+def create_discussion_mission(
+    ctx: object,
+    discussion_number: int,
+    title: str,
+    intent: str,
+) -> str | None:
+    """Create a Sankalpa mission from a GitHub Discussion thread.
+
+    Deduplicates: skips if an active mission for the same discussion exists.
+    """
+    if ctx.sankalpa is None:
+        return None
+
+    from vibe_core.mahamantra.protocols.sankalpa.types import (
+        MissionPriority,
+        MissionStatus,
+        SankalpaMission,
+    )
+
+    prefix = f"disc_{discussion_number}_"
+    for existing in ctx.sankalpa.registry.get_active_missions():
+        if existing.id.startswith(prefix) and existing.status == MissionStatus.ACTIVE:
+            logger.debug(
+                "Discussion mission for #%d already exists (%s), skipping",
+                discussion_number,
+                existing.id,
+            )
+            return existing.id
+
+    priority = (
+        MissionPriority.HIGH
+        if intent in ("propose", "inquiry")
+        else MissionPriority.MEDIUM
+    )
+    mission_id = f"disc_{discussion_number}_{ctx.heartbeat_count}"
+    mission = SankalpaMission(
+        id=mission_id,
+        name=f"Discussion: #{discussion_number}",
+        description=f"GitHub Discussion #{discussion_number}: {title}",
+        priority=priority,
+        status=MissionStatus.ACTIVE,
+        owner="mayor",
+    )
+    ctx.sankalpa.registry.add_mission(mission)
+    logger.info("Created discussion mission %s from #%d", mission_id, discussion_number)
+    return mission_id
+
+
 def create_federation_mission(ctx: object, directive: object) -> bool:
     """Create a Sankalpa mission from a federation directive."""
     from vibe_core.mahamantra.protocols.sankalpa.types import (

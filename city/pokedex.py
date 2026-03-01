@@ -293,6 +293,32 @@ class Pokedex:
             )
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_agent ON agent_inventory(agent_name)")
+
+        # Marketplace Order Book (Phase 7 — asset trading)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS marketplace_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                seller TEXT NOT NULL,
+                asset_type TEXT NOT NULL,
+                asset_id TEXT NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                price INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                created_heartbeat INTEGER NOT NULL,
+                expires_heartbeat INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open'
+                    CHECK(status IN ('open', 'filled', 'cancelled', 'expired')),
+                buyer TEXT,
+                filled_at TEXT,
+                tx_id TEXT,
+                FOREIGN KEY(seller) REFERENCES agents(name)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON marketplace_orders(status)")
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_orders_asset "
+            "ON marketplace_orders(asset_type, asset_id)"
+        )
         self._conn.commit()
 
     # ── Public API ────────────────────────────────────────────────────
@@ -1362,6 +1388,357 @@ class Pokedex:
                 )
             self._conn.commit()
             return True
+
+    def transfer_asset(
+        self,
+        seller: str,
+        buyer: str,
+        asset_type: str,
+        asset_id: str,
+        quantity: int = 1,
+    ) -> bool:
+        """Atomic asset transfer: consume from seller, grant to buyer.
+
+        Single transaction — never partial. If seller lacks the asset,
+        returns False and nothing happens.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cur = self._conn.cursor()
+
+            # 1. Check seller has enough
+            cur.execute(
+                """SELECT id, quantity FROM agent_inventory
+                   WHERE agent_name = ? AND asset_type = ? AND asset_id = ?
+                     AND (expires_at IS NULL OR expires_at > ?)
+                     AND quantity > 0
+                   LIMIT 1""",
+                (seller, asset_type, asset_id, now),
+            )
+            row = cur.fetchone()
+            if not row or row["quantity"] < quantity:
+                return False
+
+            # 2. Decrement/delete seller row
+            new_qty = row["quantity"] - quantity
+            if new_qty <= 0:
+                cur.execute("DELETE FROM agent_inventory WHERE id = ?", (row["id"],))
+            else:
+                cur.execute(
+                    "UPDATE agent_inventory SET quantity = ? WHERE id = ?",
+                    (new_qty, row["id"]),
+                )
+
+            # 3. Increment/insert buyer row (stacking)
+            cur.execute(
+                """SELECT id, quantity FROM agent_inventory
+                   WHERE agent_name = ? AND asset_type = ? AND asset_id = ?
+                     AND (expires_at IS NULL OR expires_at > ?)
+                     AND quantity > 0
+                   LIMIT 1""",
+                (buyer, asset_type, asset_id, now),
+            )
+            existing = cur.fetchone()
+            if existing:
+                cur.execute(
+                    "UPDATE agent_inventory SET quantity = ? WHERE id = ?",
+                    (existing["quantity"] + quantity, existing["id"]),
+                )
+            else:
+                cur.execute(
+                    """INSERT INTO agent_inventory
+                       (agent_name, asset_type, asset_id, quantity, source, acquired_at)
+                       VALUES (?, ?, ?, ?, 'trade', ?)""",
+                    (buyer, asset_type, asset_id, quantity, now),
+                )
+
+            self._conn.commit()
+            return True
+
+    # ── Marketplace (Phase 7 — Order Book) ───────────────────────────────
+
+    def create_order(
+        self,
+        seller: str,
+        asset_type: str,
+        asset_id: str,
+        quantity: int,
+        price: int,
+        heartbeat: int,
+    ) -> int | None:
+        """List an asset for sale. Returns order ID or None if seller lacks asset.
+
+        The asset is consumed (escrowed) immediately — no double-listing.
+        Order expires after ORDER_EXPIRY_HEARTBEATS.
+        """
+        from city.seed_constants import ORDER_EXPIRY_HEARTBEATS
+
+        # Verify seller owns the asset
+        if not self.has_asset(seller, asset_type, asset_id):
+            return None
+
+        # Escrow: consume from seller's inventory
+        consumed = self.consume_asset(seller, asset_type, asset_id, quantity)
+        if not consumed:
+            return None
+
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """INSERT INTO marketplace_orders
+                   (seller, asset_type, asset_id, quantity, price,
+                    created_at, created_heartbeat, expires_heartbeat, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open')""",
+                (
+                    seller,
+                    asset_type,
+                    asset_id,
+                    quantity,
+                    price,
+                    now,
+                    heartbeat,
+                    heartbeat + ORDER_EXPIRY_HEARTBEATS,
+                ),
+            )
+            order_id = cur.lastrowid
+            self._conn.commit()
+
+        logger.info(
+            "MARKETPLACE: Order #%d created — %s sells %s:%s x%d for %d prana",
+            order_id,
+            seller,
+            asset_type,
+            asset_id,
+            quantity,
+            price,
+        )
+        return order_id
+
+    def fill_order(self, order_id: int, buyer: str, heartbeat: int) -> dict | None:
+        """Execute a trade: buyer pays prana, receives asset.
+
+        Returns trade receipt dict or None on failure.
+        Commission goes to seller's zone treasury.
+
+        Transaction safety: SQLite staged first, bank transfer attempted,
+        SQLite committed only if bank succeeds. Rollback on bank failure.
+        """
+        from city.seed_constants import TRADE_COMMISSION_PERCENT
+
+        with self._lock:
+            cur = self._conn.cursor()
+
+            # 1. VALIDATE (read-only)
+            cur.execute(
+                "SELECT * FROM marketplace_orders WHERE id = ? AND status = 'open'",
+                (order_id,),
+            )
+            order = cur.fetchone()
+            if not order:
+                return None
+
+            seller = order["seller"]
+            price = order["price"]
+
+            if buyer == seller:
+                return None
+
+            # Check buyer has enough prana
+            buyer_balance = self._bank.get_balance(buyer)
+            if buyer_balance < price:
+                return None
+
+            # Calculate commission
+            commission = (price * TRADE_COMMISSION_PERCENT) // 100
+            seller_receives = price - commission
+
+            # Zone treasury for commission (fallback to ZONE_DISCOVERY)
+            seller_data = self.get(seller)
+            zone = (seller_data or {}).get("zone", "discovery")
+            zone_account = ZONE_TREASURIES.get(zone, "ZONE_DISCOVERY")
+
+            now = datetime.now(timezone.utc).isoformat()
+
+            # 2. SQLITE STAGE (not yet committed) — inline grant, not via grant_asset()
+            cur.execute(
+                """UPDATE marketplace_orders
+                   SET status = 'filled', buyer = ?, filled_at = ?
+                   WHERE id = ?""",
+                (buyer, now, order_id),
+            )
+
+            # Grant asset to buyer (inline SQL to avoid grant_asset's internal commit)
+            cur.execute(
+                """SELECT id, quantity FROM agent_inventory
+                   WHERE agent_name = ? AND asset_type = ? AND asset_id = ?
+                     AND (expires_at IS NULL OR expires_at > ?)
+                     AND quantity > 0
+                   LIMIT 1""",
+                (buyer, order["asset_type"], order["asset_id"], now),
+            )
+            existing = cur.fetchone()
+            if existing:
+                cur.execute(
+                    "UPDATE agent_inventory SET quantity = ? WHERE id = ?",
+                    (existing["quantity"] + order["quantity"], existing["id"]),
+                )
+            else:
+                cur.execute(
+                    """INSERT INTO agent_inventory
+                       (agent_name, asset_type, asset_id, quantity, source, acquired_at)
+                       VALUES (?, ?, ?, ?, 'trade', ?)""",
+                    (buyer, order["asset_type"], order["asset_id"], order["quantity"], now),
+                )
+
+            # 3. BANK TRANSFER (separate DB) — if this fails, rollback SQLite
+            try:
+                tx_id = self._bank.transfer(
+                    buyer, seller, seller_receives, f"trade_order_{order_id}", "trade"
+                )
+                if commission > 0:
+                    self._bank.transfer(
+                        buyer, zone_account, commission, f"trade_commission_{order_id}", "tax"
+                    )
+            except Exception:
+                self._conn.rollback()
+                return None
+
+            # 4. COMMIT SQLITE (only if bank succeeded)
+            cur.execute(
+                "UPDATE marketplace_orders SET tx_id = ? WHERE id = ?",
+                (tx_id, order_id),
+            )
+            self._conn.commit()
+
+        logger.info(
+            "MARKETPLACE: Trade #%d — %s bought %s:%s from %s for %d prana (commission %d)",
+            order_id,
+            buyer,
+            order["asset_type"],
+            order["asset_id"],
+            seller,
+            price,
+            commission,
+        )
+        return {
+            "order_id": order_id,
+            "seller": seller,
+            "buyer": buyer,
+            "asset_type": order["asset_type"],
+            "asset_id": order["asset_id"],
+            "quantity": order["quantity"],
+            "price": price,
+            "commission": commission,
+            "seller_receives": seller_receives,
+            "tx_id": tx_id,
+        }
+
+    def cancel_order(self, order_id: int, agent: str) -> bool:
+        """Cancel an open order. Returns escrowed asset to seller.
+
+        Only the seller can cancel their own order.
+        """
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT * FROM marketplace_orders WHERE id = ? AND status = 'open' AND seller = ?",
+                (order_id, agent),
+            )
+            order = cur.fetchone()
+            if not order:
+                return False
+
+            cur.execute(
+                "UPDATE marketplace_orders SET status = 'cancelled' WHERE id = ?",
+                (order_id,),
+            )
+            self._conn.commit()
+
+        # Return escrowed asset (outside lock — grant_asset has its own lock)
+        self.grant_asset(
+            agent,
+            order["asset_type"],
+            order["asset_id"],
+            quantity=order["quantity"],
+            source="trade_return",
+        )
+        return True
+
+    def expire_orders(self, heartbeat: int) -> int:
+        """Expire all orders past their expiry heartbeat. Returns count expired.
+
+        Returns escrowed assets to sellers.
+        """
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT * FROM marketplace_orders WHERE status = 'open' AND expires_heartbeat <= ?",
+                (heartbeat,),
+            )
+            expired_orders = cur.fetchall()
+
+            cur.execute(
+                "UPDATE marketplace_orders SET status = 'expired' "
+                "WHERE status = 'open' AND expires_heartbeat <= ?",
+                (heartbeat,),
+            )
+            count = cur.rowcount
+            self._conn.commit()
+
+        # Return escrowed assets (outside lock)
+        for order in expired_orders:
+            self.grant_asset(
+                order["seller"],
+                order["asset_type"],
+                order["asset_id"],
+                quantity=order["quantity"],
+                source="trade_return",
+            )
+
+        return count
+
+    def get_active_orders(
+        self,
+        asset_type: str | None = None,
+        asset_id: str | None = None,
+    ) -> list[dict]:
+        """Get all open orders, optionally filtered by asset type/id."""
+        cur = self._conn.cursor()
+        if asset_type and asset_id:
+            cur.execute(
+                "SELECT * FROM marketplace_orders WHERE status = 'open' "
+                "AND asset_type = ? AND asset_id = ?",
+                (asset_type, asset_id),
+            )
+        elif asset_type:
+            cur.execute(
+                "SELECT * FROM marketplace_orders WHERE status = 'open' AND asset_type = ?",
+                (asset_type,),
+            )
+        else:
+            cur.execute("SELECT * FROM marketplace_orders WHERE status = 'open'")
+        return [dict(row) for row in cur.fetchall()]
+
+    def marketplace_stats(self) -> dict:
+        """Aggregate marketplace statistics for MOKSHA reflection."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM marketplace_orders WHERE status = 'open'")
+        active = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM marketplace_orders WHERE status = 'filled'")
+        filled = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM marketplace_orders WHERE status = 'expired'")
+        expired = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COALESCE(SUM(price), 0) FROM marketplace_orders WHERE status = 'filled'"
+        )
+        volume = cur.fetchone()[0]
+        return {
+            "active_orders": active,
+            "total_filled": filled,
+            "total_expired": expired,
+            "trade_volume": volume,
+        }
 
     def _grant_starter_pack(self, name: str) -> None:
         """Grant starter semantic assets at citizenship registration.

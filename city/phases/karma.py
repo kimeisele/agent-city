@@ -52,6 +52,14 @@ def execute(ctx: PhaseContext) -> list[str]:
     while ctx.gateway_queue:
         queue_items.append(ctx.gateway_queue.pop(0))
 
+    # Collect agent specs ONCE for discussion routing (reused below)
+    all_specs = _get_all_specs(ctx)
+    all_inventories = _get_all_inventories(ctx)
+
+    # Reset discussions per-cycle counter
+    if ctx.discussions is not None:
+        ctx.discussions.reset_cycle()
+
     for item in queue_items:
         source = item.get("source", "unknown")
         text = item.get("text", "")
@@ -62,6 +70,19 @@ def execute(ctx: PhaseContext) -> list[str]:
             # Enrich text with KG context if available
             enriched_text = f"{text}\n\n{kg_context}" if kg_context else text
             result = ctx.gateway.process(enriched_text, source)
+
+            # Discussion messages: route to agents, post response
+            discussion_number = item.get("discussion_number")
+            if discussion_number and source == "discussion":
+                _handle_discussion_item(
+                    ctx,
+                    item,
+                    result,
+                    all_specs,
+                    all_inventories,
+                    operations,
+                )
+                continue
 
             # DM messages: generate response and send back
             if conversation_id and from_agent and ctx.moltbook_client is not None:
@@ -117,16 +138,15 @@ def execute(ctx: PhaseContext) -> list[str]:
             operations.append(f"sankalpa_intent:{intent.title}")
             logger.info("KARMA: Sankalpa intent — %s", intent.title)
 
-    # Collect agent specs + inventories ONCE for all routing decisions
-    all_specs = _get_all_specs(ctx)
-    all_inventories = _get_all_inventories(ctx)
-
     # Cartridge routing: capability-scored agent dispatch
     _route_to_cartridges(ctx, operations, all_specs, all_inventories)
 
     # Issue-driven missions: process strategyless missions from DHARMA
     if ctx.sankalpa is not None:
         _process_issue_missions(ctx, operations, all_specs, all_inventories)
+
+    # Marketplace: auto-list surplus + need-driven auto-match
+    _process_marketplace(ctx, operations, all_specs, all_inventories)
 
     # Layer 4: Execute HEAL intents on failing contracts (CAPABILITY GATED)
     if ctx.executor is not None and ctx.contracts is not None:
@@ -599,6 +619,179 @@ def _route_to_cartridges(
             )
 
 
+def _handle_discussion_item(
+    ctx: PhaseContext,
+    item: dict,
+    result: dict,
+    all_specs: dict[str, dict],
+    all_inventories: dict[str, list[dict]],
+    operations: list[str],
+) -> None:
+    """Route a discussion queue item to an agent and post response.
+
+    Two routing paths:
+    - Direct: @mention → known agent (bypass scoring)
+    - Capability: buddhi intent → best-fit agent via scoring
+    """
+    from city.discussions_inbox import (
+        DiscussionSignal,
+        classify_discussion_intent,
+        dispatch_discussion,
+    )
+
+    discussion_number = item["discussion_number"]
+    direct_agent = item.get("direct_agent", "")
+
+    # Build signal
+    signal = DiscussionSignal(
+        discussion_number=discussion_number,
+        title=item.get("discussion_title", ""),
+        body=item.get("text", ""),
+        author=item.get("from_agent", ""),
+        mentioned_agents=[direct_agent] if direct_agent else [],
+    )
+
+    agent_name: str | None = None
+    agent_spec: dict | None = None
+
+    if direct_agent:
+        # DIRECT ROUTING — @mention bypass (but still tier-gated below)
+        spec = all_specs.get(direct_agent)
+        if spec is not None:
+            from city.mission_router import MISSION_REQUIREMENTS, check_capability_gate
+
+            req = MISSION_REQUIREMENTS.get("disc_", {})
+            if check_capability_gate(spec, req):
+                agent_name = direct_agent
+                agent_spec = spec
+            else:
+                logger.info(
+                    "KARMA: @%s blocked by tier gate for discussion #%d",
+                    direct_agent,
+                    discussion_number,
+                )
+        else:
+            logger.debug(
+                "KARMA: @%s not in specs for discussion #%d",
+                direct_agent,
+                discussion_number,
+            )
+    else:
+        # CAPABILITY ROUTING — standard scoring
+        intent = classify_discussion_intent(result)
+        agent_name, agent_spec = _route_discussion_to_agent(
+            ctx,
+            intent,
+            all_specs,
+            all_inventories,
+        )
+
+    if agent_name is None or agent_spec is None:
+        operations.append(f"disc_no_agent:#{discussion_number}")
+        _learn(ctx, "discussion", "route", success=False)
+        return
+
+    # Build response
+    city_stats = ctx.pokedex.stats()
+    response = dispatch_discussion(signal, result, agent_spec, city_stats)
+
+    # Rate limit + post
+    if ctx.discussions is not None and ctx.discussions.can_respond(discussion_number):
+        if not ctx.offline_mode:
+            posted = ctx.discussions.comment(discussion_number, response.body)
+        else:
+            posted = False
+            logger.info("KARMA: Discussion #%d response (offline, not posted)", discussion_number)
+
+        if posted:
+            ctx.discussions.record_response(discussion_number)
+            emit_event(
+                "ACTION",
+                agent_name,
+                f"Discussion #{discussion_number} response",
+                {
+                    "action": "discussion_reply",
+                    "discussion_number": discussion_number,
+                    "agent": agent_name,
+                    "intent": result.get("buddhi_function", "?"),
+                },
+            )
+            operations.append(f"disc_replied:{agent_name}:#{discussion_number}")
+            _learn(ctx, "discussion", "reply", success=True)
+        else:
+            operations.append(f"disc_post_failed:#{discussion_number}")
+            _learn(ctx, "discussion", "reply", success=False)
+    else:
+        operations.append(f"disc_rate_limited:#{discussion_number}")
+
+
+def _route_discussion_to_agent(
+    ctx: PhaseContext,
+    intent: str,
+    all_specs: dict[str, dict],
+    all_inventories: dict[str, list[dict]],
+) -> tuple[str | None, dict | None]:
+    """Find the best agent for a discussion intent via capability scoring.
+
+    Hard gate on required_caps from INTENT_REQUIREMENTS, then score by
+    domain alignment + capability coverage + QoS.
+    """
+    from city.discussions_inbox import INTENT_REQUIREMENTS
+    from city.mission_router import check_capability_gate
+
+    reqs = INTENT_REQUIREMENTS.get(intent, INTENT_REQUIREMENTS["observe"])
+    required_caps = set(reqs.get("required_caps", []))
+    preferred_domain = reqs.get("preferred_domain", "")
+
+    # Build a MissionRequirement-compatible dict for the tier gate
+    gate_req = {
+        "required": list(required_caps),
+        "preferred": [],
+        "min_tier": "contributor",
+    }
+
+    best_name: str | None = None
+    best_spec: dict | None = None
+    best_score = -1.0
+
+    for name, spec in all_specs.items():
+        if name not in ctx.active_agents:
+            continue
+
+        inventory = all_inventories.get(name)
+        if not check_capability_gate(spec, gate_req, inventory):
+            continue
+
+        # Score: domain alignment (0.4) + capability coverage (0.4) + QoS (0.2)
+        score = 0.0
+        if preferred_domain and spec.get("domain") == preferred_domain:
+            score += 0.4
+
+        agent_caps = set(spec.get("capabilities", []))
+        if required_caps:
+            matched = sum(1 for cap in required_caps if cap in agent_caps)
+            score += 0.4 * (matched / len(required_caps))
+
+        qos = spec.get("qos", {})
+        latency = qos.get("latency_multiplier", 1.5)
+        if latency > 0:
+            score += 0.2 * (1.0 / latency)
+
+        if score > best_score:
+            best_score = score
+            best_name = name
+            best_spec = spec
+
+    if best_name is not None:
+        logger.info(
+            "KARMA: Discussion routed to %s (score=%.2f, intent=%s)",
+            best_name,
+            best_score,
+            intent,
+        )
+    return best_name, best_spec
+
+
 def _get_all_specs(ctx: PhaseContext) -> dict[str, dict]:
     """Collect all agent specs from CartridgeFactory.
 
@@ -652,13 +845,130 @@ def _get_terminal_missions_for_crosspost(ctx: PhaseContext) -> list[dict]:
             continue
         if getattr(m, "owner", "") == "reported":
             continue
-        terminal.append({
-            "id": m.id,
-            "name": m.name,
-            "status": m.status.value if hasattr(m.status, "value") else str(m.status),
-            "owner": getattr(m, "owner", "unknown"),
-        })
+        terminal.append(
+            {
+                "id": m.id,
+                "name": m.name,
+                "status": m.status.value if hasattr(m.status, "value") else str(m.status),
+                "owner": getattr(m, "owner", "unknown"),
+            }
+        )
     return terminal
+
+
+def _process_marketplace(
+    ctx: PhaseContext,
+    operations: list[str],
+    all_specs: dict[str, dict],
+    all_inventories: dict[str, list[dict]] | None = None,
+) -> None:
+    """Marketplace: expire stale orders, auto-list surplus, need-driven auto-match.
+
+    Anti-Pac-Man: agents only buy capabilities they NEED (mission-blocked
+    or domain-aligned). Rich agents cannot blindly hoard.
+    """
+    from city.seed_constants import WORKER_VISA_STIPEND
+
+    # Step 1: Expire stale orders
+    expired = ctx.pokedex.expire_orders(ctx.heartbeat_count)
+    if expired:
+        operations.append(f"marketplace:expired={expired}")
+
+    # Step 2: Auto-list surplus capability_tokens (quantity > 1 → sell excess)
+    for agent_name in ctx.active_agents:
+        inv = (all_inventories or {}).get(agent_name, [])
+        for asset in inv:
+            if asset["asset_type"] == "capability_token" and asset["quantity"] > 1:
+                surplus = asset["quantity"] - 1
+                ctx.pokedex.create_order(
+                    agent_name,
+                    "capability_token",
+                    asset["asset_id"],
+                    quantity=surplus,
+                    price=WORKER_VISA_STIPEND,
+                    heartbeat=ctx.heartbeat_count,
+                )
+                operations.append(f"marketplace:listed={asset['asset_id']}x{surplus}:{agent_name}")
+
+    # Step 3: Need-driven auto-match (anti-Pac-Man)
+    open_orders = ctx.pokedex.get_active_orders(asset_type="capability_token")
+    if not open_orders:
+        return
+
+    # Build mission-blocked needs (caps required by active missions)
+    mission_needs: set[str] = set()
+    if ctx.sankalpa is not None:
+        try:
+            from city.mission_router import get_requirement
+
+            active_missions = ctx.sankalpa.registry.get_active_missions()
+            for mission in active_missions:
+                req = get_requirement(mission.id)
+                for cap in req["required"]:
+                    mission_needs.add(cap)
+        except Exception:
+            pass
+
+    from city.guardian_spec import ELEMENT_CAPABILITIES
+
+    for agent_name in ctx.active_agents:
+        spec = all_specs.get(agent_name)
+        if spec is None:
+            continue
+
+        # Agent's current capabilities (static + inventory tokens)
+        agent_caps = set(spec.get("capabilities", []))
+        inv = (all_inventories or {}).get(agent_name, [])
+        for asset in inv:
+            if asset.get("asset_type") == "capability_token":
+                agent_caps.add(asset["asset_id"])
+
+        # Build NEEDS: mission-blocked + domain-aligned only
+        needed_caps: set[str] = set()
+
+        # 1. Mission-blocked: caps required by active missions that agent lacks
+        for cap in mission_needs:
+            if cap not in agent_caps:
+                needed_caps.add(cap)
+
+        # 2. Domain-aligned: caps from agent's element family
+        element = spec.get("element", "")
+        domain_caps = set(ELEMENT_CAPABILITIES.get(element, []))
+        for cap in domain_caps:
+            if cap not in agent_caps:
+                needed_caps.add(cap)
+
+        if not needed_caps:
+            continue
+
+        # Match: only buy what agent NEEDS
+        for order in open_orders:
+            if order["status"] != "open":
+                continue
+            if order["seller"] == agent_name:
+                continue
+            if order["asset_id"] not in needed_caps:
+                continue
+
+            buyer_balance = ctx.pokedex._bank.get_balance(agent_name)
+            if buyer_balance < order["price"]:
+                continue
+
+            receipt = ctx.pokedex.fill_order(order["id"], agent_name, ctx.heartbeat_count)
+            if receipt:
+                operations.append(
+                    f"marketplace:trade={order['asset_id']}:"
+                    f"{order['seller']}\u2192{agent_name}:"
+                    f"price={receipt['price']}"
+                )
+                logger.info(
+                    "KARMA: Trade filled \u2014 %s bought %s from %s for %d prana",
+                    agent_name,
+                    order["asset_id"],
+                    order["seller"],
+                    receipt["price"],
+                )
+                break  # one trade per agent per cycle
 
 
 def _record_pr_event(ctx: PhaseContext, issue_number: int, pr: object) -> None:
