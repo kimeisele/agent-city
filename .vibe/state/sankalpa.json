@@ -270,7 +270,25 @@
       "status": "active",
       "strategies": [],
       "owner": "mayor"
+    },
+    {
+      "id": "heal_ruff_clean_117",
+      "name": "Heal: ruff_clean",
+      "description": "Quality contract failing: 259 ruff violations",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "heal_tests_pass_117",
+      "name": "Heal: tests_pass",
+      "description": "Quality contract failing: Tests failed",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
     }
   ],
-  "updated_at": "2026-03-01T14:08:31.943575+00:00"
+  "updated_at": "2026-03-01T14:25:36.945303+00:00"
 }
