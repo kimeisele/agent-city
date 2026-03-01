@@ -4,7 +4,7 @@
     "target": "steward-protocol",
     "operation": "city_report",
     "payload": {
-      "heartbeat": 147,
+      "heartbeat": 151,
       "population": 0,
       "alive": 0,
       "chain_valid": true,
@@ -13,7 +13,7 @@
     },
     "priority": 2,
     "correlation_id": "",
-    "timestamp": 1772381314.6817265,
+    "timestamp": 1772382371.0347495,
     "ttl_s": 900.0
   }
 ]
