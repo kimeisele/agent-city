@@ -22,6 +22,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from city.pathogen_index import PathogenIndex
+
 logger = logging.getLogger("AGENT_CITY.IMMUNE")
 
 
@@ -47,22 +49,8 @@ class HealResult:
     diff: str = ""
 
 
-# Map audit finding keywords → ShuddhiEngine remedy rule_ids
-_PATTERN_TO_REMEDY: dict[str, str] = {
-    "any_type": "any_type_usage",
-    ": any": "any_type_usage",
-    "hardcoded": "hardcoded_constants",
-    "magic number": "hardcoded_constants",
-    "subprocess": "subprocess_timeout",
-    "f811": "f811_redefinition",
-    "redefinition": "f811_redefinition",
-    "mahajana": "missing_mahajana",
-    "unsafe io": "unsafe_io_write",
-    "unsafe_io": "unsafe_io_write",
-    "get_instance": "get_instance",
-    "null signature": "null_signature",
-    "null_signature": "null_signature",
-}
+# Pathogen catalog — dynamic registry replaces old hardcoded dict
+_PATHOGEN_INDEX = PathogenIndex()  # singleton, loaded with built-in pathogens
 
 # Minimum confidence to attempt healing (below = escalate)
 _HEAL_THRESHOLD = 0.3
@@ -323,12 +311,9 @@ class CityImmune:
 
 
 def _match_rule_id(detail: str) -> str | None:
-    """Map an audit finding detail to a remedy rule_id."""
-    detail_lower = detail.lower()
-    for keyword, rule_id in _PATTERN_TO_REMEDY.items():
-        if keyword in detail_lower:
-            return rule_id
-    return None
+    """Map an audit finding detail to a remedy rule_id via PathogenIndex."""
+    entry = _PATHOGEN_INDEX.lookup(detail)
+    return entry.remedy_id if entry is not None else None
 
 
 def _extract_file_path(detail: str) -> Path | None:
