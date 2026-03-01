@@ -1,0 +1,168 @@
+{
+  "missions": [
+    {
+      "id": "mission_code_health",
+      "name": "Maintain Code Health",
+      "description": "Keep the codebase clean, tested, and well-documented",
+      "priority": "high",
+      "status": "active",
+      "strategies": [
+        {
+          "id": "strategy_daily_hygiene",
+          "name": "Daily Hygiene",
+          "description": "Run lint, format check, and basic tests",
+          "trigger": {
+            "trigger_type": "idle_based",
+            "hour": null,
+            "day_of_week": null,
+            "condition": null,
+            "idle_minutes": 60
+          },
+          "frequency": "daily",
+          "intent_type": "hygiene_check",
+          "intent_template": {
+            "actions": [
+              "lint",
+              "format",
+              "test_quick"
+            ]
+          },
+          "requires_ci_green": false,
+          "requires_no_pending_intents": true,
+          "max_executions_per_day": 1,
+          "last_executed": null,
+          "execution_count_today": 0,
+          "enabled": true
+        }
+      ],
+      "owner": "dharma"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_59",
+      "name": "Audit: DriftAuditor.protocols",
+      "description": "Critical finding: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'",
+      "priority": "critical",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "heal_audit_clean_61",
+      "name": "Heal: audit_clean",
+      "description": "Quality contract failing: 1 critical findings",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_63",
+      "name": "Audit: DriftAuditor.protocols",
+      "description": "Critical finding: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'",
+      "priority": "critical",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "heal_audit_clean_65",
+      "name": "Heal: audit_clean",
+      "description": "Quality contract failing: 1 critical findings",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_67",
+      "name": "Audit: DriftAuditor.protocols",
+      "description": "Critical finding: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'",
+      "priority": "critical",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "heal_audit_clean_69",
+      "name": "Heal: audit_clean",
+      "description": "Quality contract failing: 1 critical findings",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_71",
+      "name": "Audit: DriftAuditor.protocols",
+      "description": "Critical finding: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'",
+      "priority": "critical",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "heal_audit_clean_73",
+      "name": "Heal: audit_clean",
+      "description": "Quality contract failing: 1 critical findings",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_75",
+      "name": "Audit: DriftAuditor.protocols",
+      "description": "Critical finding: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'",
+      "priority": "critical",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "heal_audit_clean_77",
+      "name": "Heal: audit_clean",
+      "description": "Quality contract failing: 1 critical findings",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_79",
+      "name": "Audit: DriftAuditor.protocols",
+      "description": "Critical finding: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'",
+      "priority": "critical",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "heal_tests_pass_81",
+      "name": "Heal: tests_pass",
+      "description": "Quality contract failing: Tests failed",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "heal_audit_clean_81",
+      "name": "Heal: audit_clean",
+      "description": "Quality contract failing: 1 critical findings",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_83",
+      "name": "Audit: DriftAuditor.protocols",
+      "description": "Critical finding: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'",
+      "priority": "critical",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    }
+  ],
+  "updated_at": "2026-03-01T08:49:29.763815+00:00"
+}

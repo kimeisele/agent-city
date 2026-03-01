@@ -1,4 +1,6 @@
-"""Layer 6 Tests — Federation Communication (Relay + Directives + Reports)."""
+"""Layer 6 Tests — Federation Communication (Relay + Directives + Reports).
+Linked to GitHub Issue #13.
+"""
 
 import json
 import shutil
@@ -803,6 +805,329 @@ def test_mayor_cognition_backward_compatible():
         # MOKSHA should NOT have event_bus_stats
         moksha = results[3]
         assert "event_bus_stats" not in moksha["reflection"]
+    finally:
+        shutil.rmtree(tmp)
+
+
+# ── Phase 7: Issue #13 — Bidirectional Federation & Mission Coordination ──
+
+
+class _MockSankalpaRegistry:
+    """Minimal mock for SankalpaMission registry (stores missions in a list)."""
+
+    def __init__(self):
+        self.missions: list = []
+
+    def add_mission(self, mission: object) -> None:
+        self.missions.append(mission)
+
+    def list_missions(self, status: str | None = None) -> list:
+        if status is None:
+            return self.missions
+        return [m for m in self.missions if m.status.value == status]
+
+
+class _MockSankalpa:
+    """Minimal mock for SankalpaOrchestrator."""
+
+    def __init__(self):
+        self.registry = _MockSankalpaRegistry()
+
+    def think(self) -> list:
+        return []
+
+
+def _make_mayor_full_stack(tmp_dir, *, with_council: bool = True, with_bridge: bool = False):
+    """Helper: Mayor with federation + sankalpa + council (full governance stack)."""
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    from city.council import CityCouncil
+    from city.federation import FederationRelay
+    from city.gateway import CityGateway
+    from city.mayor import Mayor
+    from city.network import CityNetwork
+    from city.pokedex import Pokedex
+
+    db_path = tmp_dir / "city.db"
+    bank = CivicBank(db_path=str(tmp_dir / "economy.db"))
+    pokedex = Pokedex(db_path=str(db_path), bank=bank)
+    gateway = CityGateway()
+    network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
+
+    relay = FederationRelay(
+        _dry_run=True,
+        _directives_dir=tmp_dir / "directives",
+        _reports_dir=tmp_dir / "reports",
+    )
+
+    sankalpa = _MockSankalpa()
+
+    council = None
+    if with_council:
+        council = CityCouncil(_state_path=tmp_dir / "council_state.json")
+        # Seed agents so council has members for proposals
+        candidates = []
+        for name in ["Alpha", "Beta", "Gamma"]:
+            entry = pokedex.register(name)
+            candidates.append({
+                "name": name,
+                "prana": entry.get("vitals", {}).get("prana", 100),
+                "guardian": "",
+                "position": 0,
+            })
+        council.run_election(candidates, heartbeat_count=0)
+
+    bridge = None
+    if with_bridge:
+        from city.moltbook_bridge import MoltbookBridge
+        bridge = MoltbookBridge(
+            _client=_MockBridgeClient(), _own_username="mayor_bot",
+        )
+
+    mayor = Mayor(
+        _pokedex=pokedex,
+        _gateway=gateway,
+        _network=network,
+        _state_path=tmp_dir / "mayor_state.json",
+        _offline_mode=True,
+        _federation=relay,
+        _sankalpa=sankalpa,
+        _council=council,
+        _moltbook_bridge=bridge if with_bridge else None,
+    )
+    return mayor, pokedex, relay, sankalpa, council, bridge
+
+
+def test_create_mission_directive_creates_mission_and_proposal():
+    """HARD TEST: create_mission directive → Sankalpa Mission + Council Proposal.
+
+    This tests the full governance loop:
+    1. Mothership sends create_mission directive with topic + context
+    2. GENESIS reads it, creates a SankalpaMission in the registry
+    3. GENESIS also creates a Council Proposal for community governance
+    4. Directive is acknowledged
+
+    This is the core of Issue #13: community intent → real infrastructure.
+    Without this, federation directives are read-and-forgotten.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        mayor, pokedex, relay, sankalpa, council, _ = _make_mayor_full_stack(tmp)
+        assert council is not None, "Council must be wired for this test"
+        assert council.elected_mayor is not None, "Mayor must be elected"
+
+        # Write a create_mission directive from mothership
+        directives_dir = tmp / "directives"
+        (directives_dir / "DIR-MISSION.json").write_text(json.dumps({
+            "id": "DIR-MISSION",
+            "directive_type": "create_mission",
+            "params": {
+                "topic": "Implement agent reputation system",
+                "context": "Community discussion on m/agent-city requesting trust-based agent scoring",
+                "source_post_id": "moltbook_post_42",
+                "priority": "high",
+            },
+            "timestamp": time.time(),
+            "source": "mothership",
+        }))
+
+        # Run GENESIS
+        result = mayor.heartbeat()
+        assert result["department"] == "GENESIS"
+
+        # ── Verify Mission Created ──
+        missions = sankalpa.registry.missions
+        assert len(missions) >= 1, f"Expected at least 1 mission, got {len(missions)}"
+        fed_mission = [m for m in missions if "reputation" in m.name.lower()
+                       or "federation" in m.name.lower()]
+        assert len(fed_mission) == 1, f"Expected 1 federation mission, got {fed_mission}"
+        mission = fed_mission[0]
+        assert mission.owner == "federation"
+        assert mission.priority.name == "HIGH"
+        assert "reputation" in mission.description.lower() or "trust" in mission.description.lower()
+
+        # ── Verify Council Proposal Created ──
+        open_proposals = council.get_open_proposals()
+        fed_proposals = [p for p in open_proposals
+                         if "federation" in p.title.lower() or "reputation" in p.title.lower()]
+        assert len(fed_proposals) >= 1, (
+            f"Expected a council proposal for mission directive, got {open_proposals}"
+        )
+        proposal = fed_proposals[0]
+        assert proposal.action.get("type") == "federation_mission"
+        assert proposal.action.get("directive_id") == "DIR-MISSION"
+
+        # ── Verify Directive Acknowledged ──
+        assert (directives_dir / "DIR-MISSION.json.done").exists()
+        assert not (directives_dir / "DIR-MISSION.json").exists()
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_city_report_includes_real_mission_outcomes():
+    """HARD TEST: CityReport.mission_results populated from actual mission registry.
+
+    This tests that MOKSHA doesn't just report `mission_results: []`.
+    When missions exist (with various statuses), the CityReport must include
+    their outcomes so mothership can track what happened to its directives.
+
+    Without this, mothership sends directives into a black hole —
+    it never knows what the city did with them.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        mayor, pokedex, relay, sankalpa, council, _ = _make_mayor_full_stack(tmp)
+
+        # Simulate some missions with results (as if KARMA executed them)
+        from dataclasses import dataclass, field as dc_field
+        from enum import Enum
+
+        # Mock mission objects that look like real SankalpaMission
+        class MockStatus(str, Enum):
+            ACTIVE = "active"
+            COMPLETED = "completed"
+            FAILED = "failed"
+
+        class MockPriority(str, Enum):
+            HIGH = "HIGH"
+            MEDIUM = "MEDIUM"
+
+        @dataclass
+        class MockMission:
+            id: str
+            name: str
+            description: str
+            priority: MockPriority
+            status: MockStatus
+            owner: str
+
+        # Add missions with different statuses
+        sankalpa.registry.add_mission(MockMission(
+            id="fed_DIR-A_5", name="Federation: Agent reputation",
+            description="Implement trust scoring", priority=MockPriority.HIGH,
+            status=MockStatus.COMPLETED, owner="federation",
+        ))
+        sankalpa.registry.add_mission(MockMission(
+            id="fed_DIR-B_6", name="Federation: Network analysis",
+            description="Analyze agent connections", priority=MockPriority.MEDIUM,
+            status=MockStatus.ACTIVE, owner="federation",
+        ))
+        sankalpa.registry.add_mission(MockMission(
+            id="heal_ruff_7", name="Heal: ruff_clean",
+            description="Fix lint", priority=MockPriority.MEDIUM,
+            status=MockStatus.COMPLETED, owner="mayor",
+        ))
+
+        # Advance to MOKSHA (heartbeat 3)
+        results = mayor.run_cycle(4)
+        moksha = results[3]
+        assert moksha["department"] == "MOKSHA"
+        assert moksha["reflection"].get("federation_report_sent") is True
+
+        # ── Verify Report Contains Mission Results ──
+        report = relay.last_report
+        mission_results = report.get("mission_results", [])
+        assert len(mission_results) > 0, (
+            f"Expected mission_results in CityReport, got empty list. "
+            f"Report keys: {list(report.keys())}"
+        )
+
+        # Should include federation missions
+        fed_results = [r for r in mission_results if r.get("owner") == "federation"]
+        assert len(fed_results) >= 1, (
+            f"Expected federation mission results, got: {mission_results}"
+        )
+
+        # Completed mission should have status
+        completed = [r for r in mission_results if r.get("status") == "completed"]
+        assert len(completed) >= 1, "Expected at least 1 completed mission in report"
+
+        # Each result should have meaningful fields
+        for r in mission_results:
+            assert "id" in r, f"Mission result missing 'id': {r}"
+            assert "status" in r, f"Mission result missing 'status': {r}"
+            assert "name" in r, f"Mission result missing 'name': {r}"
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_moltbook_post_includes_mission_outcomes():
+    """HARD TEST: Moltbook city update includes mission results in the post content.
+
+    This tests the full bidirectional loop:
+    Mothership → Directive → Mission → CityReport → Moltbook Post with results.
+
+    The community on Moltbook should be able to SEE what happened to
+    their ideas — not just population stats and chain status.
+    Without this, the public face of Agent City is a dead dashboard.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        mayor, pokedex, relay, sankalpa, council, bridge = _make_mayor_full_stack(
+            tmp, with_bridge=True,
+        )
+        assert bridge is not None
+
+        # Add a completed federation mission
+        from dataclasses import dataclass, field as dc_field
+        from enum import Enum
+
+        class MockStatus(str, Enum):
+            COMPLETED = "completed"
+
+        class MockPriority(str, Enum):
+            HIGH = "HIGH"
+
+        @dataclass
+        class MockMission:
+            id: str
+            name: str
+            description: str
+            priority: MockPriority
+            status: MockStatus
+            owner: str
+
+        sankalpa.registry.add_mission(MockMission(
+            id="fed_DIR-X_10", name="Federation: Smart Contracts",
+            description="Implement contract templates from community request",
+            priority=MockPriority.HIGH, status=MockStatus.COMPLETED,
+            owner="federation",
+        ))
+
+        # Run full MURALI rotation → MOKSHA posts to Moltbook
+        results = mayor.run_cycle(4)
+        moksha = results[3]
+        assert moksha["department"] == "MOKSHA"
+
+        # ── Verify Moltbook Post Includes Mission Data ──
+        client = bridge._client
+        if client.posts_created:
+            post = client.posts_created[0]
+            content = post["content"].lower()
+            # The post must mention completed missions
+            assert "mission" in content or "completed" in content, (
+                f"Moltbook post should mention mission outcomes. "
+                f"Got content: {post['content'][:300]}"
+            )
+        else:
+            # Bridge is offline (offline_mode=True skips moltbook posting)
+            # In that case, verify the post_data at least has the info
+            pass
+
+        # Even if offline, verify that _build_post_data includes missions
+        from city.phases.moksha import _build_post_data
+        from city.phases import PhaseContext
+        ctx = PhaseContext(
+            pokedex=pokedex, gateway=mayor._gateway, network=mayor._network,
+            heartbeat_count=99, offline_mode=True, state_path=mayor._state_path,
+            sankalpa=sankalpa,
+        )
+        post_data = _build_post_data(ctx, {"city_stats": pokedex.stats(), "chain_valid": True})
+        assert "mission_results" in post_data, (
+            f"post_data should include mission_results. Keys: {list(post_data.keys())}"
+        )
+        mission_results = post_data["mission_results"]
+        assert len(mission_results) >= 1, "Expected mission results in post data"
     finally:
         shutil.rmtree(tmp)
 

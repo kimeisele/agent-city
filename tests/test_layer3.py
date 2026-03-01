@@ -1,4 +1,6 @@
-"""Layer 3 Tests — Self-Governance & Quality Contracts."""
+"""Layer 3 Tests — Self-Governance & Quality Contracts.
+Linked to GitHub Issue #10.
+"""
 
 import sys
 import tempfile

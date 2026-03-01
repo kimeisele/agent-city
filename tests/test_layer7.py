@@ -1,4 +1,6 @@
-"""Layer 7 Tests — Config, Council Persistence, Governance Wiring."""
+"""Layer 7 Tests — Config, Council Persistence, Governance Wiring.
+Linked to GitHub Issue #14.
+"""
 
 import sys
 import tempfile

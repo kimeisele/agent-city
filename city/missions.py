@@ -130,6 +130,33 @@ def create_issue_mission(
     return mission_id
 
 
+def create_execution_mission(ctx: object, directive: object) -> bool:
+    """Create a Sankalpa mission from a federation execute_code directive."""
+    if ctx.sankalpa is None:
+        return False
+
+    from vibe_core.mahamantra.protocols.sankalpa.types import (
+        MissionPriority,
+        MissionStatus,
+        SankalpaMission,
+    )
+
+    params = directive.params
+    contract = params.get("contract", "ruff_clean")
+    mission_id = f"exec_{directive.id}_{ctx.heartbeat_count}"
+    mission = SankalpaMission(
+        id=mission_id,
+        name=f"Execute: {contract}",
+        description=f"Federation directive: {contract} ({params.get('source', 'unknown')})",
+        priority=MissionPriority.HIGH,
+        status=MissionStatus.ACTIVE,
+        owner="federation",
+    )
+    ctx.sankalpa.registry.add_mission(mission)
+    logger.info("Created execution mission %s from directive %s", mission_id, directive.id)
+    return True
+
+
 def create_federation_mission(ctx: object, directive: object) -> bool:
     """Create a Sankalpa mission from a federation directive."""
     from vibe_core.mahamantra.protocols.sankalpa.types import (

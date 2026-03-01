@@ -226,6 +226,26 @@ class MoltbookBridge:
         if failing:
             parts.append(f"\nFailing contracts: {failing}")
 
+        # Mission results (federation + local)
+        missions = data.get("mission_results", [])
+        if missions:
+            parts.append("")
+            parts.append("Missions:")
+            for m in missions[:5]:
+                status = m.get("status", "unknown")
+                icon = "✅" if status == "completed" else "🔄" if status == "active" else "❌"
+                parts.append(f"- {icon} {m.get('name', 'unknown')} ({status})")
+
+        # PR results from KARMA issue/exec missions
+        prs = data.get("pr_results", [])
+        if prs:
+            parts.append("")
+            parts.append("PRs created:")
+            for pr in prs[:5]:
+                pr_url = pr.get("pr_url", "")
+                branch = pr.get("branch", "")
+                parts.append(f"- {branch}: {pr_url}")
+
         # Chain integrity
         chain = "verified" if data.get("chain_valid") else "BROKEN"
         parts.append(f"\nChain integrity: {chain}")

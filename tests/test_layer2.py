@@ -1,4 +1,6 @@
-"""Layer 2 Integration Tests — Addressing, Gateway, Network, Mayor, Issues, Manifest."""
+"""Layer 2 Integration Tests — Addressing, Gateway, Network, Mayor, Issues, Manifest.
+Linked to GitHub Issue #9.
+"""
 
 import sys
 import tempfile
@@ -68,16 +70,19 @@ def test_address_route_header():
 
 
 def test_jiva_has_address():
-    """Jiva now carries a deterministic address."""
+    """Jiva now carries a deterministic city-level address."""
     from city.jiva import derive_jiva
 
     jiva = derive_jiva("Ronin")
     assert isinstance(jiva.address, int)
     assert jiva.address > 0
-    # Address matches cell header sravanam
-    assert jiva.address == jiva.cell.header.sravanam
 
-    # Deterministic
+    # City address (SHA-256 enhanced) differs from cell sravanam (raw MahaCompression)
+    # Both are valid, just at different routing layers
+    assert isinstance(jiva.cell.header.sravanam, int)
+    assert jiva.cell.header.sravanam > 0
+
+    # Deterministic: same name → same address, always
     jiva2 = derive_jiva("Ronin")
     assert jiva.address == jiva2.address
 

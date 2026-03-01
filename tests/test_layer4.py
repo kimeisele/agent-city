@@ -1,4 +1,6 @@
-"""Layer 4 Tests — Action Delegation (Self-Healing Loop)."""
+"""Layer 4 Tests — Action Delegation (Self-Healing Loop).
+Linked to GitHub Issue #11.
+"""
 
 import shutil
 import sys

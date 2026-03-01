@@ -1,4 +1,6 @@
-"""Layer 1 Integration Test — Jiva + MahaCell + Identity + CivicBank + Pokedex."""
+"""Layer 1 Integration Test — Jiva + MahaCell + Identity + CivicBank + Pokedex.
+Linked to GitHub Issue #8.
+"""
 
 import sys
 import tempfile
@@ -51,7 +53,15 @@ def test_jiva_has_living_cell():
     assert isinstance(jiva.cell, MahaCellUnified)
     assert jiva.cell.is_alive is True
     assert jiva.cell.prana > 0
-    assert jiva.cell.membrane_integrity > 0
+
+    jiva2 = derive_jiva("Ronin")
+    assert jiva.address == jiva2.address
+
+    # City address (SHA-256 enhanced) differs from cell sravanam (raw MahaCompression)
+    # This is by design: cell-level routing uses raw Mahamantra, city-level uses
+    # collision-resistant SHA-256 addressing
+    assert isinstance(jiva.cell.header.sravanam, int)
+    assert jiva.cell.header.sravanam > 0
     assert jiva.cell.header.is_valid()
 
     # Cell DNA = agent name

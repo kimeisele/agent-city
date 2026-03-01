@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 
 from config import get_config
@@ -252,7 +253,35 @@ def _execute_directive(ctx: PhaseContext, directive: object) -> bool:
 
     if dtype == "create_mission" and ctx.sankalpa is not None:
         from city.missions import create_federation_mission
-        return create_federation_mission(ctx, directive)
+        created = create_federation_mission(ctx, directive)
+        # Also create a council proposal for governance visibility
+        if created and ctx.council is not None and ctx.council.elected_mayor is not None:
+            from city.council import ProposalType
+            topic = params.get("topic", "Federation mission")
+            ctx.council.propose(
+                title=f"Federation: {topic}",
+                description=params.get("context", topic),
+                proposer=ctx.council.elected_mayor,
+                proposal_type=ProposalType.POLICY,
+                action={
+                    "type": "federation_mission",
+                    "directive_id": directive.id,
+                    "topic": topic,
+                    "source_post_id": params.get("source_post_id", ""),
+                },
+                timestamp=time.time(),
+            )
+        return created
+
+    if dtype == "execute_code" and ctx.sankalpa is not None:
+        from city.missions import create_execution_mission
+        created = create_execution_mission(ctx, directive)
+        if created:
+            logger.info(
+                "Directive: execution mission created for %s",
+                params.get("contract", "ruff_clean"),
+            )
+        return created
 
     if dtype == "policy_update":
         logger.info(
