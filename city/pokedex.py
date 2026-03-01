@@ -45,6 +45,7 @@ from city.seed_constants import (
     MAX_AGE_RESILIENT,
     MAX_AGE_STANDARD,
     METABOLIC_COST,
+    SANJIVANI_DOSE,
     classify_prana_class,
 )
 from config import get_config
@@ -481,6 +482,147 @@ class Pokedex:
         with self._lock:
             self._bank.unfreeze_account(name, reason)
             return self._transition(name, "frozen", "active", reason)
+
+    def revive(
+        self,
+        name: str,
+        prana_dose: int = SANJIVANI_DOSE,
+        sponsor: str = "sanjivani",
+        reason: str = "sanjivani:auto_revive",
+    ) -> dict:
+        """Sanjivani Protocol — revive a dormant (frozen) agent.
+
+        Injects *prana_dose* into the agent's prana pool AND unfreezes the
+        bank account, transitioning ``frozen → active``.  Without prana
+        injection, a plain ``unfreeze()`` would leave the agent at 0 prana
+        and they'd be re-frozen on the next ``metabolize_all()`` cycle.
+
+        Three revive paths:
+            1. **Auto (MOKSHA)**: Treasury-funded, for agents with proven value.
+            2. **Peer donation**: Another citizen transfers prana via sponsor.
+            3. **Council amnesty**: Governance vote triggers revive.
+
+        The dose defaults to SANJIVANI_DOSE (1080 = MALA × TEN), which is
+        above HIBERNATION_THRESHOLD (972) to prevent immediate re-freeze.
+        """
+        with self._lock:
+            agent = self._require(name)
+            if agent["status"] != "frozen":
+                raise ValueError(
+                    f"{name} is '{agent['status']}' — revive only works on frozen agents"
+                )
+
+            # 1. Inject prana into SQL
+            cur = self._conn.cursor()
+            cur.execute(
+                "UPDATE agents SET prana = prana + ?, cell_active = 1 WHERE name = ?",
+                (prana_dose, name),
+            )
+            self._conn.commit()
+
+            # 2. Unfreeze bank account
+            self._bank.unfreeze_account(name, reason)
+
+            # 3. Transition frozen → active
+            result = self._transition(name, "frozen", "active", reason)
+
+            # 4. Record the prana injection in event ledger
+            self._record_event(
+                name,
+                "revive",
+                "frozen",
+                "active",
+                json.dumps({
+                    "prana_dose": prana_dose,
+                    "sponsor": sponsor,
+                    "reason": reason,
+                }),
+            )
+            self._conn.commit()
+
+            logger.info(
+                "SANJIVANI: Revived %s (+%d prana, sponsor=%s)",
+                name,
+                prana_dose,
+                sponsor,
+            )
+            return result
+
+    def donate_prana(
+        self, donor: str, recipient: str, amount: int, reason: str = "peer_donation"
+    ) -> dict:
+        """Transfer prana from one agent to another.
+
+        If the recipient is frozen and the donation brings them above
+        HIBERNATION_THRESHOLD, this automatically triggers a revive.
+        The donor must be active and have sufficient prana.
+        """
+        with self._lock:
+            donor_agent = self._require(donor)
+            recipient_agent = self._require(recipient)
+
+            if donor_agent["status"] not in ("citizen", "active"):
+                raise ValueError(f"Donor {donor} must be citizen/active, is '{donor_agent['status']}'")
+
+            # Check donor has enough prana
+            cur = self._conn.cursor()
+            cur.execute("SELECT prana FROM agents WHERE name = ?", (donor,))
+            donor_prana = cur.fetchone()["prana"]
+            if donor_prana < amount:
+                raise ValueError(f"Donor {donor} has {donor_prana} prana, needs {amount}")
+
+            # Transfer prana
+            cur.execute("UPDATE agents SET prana = prana - ? WHERE name = ?", (amount, donor))
+            cur.execute("UPDATE agents SET prana = prana + ? WHERE name = ?", (amount, recipient))
+            self._conn.commit()
+
+            # Record donation event
+            self._record_event(
+                recipient,
+                "prana_donation",
+                recipient_agent["status"],
+                recipient_agent["status"],
+                json.dumps({"donor": donor, "amount": amount, "reason": reason}),
+            )
+            self._conn.commit()
+
+            logger.info(
+                "PRANA DONATION: %s → %s (+%d prana)",
+                donor,
+                recipient,
+                amount,
+            )
+
+        # Auto-revive if recipient is frozen and now has enough prana
+        if recipient_agent["status"] == "frozen":
+            cur = self._conn.cursor()
+            cur.execute("SELECT prana FROM agents WHERE name = ?", (recipient,))
+            new_prana = cur.fetchone()["prana"]
+            from city.seed_constants import HIBERNATION_THRESHOLD
+            if new_prana > HIBERNATION_THRESHOLD:
+                return self.revive(recipient, prana_dose=0, sponsor=donor, reason=f"peer_donation:{donor}")
+
+        return self.get(recipient)
+
+    def list_dormant(self) -> list[dict]:
+        """List all frozen agents with dormant:prana_exhaustion reason.
+
+        Returns list of dicts with name, prana, cell_cycle, prana_class,
+        and last freeze event timestamp for Sanjivani evaluation.
+        """
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT name, prana, cell_cycle, prana_class FROM agents WHERE status = 'frozen'"
+        )
+        dormant = []
+        for row in cur.fetchall():
+            dormant.append({
+                "name": row["name"],
+                "prana": row["prana"],
+                "cell_cycle": row["cell_cycle"],
+                "prana_class": row["prana_class"],
+            })
+        return dormant
 
     def exile(self, name: str, reason: str = "constitutional_violation") -> dict:
         """Permanently exile an agent — terminal state."""
