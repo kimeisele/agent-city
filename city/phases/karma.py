@@ -17,6 +17,12 @@ from city.phases import PhaseContext
 logger = logging.getLogger("AGENT_CITY.PHASES.KARMA")
 
 
+def _learn(ctx: PhaseContext, source: str, action: str, *, success: bool) -> None:
+    """Record a Hebbian learning outcome if learning is wired."""
+    if ctx.learning is not None:
+        ctx.learning.record_outcome(source, action, success)
+
+
 def execute(ctx: PhaseContext) -> list[str]:
     """KARMA: Process gateway queue, sankalpa, heal, council cycle."""
     operations: list[str] = []
@@ -65,17 +71,32 @@ def execute(ctx: PhaseContext) -> list[str]:
                     operations.append(
                         f"dm_replied:{from_agent}:seed={result['seed']}"
                     )
+                    _learn(ctx, source, "dm_reply", success=True)
                 except Exception as e:
                     operations.append(f"dm_reply_failed:{from_agent}:{e}")
+                    _learn(ctx, source, "dm_reply", success=False)
                     logger.warning(
                         "KARMA: DM reply failed for %s: %s", from_agent, e,
                     )
             else:
                 operations.append(f"processed:{source}:seed={result['seed']}")
+                _learn(ctx, source, "process", success=True)
 
         except Exception as e:
             operations.append(f"error:{source}:{e}")
+            _learn(ctx, source, "process", success=False)
             logger.warning("KARMA: Gateway processing failed for %s: %s", source, e)
+
+    # Log learning confidence for queue items (informational)
+    if ctx.learning is not None and queue_items:
+        for item in queue_items:
+            src = item.get("source", "unknown")
+            confidence = ctx.learning.get_confidence(src, "process")
+            if confidence < 0.2:
+                logger.warning(
+                    "KARMA: Low confidence for %s→process (%.2f)",
+                    src, confidence,
+                )
 
     # Layer 3: Sankalpa strategic thinking
     if ctx.sankalpa is not None:

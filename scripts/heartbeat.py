@@ -130,6 +130,21 @@ def main() -> None:
             _dry_run=args.federation_dry_run or not args.federation,
         )
 
+    # Hebbian learning: cross-session memory (graceful fallback)
+    learning_kwargs: dict = {}
+    try:
+        from city.learning import CityLearning
+        city_learning = CityLearning(_state_dir=db_path.parent / "synapses")
+        if city_learning.available:
+            learning_kwargs["_learning"] = city_learning
+            logging.getLogger("HEARTBEAT").info(
+                "CityLearning wired (%d synapses)", city_learning.stats().get("synapses", 0),
+            )
+        else:
+            logging.getLogger("HEARTBEAT").info("CityLearning wired (null fallback)")
+    except Exception as e:
+        logging.getLogger("HEARTBEAT").debug("CityLearning unavailable: %s", e)
+
     # Nadi messaging: structured gateway queue (graceful fallback)
     nadi_kwargs: dict = {}
     try:
@@ -165,6 +180,7 @@ def main() -> None:
         _network=network,
         _offline_mode=args.offline,
         **governance_kwargs,
+        **learning_kwargs,
         **nadi_kwargs,
         **cognition_kwargs,
     )
