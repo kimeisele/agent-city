@@ -148,7 +148,11 @@ def _get_election_candidates(ctx: PhaseContext) -> list[dict]:
 
 
 def _submit_contract_proposal(ctx: PhaseContext, contract_result: object) -> None:
-    """Submit a failing contract as a council proposal for democratic vote."""
+    """Submit a failing contract as a council proposal for democratic vote.
+
+    Integrity contract violations require CONSTITUTIONAL supermajority (67%)
+    because they affect protected core files. All other contracts use POLICY (50%).
+    """
     if ctx.council is None or ctx.council.member_count == 0:
         return
 
@@ -158,14 +162,17 @@ def _submit_contract_proposal(ctx: PhaseContext, contract_result: object) -> Non
 
     from city.council import ProposalType
 
+    is_integrity = contract_result.name == "integrity"
+
     ctx.council.propose(
-        title=f"Heal contract: {contract_result.name}",
+        title=f"{'Integrity violation' if is_integrity else 'Heal contract'}: {contract_result.name}",
         description=f"Contract failing: {contract_result.message}",
         proposer=proposer,
-        proposal_type=ProposalType.POLICY,
+        proposal_type=ProposalType.CONSTITUTIONAL if is_integrity else ProposalType.POLICY,
         action={
-            "type": "heal",
+            "type": "integrity" if is_integrity else "heal",
             "contract": contract_result.name,
+            "files": contract_result.details if is_integrity else [],
             "params": {"details": contract_result.details},
         },
         timestamp=time.time(),

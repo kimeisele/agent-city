@@ -13,11 +13,14 @@ The ContractRegistry holds all contracts and can run them in batch.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import partial
 from pathlib import Path
+from typing import List
 
 from config import get_config
 
@@ -215,6 +218,73 @@ def check_audit_clean(cwd: Path) -> ContractResult:
         )
 
 
+def check_integrity(cwd: Path, protected_files: List[str] | None = None) -> ContractResult:
+    """Contract: protected files must match their last COMMITTED state.
+
+    Compares SHA-256 of each protected file on disk against the committed
+    version via `git show HEAD:<path>`. Git is the source of truth.
+
+    Files not yet in HEAD (new, uncommitted) are skipped — no baseline.
+    Files not on disk are skipped — nothing to compare.
+    """
+    if protected_files is None:
+        try:
+            protected_files = get_config().get("git", {}).get("protected_files", [])
+        except Exception:
+            protected_files = []
+
+    if not protected_files:
+        return ContractResult(
+            name="integrity",
+            status=ContractStatus.PASSING,
+            message="No protected files configured",
+        )
+
+    drifted: list[str] = []
+    for rel_path in protected_files:
+        disk_file = cwd / rel_path
+        if not disk_file.exists():
+            continue
+
+        # Get committed version from HEAD
+        try:
+            committed = subprocess.run(
+                ["git", "show", f"HEAD:{rel_path}"],
+                capture_output=True, cwd=str(cwd),
+                timeout=10,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+
+        if committed.returncode != 0:
+            # File not in HEAD yet (new file) — no baseline, skip
+            continue
+
+        head_hash = hashlib.sha256(committed.stdout).hexdigest()
+        disk_hash = hashlib.sha256(disk_file.read_bytes()).hexdigest()
+
+        if head_hash != disk_hash:
+            drifted.append(rel_path)
+            logger.warning(
+                "INTEGRITY DRIFT: %s (HEAD=%s..., disk=%s...)",
+                rel_path, head_hash[:12], disk_hash[:12],
+            )
+
+    if drifted:
+        return ContractResult(
+            name="integrity",
+            status=ContractStatus.FAILING,
+            message=f"{len(drifted)} protected file(s) drifted from HEAD",
+            details=drifted,
+        )
+
+    return ContractResult(
+        name="integrity",
+        status=ContractStatus.PASSING,
+        message=f"{len(protected_files)} protected files match HEAD",
+    )
+
+
 def create_default_contracts() -> ContractRegistry:
     """Create a ContractRegistry with the built-in quality contracts."""
     registry = ContractRegistry()
@@ -232,6 +302,13 @@ def create_default_contracts() -> ContractRegistry:
         name="audit_clean",
         description="AuditKernel finds no critical violations",
         check=check_audit_clean,
+    ))
+    # Integrity: protected files must match committed state
+    protected = get_config().get("git", {}).get("protected_files", [])
+    registry.register(QualityContract(
+        name="integrity",
+        description="Protected files match their committed state (Council-governed)",
+        check=partial(check_integrity, protected_files=protected),
     ))
     return registry
 
