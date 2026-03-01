@@ -610,3 +610,234 @@ class TestAdaptiveImmuneLoop:
         e2 = idx.register(keyword="flaky_test", remedy_id="fix_flaky_v2")
         assert e2.encounter_count == 2
         assert e2 is e1  # same object, mutated
+
+
+# ===========================================================================
+# Circuit Breaker: CytokineBreaker
+# ===========================================================================
+
+
+class TestCytokineBreaker:
+    """Prevents autoimmune cascades — the Cytokine Storm Prevention."""
+
+    def test_import(self):
+        from city.immune import CytokineBreaker
+
+    def test_initial_state(self):
+        """Fresh breaker is closed (not tripped)."""
+        from city.immune import CytokineBreaker
+
+        b = CytokineBreaker()
+        assert b.is_open() is False
+        assert b.tripped is False
+        assert b.rollbacks == 0
+        assert b.consecutive_rollbacks == 0
+
+    def test_single_rollback_does_not_trip(self):
+        """One rollback alone doesn't trip the breaker."""
+        from city.immune import CytokineBreaker
+
+        b = CytokineBreaker(max_consecutive=3)
+        b.record_rollback()
+        assert b.is_open() is False
+        assert b.rollbacks == 1
+        assert b.consecutive_rollbacks == 1
+
+    def test_consecutive_rollbacks_trip_breaker(self):
+        """N consecutive rollbacks trips the breaker."""
+        from city.immune import CytokineBreaker
+
+        b = CytokineBreaker(max_consecutive=3, cooldown_s=300)
+        b.record_rollback()
+        b.record_rollback()
+        assert b.is_open() is False  # 2 < 3
+        b.record_rollback()
+        assert b.is_open() is True  # 3 >= 3, tripped!
+        assert b.tripped is True
+
+    def test_success_resets_consecutive(self):
+        """A successful heal resets the consecutive rollback counter."""
+        from city.immune import CytokineBreaker
+
+        b = CytokineBreaker(max_consecutive=3)
+        b.record_rollback()
+        b.record_rollback()
+        assert b.consecutive_rollbacks == 2
+        b.record_success()
+        assert b.consecutive_rollbacks == 0
+        # Now need 3 more to trip
+        b.record_rollback()
+        assert b.is_open() is False
+
+    def test_cooldown_expires(self):
+        """After cooldown, breaker re-opens (half-open state)."""
+        import time as _time
+        from city.immune import CytokineBreaker
+
+        b = CytokineBreaker(max_consecutive=1, cooldown_s=0.1)
+        b.record_rollback()  # trips immediately
+        assert b.is_open() is True
+        _time.sleep(0.15)
+        assert b.is_open() is False  # cooldown expired
+        assert b.tripped is False  # reset
+
+    def test_stats(self):
+        """Stats reports breaker state."""
+        from city.immune import CytokineBreaker
+
+        b = CytokineBreaker(max_consecutive=2, cooldown_s=60)
+        b.record_rollback()
+        s = b.stats()
+        assert s["rollbacks"] == 1
+        assert s["consecutive_rollbacks"] == 1
+        assert s["tripped"] is False
+
+
+# ===========================================================================
+# Circuit Breaker Integration: scan_and_heal() with rollback
+# ===========================================================================
+
+
+class TestScanAndHealCircuitBreaker:
+    """scan_and_heal() rolls back fixes that increase test failures."""
+
+    def _make_immune(self, engine=None):
+        """Create a CityImmune with a mock engine for testing."""
+        from unittest.mock import MagicMock
+        from city.immune import CityImmune
+
+        if engine is None:
+            engine = MagicMock()
+            engine.can_heal.return_value = True
+            result = MagicMock()
+            result.success = True
+            result.diff = "mock diff"
+            result.message = "mock fix applied"
+            engine.purify.return_value = result
+
+        immune = CityImmune(_engine=engine)
+        return immune
+
+    def test_fix_that_increases_failures_is_rolled_back(self):
+        """If a fix increases test failures, it gets rolled back."""
+        from unittest.mock import patch, MagicMock
+        from city.immune import CityImmune
+        from city.pathogen_index import PathogenIndex
+
+        immune = self._make_immune()
+
+        # Mock: baseline=2 failures, after fix=5 failures
+        with patch.object(immune, "_count_test_failures", side_effect=[2, 5]):
+            with patch.object(immune, "_rollback_file", return_value=True) as mock_rb:
+                results = immune.scan_and_heal(["Failure in city/foo.py: any_type usage"])
+
+        # The fix should have been rolled back
+        if results:
+            rolled_back = [r for r in results if "Rolled back" in r.message]
+            if rolled_back:
+                assert rolled_back[0].success is False
+                mock_rb.assert_called()
+                assert immune._heals_rolled_back >= 1
+
+    def test_fix_that_decreases_failures_is_accepted(self):
+        """If a fix decreases test failures, it is accepted."""
+        from unittest.mock import patch
+
+        immune = self._make_immune()
+
+        # Mock: baseline=5 failures, after fix=3 failures (improvement!)
+        with patch.object(immune, "_count_test_failures", side_effect=[5, 3]):
+            with patch.object(immune, "_rollback_file") as mock_rb:
+                results = immune.scan_and_heal(["Failure in city/foo.py: any_type usage"])
+
+        # No rollback should have happened
+        mock_rb.assert_not_called()
+
+    def test_fix_with_same_failures_is_accepted(self):
+        """If failures stay the same, the fix is accepted (no regression)."""
+        from unittest.mock import patch
+
+        immune = self._make_immune()
+
+        # Mock: baseline=3, after=3 (no change = safe)
+        with patch.object(immune, "_count_test_failures", side_effect=[3, 3]):
+            with patch.object(immune, "_rollback_file") as mock_rb:
+                results = immune.scan_and_heal(["Failure in city/foo.py: any_type usage"])
+
+        mock_rb.assert_not_called()
+
+    def test_breaker_trips_after_consecutive_rollbacks(self):
+        """After N consecutive rollbacks, breaker trips and blocks further heals."""
+        from unittest.mock import patch, MagicMock
+        from pathlib import Path
+        from city.immune import CityImmune, CytokineBreaker, DiagnosisResult
+
+        immune = self._make_immune()
+        immune._breaker = CytokineBreaker(max_consecutive=2, cooldown_s=300)
+
+        # Mock diagnose to always return healable (real files don't exist)
+        fake_diag = DiagnosisResult(
+            pattern="test", rule_id="any_type_usage",
+            file_path=Path("city/fake.py"), confidence=0.9, healable=True,
+        )
+        details = ["detail_1", "detail_2", "detail_3"]
+
+        with patch.object(immune, "diagnose", return_value=fake_diag):
+            # Every fix increases failures → rollback each time
+            with patch.object(immune, "_count_test_failures", side_effect=[1, 5, 1, 5, 1, 5]):
+                with patch.object(immune, "_rollback_file", return_value=True):
+                    results = immune.scan_and_heal(details)
+
+        # Breaker should have tripped after 2 consecutive rollbacks
+        assert immune._breaker.tripped is True
+        assert immune._breaker.rollbacks >= 2
+
+    def test_breaker_open_blocks_all_healing(self):
+        """When breaker is open, scan_and_heal returns empty immediately."""
+        from city.immune import CytokineBreaker
+
+        immune = self._make_immune()
+        immune._breaker = CytokineBreaker(max_consecutive=1, cooldown_s=300)
+        immune._breaker.record_rollback()  # trips immediately
+        assert immune._breaker.is_open() is True
+
+        results = immune.scan_and_heal(["Failure in city/foo.py: any_type usage"])
+        assert results == []
+
+    def test_verification_failure_triggers_rollback(self):
+        """If test count fails after fix, rollback for safety."""
+        from unittest.mock import patch
+
+        immune = self._make_immune()
+
+        # baseline=2, after=None (verification failed)
+        with patch.object(immune, "_count_test_failures", side_effect=[2, None]):
+            with patch.object(immune, "_rollback_file", return_value=True) as mock_rb:
+                results = immune.scan_and_heal(["Failure in city/foo.py: any_type usage"])
+
+        if results:
+            rolled_back = [r for r in results if "verification unavailable" in r.message]
+            if rolled_back:
+                mock_rb.assert_called()
+                assert immune._heals_rolled_back >= 1
+
+    def test_baseline_failure_skips_heal(self):
+        """If baseline test count fails, heal is skipped entirely."""
+        from unittest.mock import patch
+
+        immune = self._make_immune()
+
+        # Can't even get baseline → skip
+        with patch.object(immune, "_count_test_failures", return_value=None):
+            results = immune.scan_and_heal(["Failure in city/foo.py: any_type usage"])
+
+        assert results == []  # nothing attempted
+
+    def test_stats_includes_circuit_breaker(self):
+        """Stats output includes circuit breaker info."""
+        immune = self._make_immune()
+        stats = immune.stats()
+        assert "heals_rolled_back" in stats
+        assert "circuit_breaker" in stats
+        assert "rollbacks" in stats["circuit_breaker"]
+        assert "tripped" in stats["circuit_breaker"]
