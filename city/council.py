@@ -308,8 +308,13 @@ class CityCouncil:
         voter: str,
         choice: VoteChoice,
         prana_weight: int,
+        signature: str | None = None,
+        identity_service: object | None = None,
     ) -> bool:
         """Cast a vote. Only council members can vote.
+
+        If signature and identity_service are provided, the vote is
+        cryptographically verified before recording.
 
         Returns True if vote recorded, False if rejected.
         """
@@ -322,6 +327,13 @@ class CityCouncil:
         existing_voters = {v["voter"] for v in proposal.votes}
         if voter in existing_voters:
             return False
+
+        # Optional signature verification
+        if signature is not None and identity_service is not None:
+            payload = f"{proposal_id}:{voter}:{choice.value}".encode()
+            if not identity_service.verify_agent(voter, payload, signature):
+                logger.warning("Vote rejected: invalid signature for %s on %s", voter, proposal_id)
+                return False
 
         record: VoteRecord = {
             "voter": voter,

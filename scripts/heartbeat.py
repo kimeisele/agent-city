@@ -69,6 +69,11 @@ def main() -> None:
         default=_cfg.get("federation", {}).get("mothership_repo", "kimeisele/steward-protocol"),
         help="Mothership repo (owner/name)",
     )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Continuous daemon mode (adaptive frequency)",
+    )
     args = parser.parse_args()
 
     # Logging
@@ -83,27 +88,11 @@ def main() -> None:
 
     from vibe_core.cartridges.system.civic.tools.economy import CivicBank
 
+    from city.factory import BuildContext, CityServiceFactory, default_definitions
     from city.gateway import CityGateway
     from city.network import CityNetwork
     from city.pokedex import Pokedex
-    from city.registry import (
-        SVC_AGENT_NADI,
-        SVC_AUDIT,
-        SVC_CITY_NADI,
-        SVC_CONTRACTS,
-        SVC_COUNCIL,
-        SVC_EVENT_BUS,
-        SVC_EXECUTOR,
-        SVC_FEDERATION,
-        SVC_FEDERATION_NADI,
-        SVC_IMMUNE,
-        SVC_ISSUES,
-        SVC_KNOWLEDGE_GRAPH,
-        SVC_LEARNING,
-        SVC_REFLECTION,
-        SVC_SANKALPA,
-        CityServiceRegistry,
-    )
+    from city.registry import CityServiceRegistry
 
     # Boot city infrastructure
     db_path = Path(args.db)
@@ -114,158 +103,23 @@ def main() -> None:
     gateway = CityGateway()
     network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
 
-    # ── Service Registry ──────────────────────────────────────────
+    # ── Service Registry via Factory ──────────────────────────────
     registry = CityServiceRegistry()
+    build_ctx = BuildContext(
+        registry=registry,
+        db_path=db_path,
+        offline=args.offline,
+        args=args,
+        config=_cfg,
+    )
 
-    # Layer 3+4 governance (optional)
-    if args.governance:
-        from city.contracts import create_default_contracts
-        from city.council import CityCouncil
-        from city.executor import IntentExecutor
-        from city.issues import CityIssueManager
-
-        registry.register(SVC_CONTRACTS, create_default_contracts())
-        registry.register(SVC_EXECUTOR, IntentExecutor(_cwd=Path.cwd()))
-        registry.register(SVC_ISSUES, CityIssueManager())
-
-        # Council with persistence (survives restarts)
-        council_state_path = db_path.parent / "council_state.json"
-        registry.register(SVC_COUNCIL, CityCouncil(_state_path=council_state_path))
-
-        # Layer 3: Sankalpa + Reflection + Audit
-        try:
-            from vibe_core.mahamantra.substrate.sankalpa.will import (
-                SankalpaOrchestrator,
-            )
-
-            registry.register(SVC_SANKALPA, SankalpaOrchestrator())
-        except Exception as e:
-            log.warning("Sankalpa init failed: %s", e)
-
-        try:
-            from vibe_core.protocols.reflection import BasicReflection
-
-            registry.register(SVC_REFLECTION, BasicReflection())
-        except Exception as e:
-            log.warning("Reflection init failed: %s", e)
-
-        try:
-            from vibe_core.mahamantra.audit.kernel import AuditKernel
-
-            registry.register(SVC_AUDIT, AuditKernel())
-        except Exception as e:
-            log.warning("Audit init failed: %s", e)
-
-    # Layer 6 federation (optional)
-    if args.federation or args.federation_dry_run:
-        from city.federation import FederationRelay
-
-        registry.register(
-            SVC_FEDERATION,
-            FederationRelay(
-                _mothership_repo=args.mothership,
-                _dry_run=args.federation_dry_run or not args.federation,
-            ),
-        )
-
-    # Federation Nadi — file-based inter-repo message bridge
-    try:
-        from city.federation_nadi import FederationNadi
-
-        fed_nadi_dir = db_path.parent / "federation"
-        fed_nadi = FederationNadi(_federation_dir=fed_nadi_dir)
-        registry.register(SVC_FEDERATION_NADI, fed_nadi)
-        fed_stats = fed_nadi.stats()
-        log.info(
-            "FederationNadi wired (outbox=%d, inbox=%d)",
-            fed_stats["outbox_on_disk"],
-            fed_stats["inbox_on_disk"],
-        )
-    except Exception as e:
-        log.debug("FederationNadi unavailable: %s", e)
-
-    # Hebbian learning (graceful fallback)
-    try:
-        from city.learning import CityLearning
-
-        city_learning = CityLearning(_state_dir=db_path.parent / "synapses")
-        if city_learning.available:
-            registry.register(SVC_LEARNING, city_learning)
-            log.info(
-                "CityLearning wired (%d synapses)",
-                city_learning.stats().get("synapses", 0),
-            )
-        else:
-            log.info("CityLearning wired (null fallback)")
-    except Exception as e:
-        log.debug("CityLearning unavailable: %s", e)
-
-    # Immune system (graceful fallback)
-    try:
-        from city.immune import CityImmune
-
-        _immune_learning = registry.get(SVC_LEARNING)
-        city_immune = CityImmune(_learning=_immune_learning)
-        if city_immune.available:
-            registry.register(SVC_IMMUNE, city_immune)
-            log.info(
-                "CityImmune wired (%d remedies)",
-                len(city_immune.list_remedies()),
-            )
-    except Exception as e:
-        log.debug("CityImmune unavailable: %s", e)
-
-    # Hardening & Resilience (Layer 8)
-    try:
-        from vibe_core.naga.services.prahlad.service import PrahladService
-        from city.registry import SVC_PRAHLAD
-
-        prahlad = PrahladService()
-        if registry.has(SVC_COUNCIL):
-            prahlad.set_ledger(registry.get(SVC_COUNCIL))
-        registry.register(SVC_PRAHLAD, prahlad)
-        log.info("PrahladService wired (Resilience)")
-    except Exception as e:
-        log.debug("PrahladService unavailable: %s", e)
-
-    # Agent Nadi (graceful fallback)
-    try:
-        from city.agent_nadi import AgentNadiManager
-
-        agent_nadi = AgentNadiManager()
-        if agent_nadi.available:
-            registry.register(SVC_AGENT_NADI, agent_nadi)
-            log.info("AgentNadiManager wired")
-    except Exception as e:
-        log.debug("AgentNadiManager unavailable: %s", e)
-
-    # Nadi messaging (graceful fallback)
-    try:
-        from city.nadi_hub import CityNadi
-
-        city_nadi = CityNadi()
-        registry.register(SVC_CITY_NADI, city_nadi)
-        if city_nadi.available:
-            log.info("CityNadi wired (LocalNadi)")
-        else:
-            log.info("CityNadi wired (NullNadi fallback)")
-    except Exception as e:
-        log.debug("CityNadi unavailable: %s", e)
-
-    # Cognition layer (graceful fallback)
-    try:
-        from city.cognition import get_city_bus, get_city_knowledge
-
-        kg = get_city_knowledge()
-        if kg is not None:
-            registry.register(SVC_KNOWLEDGE_GRAPH, kg)
-            log.info("KnowledgeGraph wired")
-        bus = get_city_bus()
-        if bus is not None:
-            registry.register(SVC_EVENT_BUS, bus)
-            log.info("EventBus wired")
-    except Exception as e:
-        log.debug("Cognition layer unavailable: %s", e)
+    definitions = default_definitions(
+        governance=args.governance,
+        federation=args.federation or args.federation_dry_run,
+    )
+    factory = CityServiceFactory(definitions)
+    disabled = _cfg.get("services", {}).get("disabled", [])
+    factory.build_all(registry, build_ctx, disabled=disabled)
 
     from city.mayor import Mayor
 
@@ -315,11 +169,30 @@ def main() -> None:
         except Exception as e:
             log.warning("Moltbook bridge init failed: %s", e)
 
+    factory_stats = factory.stats()
     print(f"=== Agent City Heartbeat — {args.cycles} cycles ===")
     if args.offline:
         print("Mode: OFFLINE (no Moltbook API)")
-    print(f"Registry: {len(registry.names())} services wired")
+    print(
+        f"Registry: {len(registry.names())} services wired"
+        f" ({len(factory_stats['built'])} built, {len(factory_stats['failed'])} failed,"
+        f" {len(factory_stats['skipped'])} skipped)"
+    )
     print()
+
+    # Daemon mode: continuous adaptive-frequency operation
+    if args.daemon:
+        from city.daemon import DaemonService
+
+        daemon = DaemonService(mayor=mayor)
+        registry.register("daemon", daemon)
+        print("Daemon mode: starting continuous heartbeat (Ctrl+C to stop)")
+        try:
+            daemon.start(block=True)
+        except KeyboardInterrupt:
+            daemon.stop()
+            print("\nDaemon stopped.")
+        return
 
     results = mayor.run_cycle(args.cycles)
 

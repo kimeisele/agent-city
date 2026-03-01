@@ -164,10 +164,21 @@ def create_issue_mission(
         priority = MissionPriority.MEDIUM
         prefix = "IssueHeal"
 
+    # Dedup: skip if active mission for same issue already exists
+    expected_name = f"{prefix}: #{issue_number}"
+    for existing in ctx.sankalpa.registry.get_active_missions():
+        if existing.name == expected_name and existing.status == MissionStatus.ACTIVE:
+            logger.debug(
+                "Issue mission for #%d already exists (%s), skipping",
+                issue_number,
+                existing.id,
+            )
+            return existing.id
+
     mission_id = f"issue_{issue_number}_{ctx.heartbeat_count}"
     mission = SankalpaMission(
         id=mission_id,
-        name=f"{prefix}: #{issue_number}",
+        name=expected_name,
         description=f"GitHub Issue #{issue_number} ({title}) needs attention: {action_type}",
         priority=priority,
         status=MissionStatus.ACTIVE,

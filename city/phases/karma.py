@@ -108,6 +108,9 @@ def execute(ctx: PhaseContext) -> list[str]:
             operations.append(f"sankalpa_intent:{intent.title}")
             logger.info("KARMA: Sankalpa intent — %s", intent.title)
 
+    # Cartridge routing: match domain missions to loaded cartridges
+    _route_to_cartridges(ctx, operations)
+
     # Issue-driven missions: process strategyless missions from DHARMA
     if ctx.sankalpa is not None:
         _process_issue_missions(ctx, operations)
@@ -140,6 +143,14 @@ def execute(ctx: PhaseContext) -> list[str]:
                             "heartbeat": ctx.heartbeat_count,
                         },
                     )
+                    # Track PR for lifecycle management
+                    from city.registry import SVC_PR_LIFECYCLE
+
+                    pr_mgr = ctx.registry.get(SVC_PR_LIFECYCLE)
+                    if pr_mgr is not None:
+                        pr_mgr.track(
+                            pr.pr_url, pr.branch, contract.name, ctx.heartbeat_count
+                        )
                     logger.info("KARMA: PR created — %s", pr.pr_url)
 
     # Layer 5: Council governance cycle
@@ -360,6 +371,9 @@ def _process_issue_missions(ctx: PhaseContext, operations: list[str]) -> None:
                     "owner": getattr(mission, "owner", ""),
                 },
             )
+            # Close the issue↔mission binding loop
+            if ctx.issues is not None:
+                ctx.issues.resolve_issue(issue_number, mission.id)
 
         # Learn from outcome
         _learn(ctx, f"issue_{issue_number}", "issue_mission", success=success)
@@ -448,6 +462,50 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
         logger.warning("KARMA: Exec mission %s failed: %s", mission.id, e)
 
     return False
+
+
+def _route_to_cartridges(ctx: PhaseContext, operations: list[str]) -> None:
+    """Route domain missions to matching cartridges (if loaded)."""
+    from city.registry import SVC_CARTRIDGE_LOADER
+
+    loader = ctx.registry.get(SVC_CARTRIDGE_LOADER)
+    if loader is None or ctx.sankalpa is None:
+        return
+
+    try:
+        active = ctx.sankalpa.registry.get_active_missions()
+    except Exception:
+        return
+
+    for mission in active:
+        # Skip already-processed mission types
+        if mission.id.startswith(("issue_", "exec_", "heal_", "audit_")):
+            continue
+
+        cartridge_name = loader.route_mission(mission.name)
+        if cartridge_name is None:
+            continue
+
+        cartridge = loader.get(cartridge_name)
+        if cartridge is None:
+            continue
+
+        try:
+            if hasattr(cartridge, "process"):
+                cartridge.process(mission.description)
+                operations.append(f"cartridge:{cartridge_name}:{mission.id}")
+                logger.info(
+                    "KARMA: Routed mission %s to cartridge %s",
+                    mission.id,
+                    cartridge_name,
+                )
+        except Exception as e:
+            logger.warning(
+                "KARMA: Cartridge %s failed for mission %s: %s",
+                cartridge_name,
+                mission.id,
+                e,
+            )
 
 
 def _record_pr_event(ctx: PhaseContext, issue_number: int, pr: object) -> None:

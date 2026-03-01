@@ -77,6 +77,22 @@ class IssueType(str, Enum):
     CONTRACT = "contract"
 
 
+@dataclass(frozen=True)
+class IssueDirective:
+    """Structured directive from issue lifecycle — replaces string parsing.
+
+    Produced by metabolize_issues(), consumed by DHARMA/KARMA phases.
+    """
+
+    issue_number: int
+    title: str
+    action: str  # "intent_needed", "contract_check", "closed", "ashrama"
+    reason: str  # "low_prana", "prana_exhaustion", "audit_needed", "brahmachari"
+    issue_type: IssueType
+    prana: int
+    mission_id: str = ""  # Set by bind_mission()
+
+
 def _gh_run(args: list[str]) -> str | None:
     """Run a gh CLI command. Returns stdout or None on failure."""
     try:
@@ -106,6 +122,8 @@ class CityIssueManager:
     _repo: str = ""
     _issue_cells: dict[int, MahaCellUnified] = field(default_factory=dict)
     _issue_types: dict[int, IssueType] = field(default_factory=dict)
+    _bound_missions: dict[int, str] = field(default_factory=dict)
+    _last_directives: list[IssueDirective] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self._repo:
@@ -177,13 +195,11 @@ class CityIssueManager:
         - VANAPRASTHA: generate intent_needed (winding down)
         - SANNYASA:    auto-close (dead cell)
 
-        Returns list of actions taken:
-        - "closed:#42:prana_exhaustion" — dead issue auto-closed
-        - "intent_needed:#42:low_prana" — issue needs attention
-        - "contract_check:#42:audit_needed" — contract issue needs audit
-        - "ashrama:#42:brahmachari" — lifecycle stage logged
+        Returns list of actions taken (legacy string format).
+        Use directives property for structured IssueDirective access.
         """
         actions: list[str] = []
+        self._last_directives = []
 
         # Get open issues
         out = _gh_run(
@@ -227,6 +243,16 @@ class CityIssueManager:
             if ashrama == "brahmachari":
                 energy += 2  # Grace period — bonus energy for young issues
                 actions.append(f"ashrama:#{number}:brahmachari")
+                self._last_directives.append(
+                    IssueDirective(
+                        issue_number=number,
+                        title=title,
+                        action="ashrama",
+                        reason="brahmachari",
+                        issue_type=issue_type,
+                        prana=cell.prana,
+                    )
+                )
 
             # All types decay prana (signals urgency)
             cell.metabolize(energy)
@@ -246,23 +272,73 @@ class CityIssueManager:
                     )
                     if close_result is not None:
                         actions.append(f"closed:#{number}:prana_exhaustion")
+                        self._last_directives.append(
+                            IssueDirective(
+                                issue_number=number,
+                                title=title,
+                                action="closed",
+                                reason="prana_exhaustion",
+                                issue_type=issue_type,
+                                prana=cell.prana,
+                            )
+                        )
                         logger.info("Auto-closed issue #%d (prana exhausted)", number)
                     del self._issue_cells[number]
                     self._issue_types.pop(number, None)
                 elif issue_type == IssueType.ITERATIVE:
                     actions.append(f"intent_needed:#{number}:low_prana")
+                    self._last_directives.append(
+                        IssueDirective(
+                            issue_number=number,
+                            title=title,
+                            action="intent_needed",
+                            reason="low_prana",
+                            issue_type=issue_type,
+                            prana=cell.prana,
+                        )
+                    )
                     logger.info("Iterative issue #%d low prana (%d)", number, cell.prana)
                 elif issue_type == IssueType.CONTRACT:
                     actions.append(f"contract_check:#{number}:audit_needed")
+                    self._last_directives.append(
+                        IssueDirective(
+                            issue_number=number,
+                            title=title,
+                            action="contract_check",
+                            reason="audit_needed",
+                            issue_type=issue_type,
+                            prana=cell.prana,
+                        )
+                    )
                     logger.info("Contract issue #%d needs audit (prana=%d)", number, cell.prana)
 
             elif ashrama == "vanaprastha":
                 # VANAPRASTHA: winding down → signal intent needed
                 if issue_type == IssueType.ITERATIVE:
                     actions.append(f"intent_needed:#{number}:low_prana")
+                    self._last_directives.append(
+                        IssueDirective(
+                            issue_number=number,
+                            title=title,
+                            action="intent_needed",
+                            reason="low_prana",
+                            issue_type=issue_type,
+                            prana=cell.prana,
+                        )
+                    )
                     logger.info("Iterative issue #%d low prana (%d)", number, cell.prana)
                 elif issue_type == IssueType.CONTRACT:
                     actions.append(f"contract_check:#{number}:audit_needed")
+                    self._last_directives.append(
+                        IssueDirective(
+                            issue_number=number,
+                            title=title,
+                            action="contract_check",
+                            reason="audit_needed",
+                            issue_type=issue_type,
+                            prana=cell.prana,
+                        )
+                    )
                     logger.info("Contract issue #%d needs audit (prana=%d)", number, cell.prana)
 
             else:
@@ -280,6 +356,16 @@ class CityIssueManager:
                         )
                         if close_result is not None:
                             actions.append(f"closed:#{number}:prana_exhaustion")
+                            self._last_directives.append(
+                                IssueDirective(
+                                    issue_number=number,
+                                    title=title,
+                                    action="closed",
+                                    reason="prana_exhaustion",
+                                    issue_type=issue_type,
+                                    prana=cell.prana,
+                                )
+                            )
                             logger.info("Auto-closed issue #%d (prana exhausted)", number)
                         del self._issue_cells[number]
                         self._issue_types.pop(number, None)
@@ -287,14 +373,88 @@ class CityIssueManager:
                 elif issue_type == IssueType.ITERATIVE:
                     if cell.prana < LOW_PRANA_THRESHOLD:
                         actions.append(f"intent_needed:#{number}:low_prana")
+                        self._last_directives.append(
+                            IssueDirective(
+                                issue_number=number,
+                                title=title,
+                                action="intent_needed",
+                                reason="low_prana",
+                                issue_type=issue_type,
+                                prana=cell.prana,
+                            )
+                        )
                         logger.info("Iterative issue #%d low prana (%d)", number, cell.prana)
 
                 elif issue_type == IssueType.CONTRACT:
                     if cell.prana < LOW_PRANA_THRESHOLD:
                         actions.append(f"contract_check:#{number}:audit_needed")
+                        self._last_directives.append(
+                            IssueDirective(
+                                issue_number=number,
+                                title=title,
+                                action="contract_check",
+                                reason="audit_needed",
+                                issue_type=issue_type,
+                                prana=cell.prana,
+                            )
+                        )
                         logger.info("Contract issue #%d needs audit (prana=%d)", number, cell.prana)
 
         return actions
+
+    @property
+    def directives(self) -> list[IssueDirective]:
+        """Structured directives from last metabolize_issues() call."""
+        return getattr(self, "_last_directives", [])
+
+    def bind_mission(self, issue_number: int, mission_id: str) -> IssueDirective | None:
+        """Bind a mission to an issue. Returns updated directive or None."""
+        for i, d in enumerate(self._last_directives):
+            if d.issue_number == issue_number:
+                bound = IssueDirective(
+                    issue_number=d.issue_number,
+                    title=d.title,
+                    action=d.action,
+                    reason=d.reason,
+                    issue_type=d.issue_type,
+                    prana=d.prana,
+                    mission_id=mission_id,
+                )
+                self._last_directives[i] = bound
+                self._bound_missions[issue_number] = mission_id
+                logger.info(
+                    "Bound mission %s to issue #%d",
+                    mission_id,
+                    issue_number,
+                )
+                return bound
+        return None
+
+    def resolve_issue(self, issue_number: int, mission_id: str) -> bool:
+        """Resolve an issue after its bound mission completes.
+
+        Returns True if the issue was successfully resolved.
+        """
+        expected = self._bound_missions.get(issue_number)
+        if expected is None:
+            logger.warning(
+                "resolve_issue #%d: no bound mission", issue_number
+            )
+            return False
+        if expected != mission_id:
+            logger.warning(
+                "resolve_issue #%d: mission mismatch (expected=%s, got=%s)",
+                issue_number,
+                expected,
+                mission_id,
+            )
+            return False
+
+        del self._bound_missions[issue_number]
+        logger.info(
+            "Issue #%d resolved by mission %s", issue_number, mission_id
+        )
+        return True
 
     def get_issue_health(self, issue_number: int) -> dict | None:
         """Get health metrics for an issue's cell."""

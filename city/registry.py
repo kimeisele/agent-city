@@ -34,6 +34,9 @@ SVC_IMMUNE = "immune"
 SVC_FEDERATION_NADI = "federation_nadi"
 SVC_IDENTITY = "identity"
 SVC_PRAHLAD = "prahlad"
+SVC_DAEMON = "daemon"
+SVC_PR_LIFECYCLE = "pr_lifecycle"
+SVC_CARTRIDGE_LOADER = "cartridge_loader"
 
 
 class CityServiceRegistry:
@@ -52,6 +55,11 @@ class CityServiceRegistry:
         """Register a service. Overwrites if already registered."""
         self._services[name] = instance
         logger.debug("Registered service: %s", name)
+
+    def register_all(self, services: dict[str, object]) -> None:
+        """Register multiple services at once."""
+        for name, instance in services.items():
+            self.register(name, instance)
 
     def get(self, name: str) -> object | None:
         """Get a service by name. Returns None if not registered."""

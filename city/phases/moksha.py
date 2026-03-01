@@ -71,6 +71,13 @@ def execute(ctx: PhaseContext) -> dict:
         if learning_stats:
             reflection["learning_stats"] = learning_stats
 
+    # Daemon metrics (if running in daemon mode)
+    from city.registry import SVC_DAEMON
+
+    daemon = ctx.registry.get(SVC_DAEMON)
+    if daemon is not None:
+        reflection["daemon_stats"] = daemon.stats()
+
     # Drain event buffer into reflection
     if ctx.recent_events:
         logger.info(
@@ -125,6 +132,18 @@ def execute(ctx: PhaseContext) -> dict:
     pr_results = _collect_pr_results(ctx)
     if pr_results:
         reflection["pr_results"] = pr_results
+
+    # PR Lifecycle: check CI status, auto-merge, close stale
+    from city.registry import SVC_PR_LIFECYCLE
+
+    pr_mgr = ctx.registry.get(SVC_PR_LIFECYCLE)
+    if pr_mgr is not None:
+        pr_changes = pr_mgr.check_all(ctx.heartbeat_count)
+        if pr_changes:
+            reflection["pr_lifecycle_changes"] = pr_changes
+        pr_stats = pr_mgr.stats()
+        if pr_stats.get("total_tracked", 0) > 0:
+            reflection["pr_lifecycle_stats"] = pr_stats
 
     # Issue lifecycle: close resolved issue missions
     if ctx.issues is not None and ctx.sankalpa is not None:
