@@ -104,6 +104,7 @@ class IntentExecutor:
     _cwd: Path
     _dry_run: bool = False
     _immune: object = None  # CityImmune (city.immune)
+    _identity_service: object = None  # IdentityService (city.identity_service)
 
     def execute_heal(self, contract_name: str, details: list[str]) -> FixResult:
         """Attempt to fix a failing contract.
@@ -361,12 +362,24 @@ class IntentExecutor:
             self._run_git(["push", "-u", "origin", branch])
 
             # 6. Create PR
+            # Build attestation signature if identity service is wired
+            attestation = ""
+            if self._identity_service is not None:
+                try:
+                    attest_payload = f"{fix.contract_name}:{commit_msg}:{heartbeat_count}".encode()
+                    sig = self._identity_service.sign_as_agent("mayor", attest_payload)
+                    if sig:
+                        attestation = f"\n\n**Attestation**: `{sig[:32]}...`"
+                except Exception:
+                    pass
+
             pr_body = (
                 f"## Auto-heal: {fix.contract_name}\n\n"
                 f"**Action**: {fix.action_taken}\n"
                 f"**Files changed**: {', '.join(fix.files_changed)}\n"
                 f"**Message**: {fix.message}\n\n"
                 f"Created by Mayor Agent during KARMA phase (heartbeat #{heartbeat_count})."
+                f"{attestation}"
             )
             pr_result = subprocess.run(
                 [

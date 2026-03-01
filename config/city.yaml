@@ -50,6 +50,13 @@ federation:
   report_log_max: 50
   report_log_trim: 25
 
+pr_lifecycle:
+  stale_heartbeats: 40
+  auto_merge: true
+
+services:
+  disabled: []
+
 network:
   message_log_limit: 1000
 
