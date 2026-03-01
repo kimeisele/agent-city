@@ -207,3 +207,123 @@ def test_update_operator_access(tmp_path):
     events = pdx.get_events("bot", limit=10)
     access_events = [e for e in events if e["event_type"] == "access_change"]
     assert len(access_events) >= 1
+
+
+# ── Tests: GitStateAuthority Operator Trace ──────────────────────────
+
+
+def _make_authority(tmp_path):
+    """Create a GitStateAuthority for isolated tests."""
+    from city.git_client import GitStateAuthority
+
+    config = {
+        "git": {
+            "runtime_patterns": ["data/*.db", "*.log"],
+            "security_patterns": ["**/*.pem", "secrets/"],
+            "protected_files": ["city/identity.py"],
+        }
+    }
+    return GitStateAuthority(workspace=tmp_path, config=config)
+
+
+def test_stage_accepts_operator_id(tmp_path):
+    """stage() should accept an optional operator_id for tracing."""
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.dev"], cwd=str(tmp_path), check=True, capture_output=True)
+
+    (tmp_path / "README.md").write_text("hello")
+    gsa = _make_authority(tmp_path)
+
+    # Must not raise — operator_id is optional
+    result = gsa.stage(["README.md"], operator_id="opus_3_cascade")
+    assert result is True
+
+
+def test_stage_rejects_observer_write(tmp_path):
+    """stage() should reject OBSERVER operators trying to write."""
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.dev"], cwd=str(tmp_path), check=True, capture_output=True)
+
+    (tmp_path / "README.md").write_text("hello")
+    gsa = _make_authority(tmp_path)
+
+    # OBSERVER cannot stage — access denied
+    result = gsa.stage(["README.md"], operator_id="reader", access_class="observer")
+    assert result is False
+
+
+def test_stage_allows_operator_write(tmp_path):
+    """stage() should allow OPERATOR access class to write."""
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.dev"], cwd=str(tmp_path), check=True, capture_output=True)
+
+    (tmp_path / "README.md").write_text("hello")
+    gsa = _make_authority(tmp_path)
+
+    result = gsa.stage(["README.md"], operator_id="writer", access_class="operator")
+    assert result is True
+
+
+def test_stage_rejects_operator_protected(tmp_path):
+    """stage() should reject OPERATOR trying to stage protected files."""
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.dev"], cwd=str(tmp_path), check=True, capture_output=True)
+
+    (tmp_path / "city").mkdir()
+    (tmp_path / "city" / "identity.py").write_text("# core")
+    gsa = _make_authority(tmp_path)
+
+    # OPERATOR cannot stage protected files
+    result = gsa.stage(["city/identity.py"], operator_id="normal_bot", access_class="operator")
+    assert result is False
+
+
+def test_stage_allows_steward_protected(tmp_path):
+    """stage() should allow STEWARD to stage protected files."""
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.dev"], cwd=str(tmp_path), check=True, capture_output=True)
+
+    (tmp_path / "city").mkdir()
+    (tmp_path / "city" / "identity.py").write_text("# core")
+    gsa = _make_authority(tmp_path)
+
+    result = gsa.stage(["city/identity.py"], operator_id="steward_bot", access_class="steward")
+    assert result is True
+
+
+def test_commit_includes_operator_trailer(tmp_path):
+    """commit() should include Operator-Id trailer when operator_id is provided."""
+    import subprocess
+
+    subprocess.run(["git", "init"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(tmp_path), check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.dev"], cwd=str(tmp_path), check=True, capture_output=True)
+
+    (tmp_path / "README.md").write_text("hello")
+    gsa = _make_authority(tmp_path)
+
+    gsa.stage(["README.md"])
+    result = gsa.commit("test commit", operator_id="opus_3_cascade")
+    assert result is True
+
+    # Check commit message contains operator trace
+    log = subprocess.run(
+        ["git", "log", "-1", "--format=%B"],
+        cwd=str(tmp_path), capture_output=True, text=True,
+    )
+    assert "Operator-Id: opus_3_cascade" in log.stdout

@@ -222,8 +222,42 @@ class GitStateAuthority(VajraGuarded):
         except subprocess.CalledProcessError:
             return False
 
-    def stage(self, paths: List[str]) -> bool:
-        """Stage paths, rejecting any runtime/security files."""
+    def stage(
+        self,
+        paths: List[str],
+        operator_id: Optional[str] = None,
+        access_class: Optional[str] = None,
+    ) -> bool:
+        """Stage paths, rejecting any runtime/security files.
+
+        If access_class is provided, enforces AccessClass permissions:
+          - OBSERVER cannot stage anything
+          - OPERATOR can stage code files but NOT protected files
+          - STEWARD/SOVEREIGN can stage all non-blocked files
+        """
+        # Access class enforcement
+        if access_class is not None:
+            from city.access import AccessClass
+            try:
+                ac = AccessClass(access_class)
+            except ValueError:
+                logger.error("GitStateAuthority: Unknown access_class '%s'", access_class)
+                return False
+            if not ac.can_write:
+                logger.error(
+                    "GitStateAuthority: BLOCKED — operator '%s' (access=%s) cannot write",
+                    operator_id or "unknown", access_class,
+                )
+                return False
+            if not ac.can_modify_protected:
+                protected_in_paths = [p for p in paths if self.classify(p) == "protected"]
+                if protected_in_paths:
+                    logger.error(
+                        "GitStateAuthority: BLOCKED — operator '%s' (access=%s) cannot modify protected: %s",
+                        operator_id or "unknown", access_class, protected_in_paths,
+                    )
+                    return False
+
         blocked = [p for p in paths if self.is_blocked(p)]
         if blocked:
             logger.error("GitStateAuthority: BLOCKED staging of runtime/security files: %s", blocked)
@@ -237,13 +271,25 @@ class GitStateAuthority(VajraGuarded):
                 cwd=str(self._workspace),
                 check=True,
             )
+            if operator_id:
+                logger.info("GitStateAuthority: Staged %d file(s) by operator '%s'", len(safe), operator_id)
             return True
         except subprocess.CalledProcessError as e:
             logger.error("Failed to stage files: %s", e)
             return False
 
-    def commit(self, message: str, paths: Optional[List[str]] = None, force_unsigned: bool = False) -> bool:
-        """Commit with governance: verify protected integrity, block runtime, GPG if available."""
+    def commit(
+        self,
+        message: str,
+        paths: Optional[List[str]] = None,
+        force_unsigned: bool = False,
+        operator_id: Optional[str] = None,
+    ) -> bool:
+        """Commit with governance: verify protected integrity, block runtime, GPG if available.
+
+        If operator_id is provided, appends an Operator-Id trailer to the
+        commit message for end-to-end traceability.
+        """
         if paths:
             if not self.stage(paths):
                 return False
@@ -257,7 +303,12 @@ class GitStateAuthority(VajraGuarded):
             logger.error("GitStateAuthority: COMMIT BLOCKED — protected file integrity violated: %s", violations)
             return False
 
-        cmd = ["git", "commit", "-m", message]
+        # Append operator trace as git trailer
+        commit_msg = message
+        if operator_id:
+            commit_msg = f"{message}\n\nOperator-Id: {operator_id}"
+
+        cmd = ["git", "commit", "-m", commit_msg]
         if self._gpg_available and not force_unsigned:
             cmd.append("-S")
 
@@ -267,7 +318,8 @@ class GitStateAuthority(VajraGuarded):
                 cwd=str(self._workspace),
                 capture_output=True, text=True, check=True,
             )
-            logger.info("GitStateAuthority: Committed '%s'", message)
+            logger.info("GitStateAuthority: Committed '%s'%s", message,
+                        f" (operator: {operator_id})" if operator_id else "")
             return True
         except subprocess.CalledProcessError as e:
             logger.error("GitStateAuthority: Commit failed: %s", e.stderr)
