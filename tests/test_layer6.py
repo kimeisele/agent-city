@@ -979,7 +979,7 @@ def test_city_report_includes_real_mission_outcomes():
         mayor, pokedex, relay, sankalpa, council, _ = _make_mayor_full_stack(tmp)
 
         # Simulate some missions with results (as if KARMA executed them)
-        from dataclasses import dataclass, field as dc_field
+        from dataclasses import dataclass
         from enum import Enum
 
         # Mock mission objects that look like real SankalpaMission
@@ -1069,7 +1069,7 @@ def test_moltbook_post_includes_mission_outcomes():
         assert bridge is not None
 
         # Add a completed federation mission
-        from dataclasses import dataclass, field as dc_field
+        from dataclasses import dataclass
         from enum import Enum
 
         class MockStatus(str, Enum):

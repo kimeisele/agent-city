@@ -1,5 +1,4 @@
-import pytest
-from city.jiva import Jiva, JivaSeed, derive_jiva
+from city.jiva import derive_jiva
 from city.identity import generate_identity, verify_ownership
 
 

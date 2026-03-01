@@ -1,8 +1,5 @@
-import pytest
 import threading
-import time
 from city.pokedex import Pokedex
-from city.jiva import derive_jiva
 
 def test_pokedex_concurrency(tmp_path):
     """Stress test: Parallel agent registration should not crash or corrupt the DB."""
