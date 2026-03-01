@@ -1,0 +1,49 @@
+{
+  "heartbeat": 179,
+  "timestamp": 1772392151.4305758,
+  "population": 0,
+  "alive": 0,
+  "dead": 0,
+  "elected_mayor": null,
+  "council_seats": 0,
+  "open_proposals": 0,
+  "chain_valid": true,
+  "recent_actions": [],
+  "contract_status": {
+    "total": 4,
+    "passing": 2,
+    "failing": 2
+  },
+  "mission_results": [
+    {
+      "id": "mission_code_health",
+      "name": "Maintain Code Health",
+      "status": "active",
+      "owner": "dharma",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_133",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_83",
+      "name": "Audit: DriftAuditor.protocols",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "CRITICAL"
+    },
+    {
+      "id": "heal_ruff_clean_137",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    }
+  ],
+  "directive_acks": [],
+  "pr_results": []
+}
