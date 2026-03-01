@@ -245,3 +245,40 @@ def test_sanjivani_dose_is_mahamantra_derived():
     """SANJIVANI_DOSE must be MALA × TEN = 1080."""
     from vibe_core.mahamantra.protocols import MALA, TEN
     assert SANJIVANI_DOSE == MALA * TEN
+
+
+# ── Worker-Visa Stipendium ───────────────────────────────────────────
+
+
+def test_register_with_grant_override(tmp_path):
+    """register(grant_override=36) gives reduced grant for worker visas."""
+    from city.seed_constants import WORKER_VISA_STIPEND
+
+    pkdx = _make_pokedex(tmp_path)
+    agent = pkdx.register("worker-agent", grant_override=WORKER_VISA_STIPEND)
+    assert agent["status"] == "citizen"
+
+    # Verify the bank balance reflects the reduced grant minus zone tax
+    balance = pkdx._bank.get_balance("worker-agent")
+    expected = WORKER_VISA_STIPEND - (WORKER_VISA_STIPEND // 10)
+    assert balance == expected
+
+
+def test_register_default_grant(tmp_path):
+    """register() without grant_override uses full GENESIS_GRANT."""
+    from city.pokedex import GENESIS_GRANT
+
+    pkdx = _make_pokedex(tmp_path)
+    agent = pkdx.register("full-citizen")
+    assert agent["status"] == "citizen"
+
+    balance = pkdx._bank.get_balance("full-citizen")
+    expected = GENESIS_GRANT - (GENESIS_GRANT // 10)
+    assert balance == expected
+
+
+def test_worker_visa_stipend_is_mahamantra_derived():
+    """WORKER_VISA_STIPEND must be MALA / TRINITY = 36."""
+    from city.seed_constants import WORKER_VISA_STIPEND
+    from vibe_core.mahamantra.protocols import MALA, TRINITY
+    assert WORKER_VISA_STIPEND == MALA // TRINITY

@@ -374,13 +374,23 @@ class Pokedex:
         )
         self._record_event(name, "discover", None, "discovered", json.dumps(moltbook_profile or {}))
 
-    def register(self, name: str, moltbook_profile: dict | None = None) -> dict:
+    def register(
+        self,
+        name: str,
+        moltbook_profile: dict | None = None,
+        grant_override: int | None = None,
+    ) -> dict:
         """Full citizenship: Jiva + Identity + Wallet + Oath.
 
         If agent is already discovered, upgrades to citizen.
         If new, discovers first then registers.
         Thread-safe: entire registration path is serialized.
         Mahamantra VM is not thread-safe — derivation must be serialized.
+
+        Args:
+            grant_override: If set, use this instead of GENESIS_GRANT.
+                Used for Worker-Visa stipend (WORKER_VISA_STIPEND = 36)
+                so temporary agents survive their probation period.
         """
         with self._lock:
             existing = self.get(name)
@@ -393,7 +403,6 @@ class Pokedex:
             oath_signature = identity.sign(self._constitution_hash.encode())
             zone = jiva.classification.zone
             zone_account = ZONE_TREASURIES.get(zone, "ZONE_DISCOVERY")
-            zone_tax = GENESIS_GRANT // 10
             now = datetime.now(timezone.utc).isoformat()
 
             # Ensure discovered first
@@ -401,7 +410,9 @@ class Pokedex:
                 self._discover_locked(name, jiva, moltbook_profile, now)
 
             # Bank operations (atomic with rest of registration)
-            self._bank.transfer("MINT", name, GENESIS_GRANT, "citizenship_grant", "minting")
+            effective_grant = grant_override if grant_override is not None else GENESIS_GRANT
+            self._bank.transfer("MINT", name, effective_grant, "citizenship_grant", "minting")
+            zone_tax = effective_grant // 10
             self._bank.transfer(name, zone_account, zone_tax, "zone_tax", "tax")
 
             # Upgrade to citizen
@@ -451,7 +462,7 @@ class Pokedex:
                     {
                         "fingerprint": identity.fingerprint,
                         "oath_hash": self._constitution_hash[:16],
-                        "genesis_grant": GENESIS_GRANT,
+                        "genesis_grant": effective_grant,
                         "zone": zone,
                         "zone_tax": zone_tax,
                         "passport_signature": passport["passport_signature"][:32],
