@@ -64,11 +64,20 @@ def execute(ctx: PhaseContext) -> dict:
         if immune_stats:
             reflection["immune_stats"] = immune_stats
 
-    # Hebbian learning: flush weights + stats
+    # Hebbian learning: decay → trim → flush weights + stats
     if ctx.learning is not None:
+        autonomy_cfg = get_config().get("autonomy", {})
+        decay_factor = autonomy_cfg.get("decay_factor", 0.01)
+        max_entries = autonomy_cfg.get("max_synapse_entries", 500)
+
+        decayed = ctx.learning.decay(decay_factor)
+        trimmed = ctx.learning.trim(max_entries)
         ctx.learning.flush()
+
         learning_stats = ctx.learning.stats()
         if learning_stats:
+            learning_stats["decayed"] = decayed
+            learning_stats["trimmed"] = trimmed
             reflection["learning_stats"] = learning_stats
 
     # Daemon metrics (if running in daemon mode)
@@ -121,6 +130,26 @@ def execute(ctx: PhaseContext) -> dict:
                     _submit_reflection_proposal(ctx, proposal)
                 reflection["insights"] = len(insights)
                 reflection["proposal"] = proposal.title if proposal else None
+
+                # Bridge: Reflection insights → Hebbian synapses
+                if ctx.learning is not None:
+                    for insight in insights:
+                        insight_type = getattr(insight, "type", "")
+                        insight_msg = getattr(insight, "message", "")[:40]
+                        if insight_type == "failure_pattern":
+                            ctx.learning.record_outcome(
+                                f"pattern:{insight_msg}",
+                                "repeat",
+                                success=False,
+                            )
+                        elif insight_type == "performance":
+                            ctx.learning.record_outcome(
+                                f"pattern:{insight_msg}",
+                                "optimize",
+                                success=True,
+                            )
+                    reflection["synapse_bridge_updates"] = len(insights)
+
             reflection["reflection_stats"] = {
                 "executions_analyzed": ctx.reflection.get_stats().executions_analyzed,
                 "insights_generated": ctx.reflection.get_stats().insights_generated,
@@ -194,6 +223,17 @@ def execute(ctx: PhaseContext) -> dict:
     mkt_stats = ctx.pokedex.marketplace_stats()
     if mkt_stats.get("active_orders", 0) > 0 or mkt_stats.get("total_filled", 0) > 0:
         reflection["marketplace"] = mkt_stats
+
+    # Governance stats (Phase 8)
+    if ctx.council is not None:
+        gov_stats = {
+            "council_members": ctx.council.member_count,
+            "elected_mayor": ctx.council.elected_mayor,
+            "open_proposals": len(ctx.council.get_open_proposals()),
+            "market_frozen": ctx.council.is_market_frozen,
+            "effective_commission": ctx.council.effective_commission,
+        }
+        reflection["governance"] = gov_stats
 
     # Evaluate dormant agents for treasury-funded revival
     revival_results = _evaluate_dormant_revival(ctx)
@@ -467,6 +507,7 @@ def _submit_reflection_proposal(ctx: PhaseContext, proposal: object) -> None:
         proposal_type=ProposalType.POLICY,
         action={"type": "improve", "proposal_id": proposal.id},
         timestamp=time.time(),
+        heartbeat=ctx.heartbeat_count,
     )
 
 

@@ -166,22 +166,36 @@ class TestCartridgeFactory(unittest.TestCase):
         self.assertEqual(QUARTER_TO_DOMAIN["moksha"], "RESEARCH")
 
     def test_generated_process(self):
-        """Generated agent's process() returns enriched result."""
+        """Generated agent's process() returns enriched result.
+
+        When buddhi is available, returns cognitive action (status=cognized).
+        When not, returns full spec echo (status=processed, backward compat).
+        """
         data = _agent_data("bob", quarter="moksha", guardian="shuka", element="akasha", guna="SATTVA")
         factory, _ = self._make_factory({"bob": data})
 
         agent = factory.generate("bob")
         result = agent.process("analyze this")
 
+        # Common fields (both paths)
         self.assertEqual(result["agent"], "bob")
         self.assertEqual(result["domain"], "RESEARCH")
-        self.assertEqual(result["guna"], "SATTVA")
-        self.assertEqual(result["guardian"], "shuka")
-        self.assertEqual(result["role"], "Vision, observation, logging")
-        self.assertEqual(result["capability_protocol"], "enforce")
-        self.assertIn("parallel", result["qos"])
         self.assertEqual(result["input"], "analyze this")
-        self.assertEqual(result["status"], "processed")
+        self.assertIn(result["status"], ("processed", "cognized"))
+
+        if result["status"] == "cognized":
+            # Cognitive path: buddhi available
+            self.assertIn("function", result)
+            self.assertIn("composed", result)
+            self.assertIn("prana", result)
+            self.assertEqual(result["capability_protocol"], "enforce")
+        else:
+            # Fallback path: no buddhi
+            self.assertEqual(result["guna"], "SATTVA")
+            self.assertEqual(result["guardian"], "shuka")
+            self.assertEqual(result["role"], "Vision, observation, logging")
+            self.assertEqual(result["capability_protocol"], "enforce")
+            self.assertIn("parallel", result["qos"])
 
     def test_caching(self):
         """generate() returns cached instance on second call."""

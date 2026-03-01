@@ -83,6 +83,11 @@ EARLY_CITIZEN_THRESHOLD: int = MALA  # first 108 citizens get the bonus
 TRADE_COMMISSION_PERCENT: int = SHARANAGATI  # 6% of trade price → zone treasury
 ORDER_EXPIRY_HEARTBEATS: int = MALA  # 108 heartbeats before order auto-expires
 
+# ── Governance ───────────────────────────────────────────────────────
+
+PROPOSAL_EXPIRY_HEARTBEATS: int = MALA  # 108 heartbeats before proposals auto-expire
+MAX_COMMISSION_PERCENT: int = TRINITY * SHARANAGATI  # 3 × 6 = 18% cap on trade commission
+
 # ── Prana Class Resolution ────────────────────────────────────────────
 
 # Ordered thresholds: if prana >= threshold → class
@@ -129,3 +134,5 @@ assert EARLY_CITIZEN_BONUS == 9, f"early bonus {EARLY_CITIZEN_BONUS} != 9"
 assert EARLY_CITIZEN_THRESHOLD == 108, f"early threshold {EARLY_CITIZEN_THRESHOLD} != 108"
 assert TRADE_COMMISSION_PERCENT == 6, f"trade commission {TRADE_COMMISSION_PERCENT} != 6"
 assert ORDER_EXPIRY_HEARTBEATS == 108, f"order expiry {ORDER_EXPIRY_HEARTBEATS} != 108"
+assert PROPOSAL_EXPIRY_HEARTBEATS == 108, f"proposal expiry {PROPOSAL_EXPIRY_HEARTBEATS} != 108"
+assert MAX_COMMISSION_PERCENT == 18, f"max commission {MAX_COMMISSION_PERCENT} != 18"

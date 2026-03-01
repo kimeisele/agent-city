@@ -79,6 +79,12 @@ gh_rate:
   max_per_minute: 30
   gajendra_check_interval: 10
 
+autonomy:
+  max_actions_per_cycle: 3
+  min_confidence: 0.2
+  decay_factor: 0.01
+  max_synapse_entries: 500
+
 services:
   disabled: []
 

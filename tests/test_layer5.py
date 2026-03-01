@@ -152,8 +152,12 @@ def test_proposal_guardian_routing():
         heartbeat_count=0,
     )
     p = council.propose(
-        "Protect the treasury from attackers", "...", "M",
-        ProposalType.POLICY, {}, time.time(),
+        "Protect the treasury from attackers",
+        "...",
+        "M",
+        ProposalType.POLICY,
+        {},
+        time.time(),
     )
     assert p is not None
     # Guardian routing ran (may or may not have a result depending on import)
@@ -161,18 +165,24 @@ def test_proposal_guardian_routing():
 
 
 def test_vote_pass():
-    """Proposal passes when yes votes exceed threshold."""
+    """Proposal passes when yes votes exceed threshold.
+
+    V0 is mayor (highest prana) and votes YES — mayor's 3x weight
+    ensures YES dominates even with V2 voting NO.
+    """
     from city.council import CityCouncil, ProposalStatus, ProposalType, VoteChoice
 
     council = CityCouncil()
     members = [
-        {"name": f"V{i}", "prana": 5000 + i * 100, "guardian": "brahma", "position": i}
+        {"name": f"V{i}", "prana": 5200 - i * 100, "guardian": "brahma", "position": i}
         for i in range(3)
     ]
     council.run_election(members, heartbeat_count=0)
     p = council.propose("Test", "D", "V0", ProposalType.POLICY, {"type": "test"}, time.time())
     assert p is not None
 
+    # V0 is mayor (highest prana): YES 5000 → effective 15000 (3x)
+    # V1: YES 5100, V2: NO 5200 → YES total 20100 vs NO 5200 → passes
     council.vote(p.id, "V0", VoteChoice.YES, 5000)
     council.vote(p.id, "V1", VoteChoice.YES, 5100)
     council.vote(p.id, "V2", VoteChoice.NO, 5200)
@@ -189,8 +199,7 @@ def test_vote_reject():
 
     council = CityCouncil()
     members = [
-        {"name": f"V{i}", "prana": 5000, "guardian": "brahma", "position": i}
-        for i in range(3)
+        {"name": f"V{i}", "prana": 5000, "guardian": "brahma", "position": i} for i in range(3)
     ]
     council.run_election(members, heartbeat_count=0)
     p = council.propose("Bad idea", "D", "V0", ProposalType.POLICY, {}, time.time())
@@ -221,24 +230,34 @@ def test_no_double_vote():
 
 
 def test_supermajority_threshold():
-    """Constitutional proposals require >67% to pass."""
+    """Constitutional proposals require >67% to pass.
+
+    V0 is mayor (name tiebreak on equal prana). V0 YES gets 3x weight.
+    V2 NO with 10000 prana ensures ratio = 20000/30000 = 0.6667 ≤ 0.67 → REJECTED.
+    """
     from city.council import CityCouncil, ProposalStatus, ProposalType, VoteChoice
 
     council = CityCouncil()
     members = [
-        {"name": f"V{i}", "prana": 5000, "guardian": "brahma", "position": i}
-        for i in range(3)
+        {"name": f"V{i}", "prana": 5000, "guardian": "brahma", "position": i} for i in range(3)
     ]
     council.run_election(members, heartbeat_count=0)
     p = council.propose(
-        "Constitution change", "D", "V0", ProposalType.CONSTITUTIONAL, {}, time.time(),
+        "Constitution change",
+        "D",
+        "V0",
+        ProposalType.CONSTITUTIONAL,
+        {},
+        time.time(),
     )
     assert p is not None
 
-    # 2/3 = 0.666... which is NOT > 0.67 → REJECTED
+    # V0 (mayor) YES 5000 → effective 15000 (3x)
+    # V1 YES 5000, V2 NO 10000
+    # Total: YES=20000, NO=10000 → ratio=0.6667 NOT > 0.67 → REJECTED
     council.vote(p.id, "V0", VoteChoice.YES, 5000)
     council.vote(p.id, "V1", VoteChoice.YES, 5000)
-    council.vote(p.id, "V2", VoteChoice.NO, 5000)
+    council.vote(p.id, "V2", VoteChoice.NO, 10000)
 
     result = council.tally(p.id)
     assert result is not None
@@ -436,16 +455,18 @@ def test_contract_failure_creates_proposal():
 
     # Fake contract that always fails
     registry = ContractRegistry()
-    registry.register(QualityContract(
-        name="test_contract",
-        description="Always fails",
-        check=lambda _cwd: ContractResult(
+    registry.register(
+        QualityContract(
             name="test_contract",
-            status=ContractStatus.FAILING,
-            message="broken",
-            details=["line1"],
-        ),
-    ))
+            description="Always fails",
+            check=lambda _cwd: ContractResult(
+                name="test_contract",
+                status=ContractStatus.FAILING,
+                message="broken",
+                details=["line1"],
+            ),
+        )
+    )
     mayor._contracts = registry
 
     # GENESIS (seed) + DHARMA (election + contract check → proposal)
@@ -477,16 +498,18 @@ def test_auto_vote_and_execute():
 
     # Failing contract to generate a proposal
     registry = ContractRegistry()
-    registry.register(QualityContract(
-        name="test_heal",
-        description="Always fails",
-        check=lambda _cwd: ContractResult(
+    registry.register(
+        QualityContract(
             name="test_heal",
-            status=ContractStatus.FAILING,
-            message="needs fix",
-            details=[],
-        ),
-    ))
+            description="Always fails",
+            check=lambda _cwd: ContractResult(
+                name="test_heal",
+                status=ContractStatus.FAILING,
+                message="needs fix",
+                details=[],
+            ),
+        )
+    )
     mayor._contracts = registry
     mayor._executor = IntentExecutor(_cwd=tmpdir, _dry_run=True)
 
@@ -523,9 +546,13 @@ def test_full_feedback_loop():
     tmpdir = Path(tempfile.mkdtemp())
 
     # Write a census file so GENESIS seeds agents
-    census = {"agents": [
-        {"name": "Ronin"}, {"name": "Hazel_OC"}, {"name": "Clawd-Relay"},
-    ]}
+    census = {
+        "agents": [
+            {"name": "Ronin"},
+            {"name": "Hazel_OC"},
+            {"name": "Clawd-Relay"},
+        ]
+    }
     (tmpdir / "pokedex.json").write_text(json.dumps(census))
 
     mayor, pdx = _make_mayor(tmpdir)
@@ -535,6 +562,7 @@ def test_full_feedback_loop():
 
     # A contract that fails
     heal_count = {"n": 0}
+
     def fake_check(_cwd):
         heal_count["n"] += 1
         return ContractResult(
@@ -545,11 +573,13 @@ def test_full_feedback_loop():
         )
 
     registry = ContractRegistry()
-    registry.register(QualityContract(
-        name="code_quality",
-        description="Lint check",
-        check=fake_check,
-    ))
+    registry.register(
+        QualityContract(
+            name="code_quality",
+            description="Lint check",
+            check=fake_check,
+        )
+    )
     mayor._contracts = registry
     mayor._executor = IntentExecutor(_cwd=tmpdir, _dry_run=True)
 

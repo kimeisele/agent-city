@@ -89,7 +89,10 @@ def execute(ctx: PhaseContext) -> list[str]:
             actions.append(f"pain:{intent.signal}:{intent.priority}")
             logger.warning(
                 "DHARMA PAIN: %s (priority=%s, handler=%s, ctx=%s)",
-                intent.signal, intent.priority, handler, intent.context,
+                intent.signal,
+                intent.priority,
+                handler,
+                intent.context,
             )
 
     # Layer 5: Council Election (before contracts, so proposals have a council)
@@ -104,6 +107,31 @@ def execute(ctx: PhaseContext) -> list[str]:
                 if result["elected_mayor"]:
                     actions.append(f"election:mayor={result['elected_mayor']}")
                 actions.append(f"election:seats={len(result['council_seats'])}")
+
+                # Council compensation (idempotent per election heartbeat)
+                from city.seed_constants import WORKER_VISA_STIPEND
+
+                stipend_key = f"_stipend_paid_{ctx.heartbeat_count}"
+                if not getattr(ctx.council, stipend_key, False):
+                    for _seat_idx, member_name in result["council_seats"].items():
+                        try:
+                            ctx.pokedex._bank.transfer(
+                                "MINT",
+                                member_name,
+                                WORKER_VISA_STIPEND,
+                                "council_stipend",
+                                "governance",
+                            )
+                            actions.append(
+                                f"council_stipend:{member_name}:{WORKER_VISA_STIPEND}",
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "DHARMA: Stipend failed for %s: %s",
+                                member_name,
+                                e,
+                            )
+                    setattr(ctx.council, stipend_key, True)
 
     # Cognition: constraint checking via KnowledgeGraph
     if ctx.knowledge_graph is not None:
@@ -120,6 +148,12 @@ def execute(ctx: PhaseContext) -> list[str]:
         for v in violations:
             actions.append(f"constraint_violated:{v}")
             logger.warning("DHARMA: Constraint violated — %s", v)
+
+    # Expire stale proposals (Phase 8)
+    if ctx.council is not None:
+        expired = ctx.council.expire_proposals(ctx.heartbeat_count)
+        if expired:
+            actions.append(f"proposals_expired:{expired}")
 
     # Layer 3: Quality Contracts
     if ctx.contracts is not None:
@@ -256,6 +290,7 @@ def _submit_contract_proposal(ctx: PhaseContext, contract_result: object) -> Non
             "params": {"details": contract_result.details},
         },
         timestamp=time.time(),
+        heartbeat=ctx.heartbeat_count,
     )
 
 

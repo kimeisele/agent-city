@@ -185,6 +185,7 @@ class TestAutoMatching(unittest.TestCase):
         ctx.active_agents = active_agents or set()
         ctx.sankalpa = None
         ctx.learning = None
+        ctx.council = None  # No governance freeze
         return ctx
 
     def test_auto_list_surplus(self):

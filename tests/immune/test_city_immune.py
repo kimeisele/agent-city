@@ -122,6 +122,9 @@ def test_city_immune_null_fallback():
     immune._available = False
     immune._heals_attempted = 0
     immune._heals_succeeded = 0
+    immune._heals_rolled_back = 0
+    from city.immune import CytokineBreaker
+    immune._breaker = CytokineBreaker()
 
     assert immune.available is False
     assert immune.list_remedies() == []

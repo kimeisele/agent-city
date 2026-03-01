@@ -1515,11 +1515,18 @@ class Pokedex:
         )
         return order_id
 
-    def fill_order(self, order_id: int, buyer: str, heartbeat: int) -> dict | None:
+    def fill_order(
+        self,
+        order_id: int,
+        buyer: str,
+        heartbeat: int,
+        commission_pct: int | None = None,
+    ) -> dict | None:
         """Execute a trade: buyer pays prana, receives asset.
 
         Returns trade receipt dict or None on failure.
         Commission goes to seller's zone treasury.
+        If commission_pct is provided, uses that instead of the default constant.
 
         Transaction safety: SQLite staged first, bank transfer attempted,
         SQLite committed only if bank succeeds. Rollback on bank failure.
@@ -1549,8 +1556,11 @@ class Pokedex:
             if buyer_balance < price:
                 return None
 
-            # Calculate commission
-            commission = (price * TRADE_COMMISSION_PERCENT) // 100
+            # Calculate commission (council override or default constant)
+            effective_rate = (
+                commission_pct if commission_pct is not None else TRADE_COMMISSION_PERCENT
+            )
+            commission = (price * effective_rate) // 100
             seller_receives = price - commission
 
             # Zone treasury for commission (fallback to ZONE_DISCOVERY)

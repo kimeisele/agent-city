@@ -325,9 +325,11 @@ def test_exec_mission_processed_in_karma():
 
         ctx = _make_ctx(tmp, sankalpa=mock_sankalpa, executor=mock_executor)
 
-        from city.phases.karma import _process_issue_missions
+        from city.phases.karma import _process_issue_missions, _get_all_specs, _get_all_inventories
         operations: list[str] = []
-        _process_issue_missions(ctx, operations)
+        all_specs = _get_all_specs(ctx)
+        all_inventories = _get_all_inventories(ctx)
+        _process_issue_missions(ctx, operations, all_specs, all_inventories)
 
         assert any("exec_mission:exec_dir_42_10:success" in op for op in operations)
         mock_executor.execute_heal.assert_called_once()

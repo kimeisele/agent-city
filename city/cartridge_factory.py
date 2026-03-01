@@ -31,22 +31,57 @@ def _make_agent_class(spec: dict) -> object:
     """
 
     def _process(self, task):
+        """Run neuro-symbolic cognitive pipeline. Zero LLM."""
         action = task if isinstance(task, str) else getattr(task, "description", str(task))
+
+        try:
+            from vibe_core.mahamantra.substrate.buddhi import get_buddhi
+
+            buddhi = get_buddhi()
+            cognition = buddhi.think(action)
+        except Exception:
+            # No buddhi available → return full spec (backward compat)
+            return {
+                "agent": self.name,
+                "domain": self.domain,
+                "capabilities": self.capabilities,
+                "style": self.style,
+                "guna": self.guna,
+                "guardian": self.guardian,
+                "role": self.role,
+                "opcode": self.opcode,
+                "capability_protocol": self.capability_protocol,
+                "qos": self.qos,
+                "chapter": self.chapter,
+                "capability_tier": self.capability_tier,
+                "input": action,
+                "status": "processed",
+            }
+
+        # Map cognition → action intent
         return {
             "agent": self.name,
-            "domain": self.domain,
+            "status": "cognized",
+            "input": action,
+            # Cognitive frame
+            "function": cognition.function,
+            "approach": cognition.approach,
+            "mode": cognition.mode,
+            "chapter": cognition.chapter,
+            "prana": cognition.prana,
+            "integrity": cognition.integrity,
+            "is_alive": cognition.is_alive,
+            "composed": cognition.composed,
+            # Agent identity (for action selection)
             "capabilities": self.capabilities,
-            "style": self.style,
+            "domain": self.domain,
             "guna": self.guna,
             "guardian": self.guardian,
             "role": self.role,
             "opcode": self.opcode,
             "capability_protocol": self.capability_protocol,
-            "qos": self.qos,
-            "chapter": self.chapter,
             "capability_tier": self.capability_tier,
-            "input": action,
-            "status": "processed",
+            "qos": self.qos,
         }
 
     def _repr(self):

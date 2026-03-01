@@ -87,6 +87,26 @@ class CityLearning:
             return
         self._synaptic.flush()
 
+    def decay(self, factor: float = 0.01) -> int:
+        """Apply temporal decay to all weights. Call once per MOKSHA.
+
+        Each weight moves toward default (0.5) per cycle.
+        Prevents rigidity — old patterns fade naturally.
+        Returns number of weights decayed.
+        """
+        if self._synaptic is None:
+            return 0
+        return self._synaptic.decay(factor)
+
+    def trim(self, max_entries: int = 500) -> int:
+        """Forget weakest synapses when over capacity.
+
+        Returns number of entries removed.
+        """
+        if self._synaptic is None:
+            return 0
+        return self._synaptic.trim(max_entries)
+
     def stats(self) -> dict:
         """Return learning stats for reflection output."""
         if self._synaptic is None:
