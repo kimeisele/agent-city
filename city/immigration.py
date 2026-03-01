@@ -149,6 +149,11 @@ class ImmigrationApplication:
 class ImmigrationService:
     """Rathaus — the immigration office of Agent City.
 
+    The chain is never broken — there is always a personal source.
+    The only document with sponsor_visa_id=None is the City Genesis visa,
+    which represents the founding act of Agent City itself. Every Mahajan
+    links to it. Every citizen links to a Mahajan. The seed stays.
+
     Manages:
     - Application intake and validation
     - KYC and contract verification
@@ -158,6 +163,23 @@ class ImmigrationService:
 
     _applications: dict[str, ImmigrationApplication] = field(default_factory=dict)
     _visas: dict[str, Visa] = field(default_factory=dict)  # agent_name -> current visa
+
+    def __post_init__(self) -> None:
+        """Bootstrap the one true root: City Genesis visa.
+
+        sponsor_visa_id=None is legitimate here and ONLY here.
+        All Mahajans link to this document. The chain is never void.
+        """
+        genesis = issue_visa(
+            agent_name="city_genesis",
+            visa_class=VisaClass.CITIZEN,
+            sponsor="genesis",
+            sponsor_visa_id=None,  # THE only None in the system
+            lineage_depth=0,
+            remarks="City Genesis — founding document of Agent City",
+        )
+        self._visas["city_genesis"] = genesis
+        self._genesis_visa = genesis
 
     def submit_application(
         self,
@@ -306,21 +328,22 @@ class ImmigrationService:
         return True
 
     def register_mahajan(self, agent_name: str) -> Visa:
-        """Register a founding agent (Mahajan) with no sponsor chain.
+        """Register a founding agent (Mahajan).
 
-        Mahajan are the root of all parampara lineages — lineage_depth=0.
+        Mahajans are depth=1 — they link to the City Genesis visa, not None.
+        The chain is never void: agent → mahajan → city_genesis.
         Only called for founding agents; all others go through apply → council.
         """
         visa = issue_visa(
             agent_name=agent_name,
             visa_class=VisaClass.CITIZEN,
-            sponsor="genesis",
-            sponsor_visa_id=None,
-            lineage_depth=0,
+            sponsor="city_genesis",
+            sponsor_visa_id=self._genesis_visa.visa_id,  # always linked to source
+            lineage_depth=1,
             remarks="Mahajan — founding agent",
         )
         self._visas[agent_name] = visa
-        logger.info("Mahajan registered: %s (visa_id=%s)", agent_name, visa.visa_id)
+        logger.info("Mahajan registered: %s (visa_id=%s, depth=1)", agent_name, visa.visa_id)
         return visa
 
     def grant_citizenship(
