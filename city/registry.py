@@ -37,6 +37,12 @@ SVC_PRAHLAD = "prahlad"
 SVC_DAEMON = "daemon"
 SVC_PR_LIFECYCLE = "pr_lifecycle"
 SVC_CARTRIDGE_LOADER = "cartridge_loader"
+SVC_CARTRIDGE_FACTORY = "cartridge_factory"
+SVC_CITY_BUILDER = "city_builder"
+SVC_CLAIMS = "claims"
+SVC_SPAWNER = "spawner"
+SVC_ATTENTION = "attention"
+SVC_REACTOR = "reactor"
 
 
 class CityServiceRegistry:

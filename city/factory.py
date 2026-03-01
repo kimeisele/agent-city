@@ -45,6 +45,8 @@ class BuildContext:
     offline: bool
     args: object  # argparse.Namespace
     config: dict = field(default_factory=dict)
+    pokedex: object = None  # Pokedex (for services needing direct access)
+    network: object = None  # CityNetwork (for services needing direct access)
 
 
 class CityServiceFactory:
@@ -152,7 +154,9 @@ class CityServiceFactory:
         }
 
 
-def default_definitions(governance: bool = False, federation: bool = False) -> list[ServiceDefinition]:
+def default_definitions(
+    governance: bool = False, federation: bool = False
+) -> list[ServiceDefinition]:
     """Default service definitions for Agent City.
 
     Args:
@@ -161,8 +165,13 @@ def default_definitions(governance: bool = False, federation: bool = False) -> l
     """
     from city.registry import (
         SVC_AGENT_NADI,
+        SVC_ATTENTION,
         SVC_AUDIT,
+        SVC_CARTRIDGE_FACTORY,
+        SVC_CARTRIDGE_LOADER,
+        SVC_CITY_BUILDER,
         SVC_CITY_NADI,
+        SVC_CLAIMS,
         SVC_CONTRACTS,
         SVC_COUNCIL,
         SVC_EVENT_BUS,
@@ -174,8 +183,10 @@ def default_definitions(governance: bool = False, federation: bool = False) -> l
         SVC_KNOWLEDGE_GRAPH,
         SVC_LEARNING,
         SVC_PRAHLAD,
+        SVC_REACTOR,
         SVC_REFLECTION,
         SVC_SANKALPA,
+        SVC_SPAWNER,
     )
 
     defs: list[ServiceDefinition] = []
@@ -212,6 +223,10 @@ def default_definitions(governance: bool = False, federation: bool = False) -> l
                     name=SVC_AUDIT,
                     factory=lambda ctx: _build_audit(),
                 ),
+                ServiceDefinition(
+                    name=SVC_CLAIMS,
+                    factory=lambda ctx: _build_claims(),
+                ),
             ]
         )
 
@@ -227,6 +242,32 @@ def default_definitions(governance: bool = False, federation: bool = False) -> l
     # ── Always-on services ─────────────────────────────────────────
     defs.extend(
         [
+            ServiceDefinition(
+                name=SVC_ATTENTION,
+                factory=lambda ctx: _build_attention(),
+            ),
+            ServiceDefinition(
+                name=SVC_REACTOR,
+                factory=lambda ctx: _build_reactor(),
+            ),
+            ServiceDefinition(
+                name=SVC_CARTRIDGE_FACTORY,
+                factory=lambda ctx: _build_cartridge_factory(ctx),
+            ),
+            ServiceDefinition(
+                name=SVC_CITY_BUILDER,
+                factory=lambda ctx: _build_city_builder(ctx),
+            ),
+            ServiceDefinition(
+                name=SVC_CARTRIDGE_LOADER,
+                factory=lambda ctx: _build_cartridge_loader(ctx),
+                deps=(SVC_CARTRIDGE_FACTORY,),
+            ),
+            ServiceDefinition(
+                name=SVC_SPAWNER,
+                factory=lambda ctx: _build_spawner(ctx),
+                deps=(SVC_CARTRIDGE_LOADER, SVC_CARTRIDGE_FACTORY, SVC_CITY_BUILDER),
+            ),
             ServiceDefinition(
                 name=SVC_FEDERATION_NADI,
                 factory=lambda ctx: _build_federation_nadi(ctx),
@@ -267,6 +308,18 @@ def default_definitions(governance: bool = False, federation: bool = False) -> l
 
 
 # ── Individual Builders ──────────────────────────────────────────────
+
+
+def _build_attention() -> object:
+    from city.attention import CityAttention
+
+    return CityAttention()
+
+
+def _build_reactor() -> object:
+    from city.reactor import CityReactor
+
+    return CityReactor()
 
 
 def _build_contracts(ctx: BuildContext) -> object:
@@ -394,6 +447,70 @@ def _build_knowledge_graph() -> object | None:
     from city.cognition import get_city_knowledge
 
     return get_city_knowledge()
+
+
+def _build_claims() -> object:
+    from city.claims import ClaimManager
+
+    return ClaimManager()
+
+
+def _build_cartridge_factory(ctx: BuildContext) -> object | None:
+    from city.cartridge_factory import CartridgeFactory
+
+    if ctx.pokedex is None:
+        logger.warning("CartridgeFactory skipped: pokedex not on BuildContext")
+        return None
+    factory = CartridgeFactory(_pokedex=ctx.pokedex)
+    logger.info("CartridgeFactory wired")
+    return factory
+
+
+def _build_city_builder(ctx: BuildContext) -> object | None:
+    from city.city_builder import CityBuilder
+
+    if ctx.pokedex is None:
+        logger.warning("CityBuilder skipped: pokedex not on BuildContext")
+        return None
+    base_path = ctx.db_path.parent / "agents"
+    builder = CityBuilder(_base_path=base_path, _pokedex=ctx.pokedex)
+    logger.info("CityBuilder wired → %s", base_path)
+    return builder
+
+
+def _build_cartridge_loader(ctx: BuildContext) -> object | None:
+    from city.cartridge_loader import CityCartridgeLoader
+
+    loader = CityCartridgeLoader()
+    names = loader.discover()
+    if names:
+        logger.info("CartridgeLoader wired (%d static cartridges)", len(names))
+
+    # Wire CartridgeFactory for dynamic cartridge generation
+    factory = ctx.registry.get("cartridge_factory")
+    if factory is not None:
+        loader.set_factory(factory)
+        logger.info("CartridgeLoader: dynamic factory wired")
+
+    return loader
+
+
+def _build_spawner(ctx: BuildContext) -> object | None:
+    from city.spawner import AgentSpawner
+
+    if ctx.pokedex is None or ctx.network is None:
+        logger.warning("AgentSpawner skipped: pokedex/network not on BuildContext")
+        return None
+    loader = ctx.registry.get("cartridge_loader")
+    factory = ctx.registry.get("cartridge_factory")
+    builder = ctx.registry.get("city_builder")
+    return AgentSpawner(
+        _pokedex=ctx.pokedex,
+        _network=ctx.network,
+        _cartridge_loader=loader,
+        _cartridge_factory=factory,
+        _city_builder=builder,
+    )
 
 
 def _build_event_bus() -> object | None:

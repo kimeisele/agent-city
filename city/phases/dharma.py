@@ -30,10 +30,21 @@ def execute(ctx: PhaseContext) -> list[str]:
         actions.append(f"hibernated:{name}:low_prana")
 
     # Metabolize all living agents (hibernated agents are frozen, won't be processed)
+    _t0 = time.monotonic()
     dead = ctx.pokedex.metabolize_all(active_agents=ctx.active_agents)
+    _metabolize_ms = (time.monotonic() - _t0) * 1000
     for name in dead:
         actions.append(f"archived:{name}:prana_exhaustion")
         logger.info("DHARMA: Agent %s archived (prana exhaustion)", name)
+
+    # Feed CityReactor with metabolize timing + death count (Issue #17 S2b)
+    from city.registry import SVC_REACTOR
+
+    reactor = ctx.registry.get(SVC_REACTOR)
+    if reactor is not None:
+        reactor.record("metabolize_all", duration_ms=_metabolize_ms, success=True)
+        if dead:
+            reactor.record("agent_deaths", count=len(dead))
 
     # Immune scan: diagnose why agents died
     if ctx.immune is not None and dead:
@@ -47,6 +58,15 @@ def execute(ctx: PhaseContext) -> list[str]:
     # Clear active set for next cycle
     ctx.active_agents.clear()
 
+    # Auto-promote: discovered → citizen → network-registered
+    from city.registry import SVC_SPAWNER
+
+    spawner = ctx.registry.get(SVC_SPAWNER)
+    if spawner is not None:
+        promoted = spawner.promote_eligible(ctx.heartbeat_count)
+        for name in promoted:
+            actions.append(f"promoted:{name}:citizen")
+
     # Zone health check
     stats = ctx.pokedex.stats()
     zones = stats.get("zones", {})
@@ -54,6 +74,23 @@ def execute(ctx: PhaseContext) -> list[str]:
         if count == 0:
             actions.append(f"warning:zone_{zone}_empty")
             logger.warning("DHARMA: Zone %s has 0 agents", zone)
+
+    # Feed zone population into reactor + process pain (Issue #17 S2b)
+    if reactor is not None:
+        if zones:
+            reactor.record("zone_population", zones=zones)
+        # Detect pain and route via CityAttention
+        from city.registry import SVC_ATTENTION
+
+        attention = ctx.registry.get(SVC_ATTENTION)
+        pain_intents = reactor.detect_pain()
+        for intent in pain_intents:
+            handler = attention.route(intent.signal) if attention else None
+            actions.append(f"pain:{intent.signal}:{intent.priority}")
+            logger.warning(
+                "DHARMA PAIN: %s (priority=%s, handler=%s, ctx=%s)",
+                intent.signal, intent.priority, handler, intent.context,
+            )
 
     # Layer 5: Council Election (before contracts, so proposals have a council)
     if ctx.council is not None:
@@ -228,9 +265,7 @@ def _process_issue_directive(ctx: PhaseContext, directive: object) -> None:
         return
 
     mission_type = "audit_needed" if directive.action == "contract_check" else "intent_needed"
-    mission_id = create_issue_mission(
-        ctx, directive.issue_number, directive.title, mission_type
-    )
+    mission_id = create_issue_mission(ctx, directive.issue_number, directive.title, mission_type)
 
     # Bind mission↔issue for lifecycle tracking
     if mission_id is not None and ctx.issues is not None:
