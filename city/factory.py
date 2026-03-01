@@ -551,4 +551,4 @@ def _build_moltbook_assistant(ctx: BuildContext) -> object | None:
     if client is None:
         logger.info("MoltbookAssistant skipped: no MoltbookClient")
         return None
-    return MoltbookAssistant(client=client, pokedex=ctx.pokedex)
+    return MoltbookAssistant(_client=client, _pokedex=ctx.pokedex)
