@@ -23,7 +23,13 @@ def execute(ctx: PhaseContext) -> list[str]:
     """DHARMA: Cell homeostasis, governance, contracts, issues."""
     actions: list[str] = []
 
-    # Metabolize all living agents
+    # Auto-hibernation: freeze low-prana agents BEFORE metabolize kills them
+    _HIBERNATION_THRESHOLD = 1000  # ~7% of GENESIS_PRANA (13700)
+    hibernated = _hibernate_low_prana(ctx, _HIBERNATION_THRESHOLD)
+    for name in hibernated:
+        actions.append(f"hibernated:{name}:low_prana")
+
+    # Metabolize all living agents (hibernated agents are frozen, won't be processed)
     dead = ctx.pokedex.metabolize_all(active_agents=ctx.active_agents)
     for name in dead:
         actions.append(f"archived:{name}:prana_exhaustion")
@@ -100,6 +106,33 @@ def execute(ctx: PhaseContext) -> list[str]:
     if actions:
         logger.info("DHARMA: %d governance actions", len(actions))
     return actions
+
+
+def _hibernate_low_prana(ctx: PhaseContext, threshold: int) -> list[str]:
+    """Freeze agents whose prana dropped below threshold.
+
+    Uses existing freeze() infrastructure (pokedex + CivicBank).
+    Agents can be revived later via unfreeze() when energy is injected.
+    """
+    hibernated: list[str] = []
+    for agent in ctx.pokedex.list_citizens():
+        name = agent["name"]
+        cell = ctx.pokedex.get_cell(name)
+        if cell is None or not cell.is_alive:
+            continue
+        if cell.prana < threshold:
+            try:
+                ctx.pokedex.freeze(name, "auto_hibernation:low_prana")
+                hibernated.append(name)
+                logger.info(
+                    "DHARMA: Agent %s hibernated (prana=%d < %d)",
+                    name,
+                    cell.prana,
+                    threshold,
+                )
+            except Exception as e:
+                logger.warning("DHARMA: Failed to hibernate %s: %s", name, e)
+    return hibernated
 
 
 def _get_election_candidates(ctx: PhaseContext) -> list[dict]:

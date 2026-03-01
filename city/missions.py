@@ -15,7 +15,10 @@ logger = logging.getLogger("AGENT_CITY.MISSIONS")
 
 
 def create_healing_mission(ctx: object, contract_result: object) -> None:
-    """Create a Sankalpa mission from a failing contract."""
+    """Create a Sankalpa mission from a failing contract.
+
+    Deduplicates: skips if an active mission for the same contract.name exists.
+    """
     if ctx.sankalpa is None:
         return
 
@@ -24,6 +27,20 @@ def create_healing_mission(ctx: object, contract_result: object) -> None:
         MissionStatus,
         SankalpaMission,
     )
+
+    # Dedup: skip if active mission for same contract already exists
+    prefix = f"heal_{contract_result.name}_"
+    for existing in ctx.sankalpa.registry.get_active_missions():
+        if existing.id.startswith(prefix) or (
+            existing.name == f"Heal: {contract_result.name}"
+            and existing.status == MissionStatus.ACTIVE
+        ):
+            logger.debug(
+                "Healing mission for %s already exists (%s), skipping",
+                contract_result.name,
+                existing.id,
+            )
+            return
 
     mission_id = f"heal_{contract_result.name}_{ctx.heartbeat_count}"
     mission = SankalpaMission(
@@ -77,7 +94,10 @@ def create_audit_mission(ctx: object, finding: object) -> None:
 
 
 def create_improvement_mission(ctx: object, proposal: object) -> None:
-    """Create a Sankalpa mission from a reflection improvement proposal."""
+    """Create a Sankalpa mission from a reflection improvement proposal.
+
+    Deduplicates: skips if an active mission for the same proposal.id exists.
+    """
     if ctx.sankalpa is None:
         return
 
@@ -86,6 +106,17 @@ def create_improvement_mission(ctx: object, proposal: object) -> None:
         MissionStatus,
         SankalpaMission,
     )
+
+    # Dedup: skip if active mission for same proposal already exists
+    prefix = f"improve_{proposal.id}_"
+    for existing in ctx.sankalpa.registry.get_active_missions():
+        if existing.id.startswith(prefix) and existing.status == MissionStatus.ACTIVE:
+            logger.debug(
+                "Improvement mission for %s already exists (%s), skipping",
+                proposal.id,
+                existing.id,
+            )
+            return
 
     mission_id = f"improve_{proposal.id}_{ctx.heartbeat_count}"
     mission = SankalpaMission(
