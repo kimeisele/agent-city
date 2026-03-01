@@ -103,7 +103,7 @@ def main() -> None:
 
         # Layer 3: Sankalpa + Reflection + Audit
         try:
-            from vibe_core.mahamantra.protocols.sankalpa.orchestrator import (
+            from vibe_core.mahamantra.substrate.sankalpa.will import (
                 SankalpaOrchestrator,
             )
             governance_kwargs["_sankalpa"] = SankalpaOrchestrator()

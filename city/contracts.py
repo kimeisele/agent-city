@@ -193,13 +193,13 @@ def check_no_slop(cwd: Path) -> ContractResult:
         if py_file.name == "contracts.py":
             continue  # Don't scan the checker itself
         content = py_file.read_text(errors="replace")
-        # Only check quality (slop + untranslated internals), not coherence.
-        # Source code is not user-facing content — skip platform/coherence checks.
+        # Only check slop patterns, not coherence or internal-term leaks.
+        # Source code legitimately contains Sanskrit terms (NavaBhakti ops).
+        # Constitution was designed for LLM output, not source code.
         result = constitution.validate(content, content_type="comment")
         if not result.is_valid:
-            # Filter: only report slop/internal-term violations, not length issues
             for v in result.violations:
-                if "slop" in v.lower() or "internal term" in v.lower() or "filler" in v.lower():
+                if "slop" in v.lower() or "filler" in v.lower():
                     violations.append(f"{py_file.name}: {v}")
 
     if not violations:
