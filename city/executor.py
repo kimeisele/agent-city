@@ -22,11 +22,14 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from config import get_config
+
 logger = logging.getLogger("AGENT_CITY.EXECUTOR")
 
-# Git identity for automated commits (per-command, no global config mutation)
-GIT_AUTHOR_NAME = "Mayor Agent"
-GIT_AUTHOR_EMAIL = "mayor@agent-city.dev"
+# Git identity — sourced from config/city.yaml
+_exec_cfg = get_config().get("executor", {})
+GIT_AUTHOR_NAME: str = _exec_cfg.get("git_author_name", "Mayor Agent")
+GIT_AUTHOR_EMAIL: str = _exec_cfg.get("git_author_email", "mayor@agent-city.dev")
 
 
 @dataclass
@@ -92,7 +95,8 @@ class IntentExecutor:
                     "--fix", "--select", "F821,F811",
                     str(self._cwd),
                 ],
-                capture_output=True, text=True, timeout=60,
+                capture_output=True, text=True,
+                timeout=_exec_cfg.get("ruff_timeout_s", 60),
             )
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
             return FixResult(
@@ -110,7 +114,8 @@ class IntentExecutor:
                     "--select", "F821,F811",
                     str(self._cwd),
                 ],
-                capture_output=True, text=True, timeout=60,
+                capture_output=True, text=True,
+                timeout=_exec_cfg.get("ruff_timeout_s", 60),
             )
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
             return FixResult(
@@ -227,7 +232,8 @@ class IntentExecutor:
                     "--title", commit_msg,
                     "--body", pr_body,
                 ],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True,
+                timeout=_exec_cfg.get("subprocess_timeout_s", 30),
                 cwd=str(self._cwd),
             )
             pr_url = pr_result.stdout.strip() if pr_result.returncode == 0 else ""
@@ -265,7 +271,7 @@ class IntentExecutor:
             ["git"] + args,
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=_exec_cfg.get("subprocess_timeout_s", 30),
             cwd=str(self._cwd),
             check=check,
         )

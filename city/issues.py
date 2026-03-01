@@ -21,10 +21,13 @@ from enum import Enum
 
 from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
 
+from config import get_config
+
 logger = logging.getLogger("AGENT_CITY.ISSUES")
 
-# Low prana threshold — below this, iterative/contract issues signal urgency
-LOW_PRANA_THRESHOLD = 1000
+# Low prana threshold — sourced from config/city.yaml
+_issues_cfg = get_config().get("issues", {})
+LOW_PRANA_THRESHOLD: int = _issues_cfg.get("low_prana_threshold", 1000)
 
 
 class IssueType(str, Enum):
@@ -45,7 +48,8 @@ def _gh_run(args: list[str]) -> str | None:
     try:
         result = subprocess.run(
             ["gh"] + args,
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True,
+            timeout=get_config().get("issues", {}).get("gh_timeout_s", 30),
         )
         if result.returncode != 0:
             logger.warning("gh %s failed: %s", " ".join(args[:3]), result.stderr.strip())
@@ -141,7 +145,7 @@ class CityIssueManager:
         out = _gh_run([
             "issue", "list", "--state", "open",
             "--json", "number,title,updatedAt,comments",
-            "--limit", "100",
+            "--limit", str(get_config().get("issues", {}).get("list_limit", 100)),
         ])
         if not out:
             return actions
@@ -164,7 +168,8 @@ class CityIssueManager:
 
             # Activity = number of recent comments (proxy for engagement)
             comments = issue.get("comments", [])
-            energy = len(comments) * 5 if isinstance(comments, list) else 0
+            _mult = get_config().get("issues", {}).get("comment_energy_multiplier", 5)
+            energy = len(comments) * _mult if isinstance(comments, list) else 0
 
             # All types decay prana (signals urgency)
             cell.metabolize(energy)

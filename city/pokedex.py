@@ -35,9 +35,13 @@ from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
 from city.identity import generate_identity
 from city.jiva import derive_jiva
 
+from config import get_config
+
 logger = logging.getLogger("AGENT_CITY.POKEDEX")
 
-GENESIS_GRANT = 100  # Initial credits for new citizens
+# Economy — sourced from config/city.yaml
+_econ_cfg = get_config().get("economy", {})
+GENESIS_GRANT: int = _econ_cfg.get("genesis_grant", 100)
 
 # Zone treasury accounts (one per quarter)
 ZONE_TREASURIES = {
