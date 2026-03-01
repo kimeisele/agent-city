@@ -6,6 +6,9 @@ Issue #17 Stufe 2b: Pain detection + automatic intent generation.
 The system FEELS when something hurts and generates CityIntents
 that CityAttention routes to handlers. No manual triggering.
 
+Generic PainRule system — any part of the city can register new
+pain rules at runtime, like an immune system learning new antibodies.
+
 Inspired by steward-protocol's ReactorProtocol (drift detection → reflection).
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
@@ -15,20 +18,12 @@ Inspired by steward-protocol's ReactorProtocol (drift detection → reflection).
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, List, Optional
 
 logger = logging.getLogger("AGENT_CITY.REACTOR")
-
-# =============================================================================
-# THRESHOLDS (configurable later via city.yaml)
-# =============================================================================
-
-METABOLIZE_SLOW_MS = 500.0  # Pain if metabolize_all > 500ms
-METABOLIZE_SLOW_CONSECUTIVE = 3  # Must be slow N times in a row
-DEATH_SPIKE_THRESHOLD = 5  # Pain if >= N agents die in one cycle
-ZONE_EMPTY_THRESHOLD = 0  # Pain if any zone has <= N agents
 
 # History window for rolling metrics
 METRIC_WINDOW = 10
@@ -52,28 +47,219 @@ class CityIntent:
 
 
 # =============================================================================
+# PAIN RULE PROTOCOL
+# =============================================================================
+
+
+class PainRule(ABC):
+    """Abstract base for pluggable pain detection rules.
+
+    Any subsystem can define a PainRule and register it with the reactor.
+    The reactor feeds metrics to all rules; rules decide when to emit pain.
+
+    Like an antibody: it watches a specific pattern and fires when triggered.
+    """
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Unique rule name (e.g. 'metabolize_slow')."""
+
+    @property
+    @abstractmethod
+    def listens_to(self) -> tuple[str, ...]:
+        """Metric names this rule cares about (e.g. ('metabolize_all',))."""
+
+    @abstractmethod
+    def evaluate(self, metric: str, store: "MetricStore", **kwargs: Any) -> Optional[CityIntent]:
+        """Evaluate whether this metric record triggers pain.
+
+        Args:
+            metric: The metric name that was just recorded.
+            store: Read-only access to the reactor's metric history.
+            **kwargs: Metric-specific values.
+
+        Returns:
+            A CityIntent if pain detected, None otherwise.
+        """
+
+
+# =============================================================================
+# METRIC STORE (read-only view for PainRules)
+# =============================================================================
+
+
+class MetricStore:
+    """Rolling metric history — shared read-only view for PainRules.
+
+    Rules read from here but never write. The reactor owns the data.
+    """
+
+    def __init__(self, window: int = METRIC_WINDOW) -> None:
+        self._series: Dict[str, deque] = {}
+        self._latest: Dict[str, Any] = {}
+        self._window = window
+
+    def append(self, metric: str, value: Any) -> None:
+        """Append a scalar value to a metric's rolling window."""
+        if metric not in self._series:
+            self._series[metric] = deque(maxlen=self._window)
+        self._series[metric].append(value)
+
+    def set_latest(self, metric: str, value: Any) -> None:
+        """Store the latest snapshot for a metric (dicts, lists, etc.)."""
+        self._latest[metric] = value
+
+    def series(self, metric: str) -> List[Any]:
+        """Get rolling window for a metric (newest last)."""
+        if metric in self._series:
+            return list(self._series[metric])
+        return []
+
+    def latest(self, metric: str) -> Any:
+        """Get latest snapshot for a metric."""
+        return self._latest.get(metric)
+
+    def last_n(self, metric: str, n: int) -> List[Any]:
+        """Get the last N values from a metric series."""
+        s = self.series(metric)
+        return s[-n:] if len(s) >= n else []
+
+
+# =============================================================================
+# BUILT-IN PAIN RULES
+# =============================================================================
+
+
+class MetabolizeSlowRule(PainRule):
+    """Pain when metabolize_all exceeds threshold N× in a row."""
+
+    def __init__(self, threshold_ms: float = 500.0, consecutive: int = 3) -> None:
+        self._threshold_ms = threshold_ms
+        self._consecutive = consecutive
+
+    @property
+    def name(self) -> str:
+        return "metabolize_slow"
+
+    @property
+    def listens_to(self) -> tuple[str, ...]:
+        return ("metabolize_all",)
+
+    def evaluate(self, metric: str, store: MetricStore, **kwargs: Any) -> Optional[CityIntent]:
+        recent = store.last_n("metabolize_all_ms", self._consecutive)
+        if len(recent) < self._consecutive:
+            return None
+        if all(t > self._threshold_ms for t in recent):
+            avg = sum(recent) / len(recent)
+            logger.warning(
+                "PAIN: metabolize_all slow %d× in a row (avg %.1fms > %.1fms)",
+                self._consecutive, avg, self._threshold_ms,
+            )
+            return CityIntent(
+                signal="metabolize_slow",
+                priority="high",
+                context={
+                    "avg_ms": round(avg, 1),
+                    "consecutive": self._consecutive,
+                    "threshold_ms": self._threshold_ms,
+                },
+            )
+        return None
+
+
+class DeathSpikeRule(PainRule):
+    """Pain when too many agents die in one cycle."""
+
+    def __init__(self, threshold: int = 5) -> None:
+        self._threshold = threshold
+
+    @property
+    def name(self) -> str:
+        return "agent_death_spike"
+
+    @property
+    def listens_to(self) -> tuple[str, ...]:
+        return ("agent_deaths",)
+
+    def evaluate(self, metric: str, store: MetricStore, **kwargs: Any) -> Optional[CityIntent]:
+        count = kwargs.get("count", 0)
+        if count >= self._threshold:
+            logger.warning(
+                "PAIN: %d agent deaths in one cycle (threshold: %d)",
+                count, self._threshold,
+            )
+            return CityIntent(
+                signal="agent_death_spike",
+                priority="critical",
+                context={"deaths": count, "threshold": self._threshold},
+            )
+        return None
+
+
+class ZoneEmptyRule(PainRule):
+    """Pain when any zone has 0 agents."""
+
+    def __init__(self, threshold: int = 0) -> None:
+        self._threshold = threshold
+
+    @property
+    def name(self) -> str:
+        return "zone_empty"
+
+    @property
+    def listens_to(self) -> tuple[str, ...]:
+        return ("zone_population",)
+
+    def evaluate(self, metric: str, store: MetricStore, **kwargs: Any) -> Optional[CityIntent]:
+        zones = kwargs.get("zones", {})
+        # Emit pain for the first empty zone found
+        for zone, pop in zones.items():
+            if pop <= self._threshold:
+                logger.warning("PAIN: zone '%s' is empty", zone)
+                return CityIntent(
+                    signal="zone_empty",
+                    priority="high",
+                    context={"zone": zone, "population": pop},
+                )
+        return None
+
+
+# =============================================================================
 # CITY REACTOR
 # =============================================================================
+
+
+def _default_rules() -> List[PainRule]:
+    """Built-in pain rules — the city's innate immune system."""
+    return [
+        MetabolizeSlowRule(),
+        DeathSpikeRule(),
+        ZoneEmptyRule(),
+    ]
 
 
 class CityReactor:
     """Self-awareness engine for Agent City.
 
-    Records operational metrics, detects pain patterns,
-    and generates CityIntents for CityAttention to route.
+    Generic, pluggable pain detection system.
+    Any subsystem can register PainRules at runtime — like an immune
+    system learning new antibodies. Rules are evaluated on every record().
 
-    Pain detection rules:
+    Built-in rules (innate immunity):
     - metabolize_slow: metabolize_all > 500ms for 3 consecutive runs
     - agent_death_spike: >= 5 agent deaths in one cycle
     - zone_empty: any zone with 0 agents
-    - contract_failing: contract check failures (future)
+
+    Custom rules can be added via register_rule() at any time.
     """
 
-    def __init__(self) -> None:
-        # Rolling metric windows
-        self._metabolize_times: Deque[float] = deque(maxlen=METRIC_WINDOW)
-        self._last_death_count: int = 0
-        self._last_zone_pop: Dict[str, int] = {}
+    def __init__(self, *, rules: Optional[List[PainRule]] = None) -> None:
+        self._store = MetricStore()
+
+        # Rule registry: metric_name → [rules listening to it]
+        self._rules: Dict[str, List[PainRule]] = {}
+        self._all_rules: Dict[str, PainRule] = {}
 
         # Pending pain signals (consumed on detect_pain())
         self._pending_pain: List[CityIntent] = []
@@ -82,29 +268,52 @@ class CityReactor:
         self._total_records: int = 0
         self._total_pain: int = 0
 
+        # Register built-in rules (innate immune system)
+        for rule in (rules if rules is not None else _default_rules()):
+            self.register_rule(rule)
+
+    def register_rule(self, rule: PainRule) -> None:
+        """Register a new pain rule (learned antibody).
+
+        Can be called at any time — rules are immediately active.
+        Replaces existing rule with the same name.
+        """
+        self._all_rules[rule.name] = rule
+        for metric in rule.listens_to:
+            if metric not in self._rules:
+                self._rules[metric] = []
+            # Replace if same rule name already registered for this metric
+            self._rules[metric] = [
+                r for r in self._rules[metric] if r.name != rule.name
+            ]
+            self._rules[metric].append(rule)
+        logger.debug("Registered pain rule: %s (listens to %s)", rule.name, rule.listens_to)
+
     def record(self, metric: str, **kwargs: Any) -> None:
-        """Record an operational metric.
+        """Record an operational metric and evaluate all listening rules.
 
         Args:
-            metric: Metric name (metabolize_all, agent_deaths, zone_population)
+            metric: Metric name (any string — rules self-select via listens_to)
             **kwargs: Metric-specific values
         """
         self._total_records += 1
 
-        if metric == "metabolize_all":
-            duration_ms = kwargs.get("duration_ms", 0.0)
-            self._metabolize_times.append(duration_ms)
-            self._check_metabolize_pain()
+        # Store metric data for rules to read
+        if "duration_ms" in kwargs:
+            self._store.append(f"{metric}_ms", kwargs["duration_ms"])
+        if "count" in kwargs:
+            self._store.append(f"{metric}_count", kwargs["count"])
+        if "zones" in kwargs:
+            self._store.set_latest(f"{metric}_zones", kwargs["zones"])
 
-        elif metric == "agent_deaths":
-            count = kwargs.get("count", 0)
-            self._last_death_count = count
-            self._check_death_spike_pain()
-
-        elif metric == "zone_population":
-            zones = kwargs.get("zones", {})
-            self._last_zone_pop = zones
-            self._check_zone_empty_pain()
+        # Evaluate all rules that listen to this metric
+        for rule in self._rules.get(metric, []):
+            try:
+                intent = rule.evaluate(metric, self._store, **kwargs)
+                if intent is not None:
+                    self._emit_pain(intent)
+            except Exception as e:
+                logger.error("PainRule %s failed: %s", rule.name, e)
 
     def detect_pain(self) -> List[CityIntent]:
         """Consume and return all pending pain signals.
@@ -122,64 +331,9 @@ class CityReactor:
         return {
             "total_records": self._total_records,
             "pain_detected": self._total_pain,
-            "metabolize_window": list(self._metabolize_times),
-            "last_death_count": self._last_death_count,
-            "last_zone_pop": self._last_zone_pop,
+            "rules": list(self._all_rules.keys()),
             "pending_pain": len(self._pending_pain),
         }
-
-    # ── Pain detection rules ──────────────────────────────────────────
-
-    def _check_metabolize_pain(self) -> None:
-        """Check if metabolize_all has been slow N× in a row."""
-        times = list(self._metabolize_times)
-        if len(times) < METABOLIZE_SLOW_CONSECUTIVE:
-            return
-
-        # Check last N runs
-        recent = times[-METABOLIZE_SLOW_CONSECUTIVE:]
-        if all(t > METABOLIZE_SLOW_MS for t in recent):
-            avg = sum(recent) / len(recent)
-            self._emit_pain(CityIntent(
-                signal="metabolize_slow",
-                priority="high",
-                context={
-                    "avg_ms": round(avg, 1),
-                    "consecutive": METABOLIZE_SLOW_CONSECUTIVE,
-                    "threshold_ms": METABOLIZE_SLOW_MS,
-                },
-            ))
-            logger.warning(
-                "PAIN: metabolize_all slow %d× in a row (avg %.1fms > %.1fms)",
-                METABOLIZE_SLOW_CONSECUTIVE, avg, METABOLIZE_SLOW_MS,
-            )
-
-    def _check_death_spike_pain(self) -> None:
-        """Check if too many agents died in one cycle."""
-        if self._last_death_count >= DEATH_SPIKE_THRESHOLD:
-            self._emit_pain(CityIntent(
-                signal="agent_death_spike",
-                priority="critical",
-                context={
-                    "deaths": self._last_death_count,
-                    "threshold": DEATH_SPIKE_THRESHOLD,
-                },
-            ))
-            logger.warning(
-                "PAIN: %d agent deaths in one cycle (threshold: %d)",
-                self._last_death_count, DEATH_SPIKE_THRESHOLD,
-            )
-
-    def _check_zone_empty_pain(self) -> None:
-        """Check if any zone has 0 agents."""
-        for zone, pop in self._last_zone_pop.items():
-            if pop <= ZONE_EMPTY_THRESHOLD:
-                self._emit_pain(CityIntent(
-                    signal="zone_empty",
-                    priority="high",
-                    context={"zone": zone, "population": pop},
-                ))
-                logger.warning("PAIN: zone '%s' is empty", zone)
 
     def _emit_pain(self, intent: CityIntent) -> None:
         """Add a pain signal to the pending queue."""

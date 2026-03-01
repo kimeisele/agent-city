@@ -140,6 +140,10 @@ def execute(ctx: PhaseContext) -> list[str]:
             for directive in ctx.issues.directives:
                 _process_issue_directive(ctx, directive)
 
+    # Moltbook Assistant: strategic planning for KARMA
+    if ctx.moltbook_assistant is not None:
+        ctx.moltbook_assistant.on_dharma(ctx.heartbeat_count)
+
     if actions:
         logger.info("DHARMA: %d governance actions", len(actions))
     return actions
