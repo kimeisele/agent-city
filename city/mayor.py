@@ -269,7 +269,8 @@ class Mayor:
             
             # Autonomous Introspection — The city checks itself for bleeding
             # Triggered during MOKSHA, every 10 cycles (40 heartbeats) to prevent fatigue
-            if self._heartbeat_count % 40 == 3:
+            # Skipped offline: diagnostics invoke ruff/subprocess which isn't available
+            if self._heartbeat_count % 40 == 3 and not self._offline_mode:
                 if self._immune is not None and hasattr(self._immune, "run_self_diagnostics"):
                     logger.info("MOKSHA Phase: Triggering Autonomous Immune Diagnostics.")
                     heals = self._immune.run_self_diagnostics()

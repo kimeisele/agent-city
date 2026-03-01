@@ -26,6 +26,7 @@ import hashlib
 import json
 import logging
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -69,6 +70,7 @@ class Pokedex:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._lock = threading.RLock()
         self._init_schema()
 
         # Wire to CivicBank from steward-protocol (shared DB or separate)
@@ -128,6 +130,11 @@ class Pokedex:
                 -- Constitutional oath (set at citizenship)
                 oath_hash TEXT,
                 oath_signature TEXT,
+                
+                -- GPG identity (Layer 8 Sovereign Identity)
+                gpg_fingerprint TEXT,
+                gpg_public_key TEXT,
+                gpg_email TEXT,
 
                 -- Timestamps
                 discovered_at TEXT NOT NULL,
@@ -171,6 +178,15 @@ class Pokedex:
                 "ALTER TABLE agents ADD COLUMN civic_role TEXT DEFAULT 'citizen'"
             )
             self._conn.commit()
+            
+        # Migration: GPG columns
+        try:
+            cur.execute("SELECT gpg_fingerprint FROM agents LIMIT 0")
+        except Exception:
+            cur.execute("ALTER TABLE agents ADD COLUMN gpg_fingerprint TEXT")
+            cur.execute("ALTER TABLE agents ADD COLUMN gpg_public_key TEXT")
+            cur.execute("ALTER TABLE agents ADD COLUMN gpg_email TEXT")
+            self._conn.commit()
 
     # ── Public API ────────────────────────────────────────────────────
 
@@ -187,9 +203,42 @@ class Pokedex:
         jiva = derive_jiva(name)
         now = datetime.now(timezone.utc).isoformat()
 
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("""
+                INSERT INTO agents (
+                    name, status, address,
+                    vm_position, vm_quarter, vm_guardian, vm_guna,
+                    vm_chapter, vm_holy_name, vm_trinity_function, vm_chapter_significance,
+                    vibration_seed, vibration_element, vibration_shruti, vibration_frequency,
+                    zone, cell_bytes, discovered_at, updated_at,
+                    moltbook_karma, moltbook_followers
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                name, "discovered", jiva.address,
+                jiva.classification.position, jiva.classification.quarter,
+                jiva.classification.guardian, jiva.classification.guna,
+                jiva.classification.chapter, jiva.classification.holy_name,
+                jiva.classification.trinity_function, jiva.classification.chapter_significance,
+                jiva.vibration.seed, jiva.vibration.element,
+                int(jiva.vibration.shruti), jiva.vibration.frequency,
+                jiva.classification.zone,
+                jiva.cell.to_bytes(),
+                now, now,
+                (moltbook_profile or {}).get("karma"),
+                (moltbook_profile or {}).get("follower_count"),
+            ))
+
+            self._record_event(name, "discover", None, "discovered", json.dumps(moltbook_profile or {}))
+            self._conn.commit()
+
+        return self.get(name)
+
+    def _discover_locked(self, name: str, jiva: object, moltbook_profile: dict | None, now: str) -> None:
+        """Insert discovered agent row. Caller MUST hold self._lock."""
         cur = self._conn.cursor()
         cur.execute("""
-            INSERT INTO agents (
+            INSERT OR IGNORE INTO agents (
                 name, status, address,
                 vm_position, vm_quarter, vm_guardian, vm_guna,
                 vm_chapter, vm_holy_name, vm_trinity_function, vm_chapter_significance,
@@ -211,111 +260,117 @@ class Pokedex:
             (moltbook_profile or {}).get("karma"),
             (moltbook_profile or {}).get("follower_count"),
         ))
-
         self._record_event(name, "discover", None, "discovered", json.dumps(moltbook_profile or {}))
-        self._conn.commit()
-
-        return self.get(name)
 
     def register(self, name: str, moltbook_profile: dict | None = None) -> dict:
         """Full citizenship: Jiva + Identity + Wallet + Oath.
 
         If agent is already discovered, upgrades to citizen.
         If new, discovers first then registers.
+        Thread-safe: entire registration path is serialized.
+        Mahamantra VM is not thread-safe — derivation must be serialized.
         """
-        existing = self.get(name)
-        if existing and existing["status"] in ("citizen", "active"):
-            raise ValueError(f"{name} is already a citizen")
+        with self._lock:
+            existing = self.get(name)
+            if existing and existing["status"] in ("citizen", "active"):
+                return existing
 
-        # Ensure discovered first
-        if not existing:
-            self.discover(name, moltbook_profile)
+            # Derive inside lock (VM not thread-safe)
+            jiva = derive_jiva(name)
+            identity = generate_identity(jiva)
+            oath_signature = identity.sign(self._constitution_hash.encode())
+            zone = jiva.classification.zone
+            zone_account = ZONE_TREASURIES.get(zone, "ZONE_DISCOVERY")
+            zone_tax = GENESIS_GRANT // 10
+            now = datetime.now(timezone.utc).isoformat()
 
-        # Derive identity
-        jiva = derive_jiva(name)
-        identity = generate_identity(jiva)
+            # Ensure discovered first
+            if not existing:
+                self._discover_locked(name, jiva, moltbook_profile, now)
 
-        # Sign constitutional oath
-        oath_signature = identity.sign(self._constitution_hash.encode())
+            # Bank operations (atomic with rest of registration)
+            self._bank.transfer("MINT", name, GENESIS_GRANT, "citizenship_grant", "minting")
+            self._bank.transfer(name, zone_account, zone_tax, "zone_tax", "tax")
 
-        # Create bank account + genesis grant
-        self._bank.transfer("MINT", name, GENESIS_GRANT, "citizenship_grant", "minting")
+            # Upgrade to citizen
+            cur = self._conn.cursor()
+            cur.execute("""
+                UPDATE agents SET
+                    status = 'citizen',
+                    fingerprint = ?,
+                    public_key = ?,
+                    seed_hash = ?,
+                    oath_hash = ?,
+                    oath_signature = ?,
+                    registered_at = ?,
+                    updated_at = ?,
+                    moltbook_karma = COALESCE(?, moltbook_karma),
+                    moltbook_followers = COALESCE(?, moltbook_followers),
+                    gpg_fingerprint = ?,
+                    gpg_public_key = ?,
+                    gpg_email = ?
+                WHERE name = ?
+            """, (
+                identity.fingerprint,
+                identity.public_key_pem,
+                identity.seed_hash,
+                self._constitution_hash,
+                oath_signature,
+                now, now,
+                (moltbook_profile or {}).get("karma"),
+                (moltbook_profile or {}).get("follower_count"),
+                identity.gpg_fingerprint,
+                identity.gpg_public_key,
+                identity.gpg_email,
+                name,
+            ))
 
-        # Fund zone treasury (10% of genesis grant goes to zone)
-        zone = jiva.classification.zone
-        zone_account = ZONE_TREASURIES.get(zone, "ZONE_DISCOVERY")
-        zone_tax = GENESIS_GRANT // 10
-        self._bank.transfer(name, zone_account, zone_tax, "zone_tax", "tax")
-
-        now = datetime.now(timezone.utc).isoformat()
-
-        cur = self._conn.cursor()
-        cur.execute("""
-            UPDATE agents SET
-                status = 'citizen',
-                fingerprint = ?,
-                public_key = ?,
-                seed_hash = ?,
-                oath_hash = ?,
-                oath_signature = ?,
-                registered_at = ?,
-                updated_at = ?,
-                moltbook_karma = COALESCE(?, moltbook_karma),
-                moltbook_followers = COALESCE(?, moltbook_followers)
-            WHERE name = ?
-        """, (
-            identity.fingerprint,
-            identity.public_key_pem,
-            identity.seed_hash,
-            self._constitution_hash,
-            oath_signature,
-            now, now,
-            (moltbook_profile or {}).get("karma"),
-            (moltbook_profile or {}).get("follower_count"),
-            name,
-        ))
-
-        passport = identity.sign_passport(jiva)
-        self._record_event(name, "register", "discovered", "citizen", json.dumps({
-            "fingerprint": identity.fingerprint,
-            "oath_hash": self._constitution_hash[:16],
-            "genesis_grant": GENESIS_GRANT,
-            "zone": zone,
-            "zone_tax": zone_tax,
-            "passport_signature": passport["passport_signature"][:32],
-        }))
-        self._conn.commit()
+            passport = identity.sign_passport(jiva)
+            self._record_event(name, "register", "discovered", "citizen", json.dumps({
+                "fingerprint": identity.fingerprint,
+                "oath_hash": self._constitution_hash[:16],
+                "genesis_grant": GENESIS_GRANT,
+                "zone": zone,
+                "zone_tax": zone_tax,
+                "passport_signature": passport["passport_signature"][:32],
+            }))
+            self._conn.commit()
 
         return self.get(name)
 
     def activate(self, name: str) -> dict:
         """Transition citizen → active (contributing member)."""
-        return self._transition(name, "citizen", "active", "First contribution")
+        with self._lock:
+            return self._transition(name, "citizen", "active", "First contribution")
 
     def freeze(self, name: str, reason: str = "governance_action") -> dict:
         """Freeze an agent — suspend all activity and bank account."""
-        agent = self._require(name)
-        if agent["status"] in ("archived", "exiled"):
-            raise ValueError(f"{name} is {agent['status']} — cannot freeze")
+        with self._lock:
+            agent = self._require(name)
+            if agent["status"] in ("archived", "exiled"):
+                raise ValueError(f"{name} is {agent['status']} — cannot freeze")
 
-        self._bank.freeze_account(name, reason)
-        return self._transition(name, agent["status"], "frozen", reason)
+            self._bank.freeze_account(name, reason)
+            return self._transition(name, agent["status"], "frozen", reason)
 
     def unfreeze(self, name: str, reason: str = "amnesty") -> dict:
         """Unfreeze a previously frozen agent."""
-        self._bank.unfreeze_account(name, reason)
-        return self._transition(name, "frozen", "active", reason)
+        with self._lock:
+            self._bank.unfreeze_account(name, reason)
+            return self._transition(name, "frozen", "active", reason)
 
     def exile(self, name: str, reason: str = "constitutional_violation") -> dict:
         """Permanently exile an agent — terminal state."""
-        agent = self._require(name)
-        self._bank.freeze_account(name, reason)
-        return self._transition(name, agent["status"], "exiled", reason)
+        with self._lock:
+            agent = self._require(name)
+            self._bank.freeze_account(name, reason)
+            return self._transition(name, agent["status"], "exiled", reason)
 
     def archive(self, name: str, reason: str = "retirement") -> dict:
         """Archive an agent — terminal state, honorable retirement."""
-        agent = self._require(name)
-        return self._transition(name, agent["status"], "archived", reason)
+        with self._lock:
+            agent = self._require(name)
+            return self._transition(name, agent["status"], "archived", reason)
 
     def get(self, name: str) -> dict | None:
         """Look up an agent by name. Returns full record or None."""
@@ -554,6 +609,11 @@ class Pokedex:
                 "hash": d["oath_hash"],
                 "signature": d["oath_signature"],
             } if d["oath_hash"] else None,
+            "gpg": {
+                "fingerprint": d["gpg_fingerprint"],
+                "public_key": d["gpg_public_key"],
+                "email": d["gpg_email"],
+            } if d["gpg_fingerprint"] else None,
             "economy": {
                 "balance": self._bank.get_balance(d["name"]),
             } if d["status"] in ("citizen", "active") else None,
@@ -583,6 +643,24 @@ class Pokedex:
 
         try:
             from city.identity import verify_ownership
+            
+            # Detect if payload is GPG signed
+            if isinstance(payload, bytes):
+                payload_str = payload.decode(errors="ignore")
+            else:
+                payload_str = str(payload)
+                
+            if "-----BEGIN PGP SIGNED MESSAGE-----" in payload_str:
+                # GPG Verification Path
+                import subprocess
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix=".asc") as f:
+                    f.write(payload_str)
+                    f.flush()
+                    res = subprocess.run(["gpg", "--batch", "--verify", f.name], capture_output=True)
+                    return res.returncode == 0
+            
+            # Legacy ECDSA Path
             passport = {"public_key": public_key_pem}
             return verify_ownership(passport, payload, signature_b64)
         except Exception as e:

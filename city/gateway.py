@@ -97,23 +97,10 @@ class CityGateway:
     def validate_agent_message(
         self, from_agent: str, payload: bytes, signature_b64: str, public_key_pem: str,
     ) -> bool:
-        """Verify ECDSA signature for agent-to-agent messages.
-
-        Uses the agent's public key from the Pokedex to verify.
-        """
-        from ecdsa import BadSignatureError, VerifyingKey
-        from ecdsa.util import sigdecode_string
-        import base64
-        import hashlib
-
-        try:
-            vk = VerifyingKey.from_pem(public_key_pem)
-            sig = base64.b64decode(signature_b64)
-            vk.verify(sig, payload, hashfunc=hashlib.sha256, sigdecode=sigdecode_string)
-            return True
-        except (BadSignatureError, Exception):
-            logger.warning("Invalid signature from %s", from_agent)
-            return False
+        """Verify agent-to-agent messages using ECDSA signature verification."""
+        from city.identity import verify_ownership
+        passport = {"public_key": public_key_pem}
+        return verify_ownership(passport, payload, signature_b64)
 
     def ingest_github_webhook(
         self, payload: bytes, signature_header: str, secret: str
