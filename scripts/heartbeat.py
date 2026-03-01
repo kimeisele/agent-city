@@ -145,6 +145,17 @@ def main() -> None:
     except Exception as e:
         logging.getLogger("HEARTBEAT").debug("CityLearning unavailable: %s", e)
 
+    # Agent Nadi: inter-agent messaging (graceful fallback)
+    agent_nadi_kwargs: dict = {}
+    try:
+        from city.agent_nadi import AgentNadiManager
+        agent_nadi = AgentNadiManager()
+        if agent_nadi.available:
+            agent_nadi_kwargs["_agent_nadi"] = agent_nadi
+            logging.getLogger("HEARTBEAT").info("AgentNadiManager wired")
+    except Exception as e:
+        logging.getLogger("HEARTBEAT").debug("AgentNadiManager unavailable: %s", e)
+
     # Nadi messaging: structured gateway queue (graceful fallback)
     nadi_kwargs: dict = {}
     try:
@@ -181,6 +192,7 @@ def main() -> None:
         _offline_mode=args.offline,
         **governance_kwargs,
         **learning_kwargs,
+        **agent_nadi_kwargs,
         **nadi_kwargs,
         **cognition_kwargs,
     )

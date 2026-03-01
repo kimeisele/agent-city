@@ -51,6 +51,12 @@ def execute(ctx: PhaseContext) -> dict:
         if recent_bus_events:
             reflection["event_bus_recent"] = len(recent_bus_events)
 
+    # Agent Nadi stats
+    if ctx.agent_nadi is not None:
+        agent_nadi_stats = ctx.agent_nadi.stats()
+        if agent_nadi_stats:
+            reflection["agent_nadi_stats"] = agent_nadi_stats
+
     # Hebbian learning: flush weights + stats
     if ctx.learning is not None:
         ctx.learning.flush()
@@ -170,6 +176,21 @@ def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
             "failing": cs.get("failing", 0),
         }
 
+    # Collect mission results from sankalpa registry
+    mission_results: list[dict] = []
+    if ctx.sankalpa is not None and hasattr(ctx.sankalpa, "registry"):
+        try:
+            all_missions = ctx.sankalpa.registry.list_missions()
+            for m in all_missions:
+                mission_results.append({
+                    "id": m.id,
+                    "name": m.name,
+                    "status": m.status.value if hasattr(m.status, "value") else str(m.status),
+                    "owner": getattr(m, "owner", "unknown"),
+                })
+        except Exception as e:
+            logger.warning("MOKSHA: Failed to collect mission results for post: %s", e)
+
     return {
         "heartbeat": ctx.heartbeat_count,
         "population": stats.get("total", 0),
@@ -180,6 +201,7 @@ def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
         "recent_actions": [],
         "contract_status": contract_status,
         "chain_valid": reflection.get("chain_valid", False),
+        "mission_results": mission_results,
     }
 
 
@@ -212,6 +234,22 @@ def _build_city_report(ctx: PhaseContext, reflection: dict) -> object:
         ctx.federation.pending_acks if ctx.federation is not None else []
     )
 
+    # Collect mission results from sankalpa registry
+    mission_results: list[dict] = []
+    if ctx.sankalpa is not None and hasattr(ctx.sankalpa, "registry"):
+        try:
+            all_missions = ctx.sankalpa.registry.list_missions()
+            for m in all_missions:
+                mission_results.append({
+                    "id": m.id,
+                    "name": m.name,
+                    "status": m.status.value if hasattr(m.status, "value") else str(m.status),
+                    "owner": getattr(m, "owner", "unknown"),
+                    "priority": m.priority.name if hasattr(m.priority, "name") else str(m.priority),
+                })
+        except Exception as e:
+            logger.warning("MOKSHA: Failed to collect mission results: %s", e)
+
     return CityReport(
         heartbeat=ctx.heartbeat_count,
         timestamp=time.time(),
@@ -224,6 +262,6 @@ def _build_city_report(ctx: PhaseContext, reflection: dict) -> object:
         chain_valid=reflection.get("chain_valid", False),
         recent_actions=[],
         contract_status=contract_status,
-        mission_results=[],
+        mission_results=mission_results,
         directive_acks=directive_acks,
     )

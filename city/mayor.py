@@ -131,6 +131,9 @@ class Mayor:
     # Hebbian learning (cross-session memory)
     _learning: object = None  # CityLearning (city.learning)
 
+    # Agent Nadi (inter-agent messaging)
+    _agent_nadi: object = None  # AgentNadiManager (city.agent_nadi)
+
     # Internal state
     _last_audit_time: float = field(default=0.0)
     _recent_events: list = field(default_factory=list)
@@ -167,6 +170,7 @@ class Mayor:
             knowledge_graph=self._knowledge_graph,
             event_bus=self._event_bus,
             learning=self._learning,
+            agent_nadi=self._agent_nadi,
             last_audit_time=self._last_audit_time,
             recent_events=self._recent_events,
         )
