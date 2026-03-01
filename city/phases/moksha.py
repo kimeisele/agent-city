@@ -35,6 +35,16 @@ def execute(ctx: PhaseContext) -> dict:
         "events_since_last": len(ctx.recent_events),
     }
 
+    # Cognition: EventBus history + stats
+    if ctx.event_bus is not None:
+        from city.cognition import get_bus_stats, get_event_history
+        bus_stats = get_bus_stats()
+        if bus_stats:
+            reflection["event_bus_stats"] = bus_stats
+        recent_bus_events = get_event_history(limit=20)
+        if recent_bus_events:
+            reflection["event_bus_recent"] = len(recent_bus_events)
+
     # Drain event buffer into reflection
     if ctx.recent_events:
         logger.info(
