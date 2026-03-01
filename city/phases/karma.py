@@ -28,6 +28,15 @@ def execute(ctx: PhaseContext) -> list[str]:
     """KARMA: Process gateway queue, sankalpa, heal, council cycle."""
     operations: list[str] = []
 
+    # Mark all living citizens as active (feeds energy during next DHARMA metabolize)
+    from city.registry import SVC_SPAWNER
+
+    spawner = ctx.registry.get(SVC_SPAWNER)
+    if spawner is not None:
+        active_count = spawner.mark_citizens_active(ctx.active_agents)
+        if active_count:
+            operations.append(f"citizens_active:{active_count}")
+
     # Cognition: compile KG context for this KARMA cycle
     kg_context = ""
     if ctx.knowledge_graph is not None:
@@ -148,9 +157,7 @@ def execute(ctx: PhaseContext) -> list[str]:
 
                     pr_mgr = ctx.registry.get(SVC_PR_LIFECYCLE)
                     if pr_mgr is not None:
-                        pr_mgr.track(
-                            pr.pr_url, pr.branch, contract.name, ctx.heartbeat_count
-                        )
+                        pr_mgr.track(pr.pr_url, pr.branch, contract.name, ctx.heartbeat_count)
                     logger.info("KARMA: PR created — %s", pr.pr_url)
 
     # Layer 5: Council governance cycle
@@ -161,6 +168,17 @@ def execute(ctx: PhaseContext) -> list[str]:
             executed = _execute_proposal(ctx, proposal)
             operations.append(f"council_executed:{proposal.id}:{executed}")
             ctx.council.mark_executed(proposal.id)
+
+    # Moltbook Assistant: execute planned actions (invites, posts, upvotes)
+    if ctx.moltbook_assistant is not None:
+        assistant_result = ctx.moltbook_assistant.on_karma(
+            ctx.heartbeat_count,
+            ctx.pokedex.stats(),
+        )
+        if assistant_result.get("invites_sent"):
+            operations.append(f"assistant:invites={assistant_result['invites_sent']}")
+        if assistant_result.get("post_created"):
+            operations.append("assistant:post_created")
 
     if operations:
         logger.info("KARMA: %d operations processed", len(operations))

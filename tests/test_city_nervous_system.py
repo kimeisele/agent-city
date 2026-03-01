@@ -279,3 +279,227 @@ class TestNervousSystemIntegration:
         for intent in intents:
             handler = attention.route(intent.signal)
             assert handler is not None
+
+
+# ===========================================================================
+# Pluggable PainRule Tests (Immune System)
+# ===========================================================================
+
+
+class TestPainRuleProtocol:
+    """Pluggable pain rules — the city's adaptive immune system."""
+
+    def test_custom_rule_registration(self):
+        """Custom PainRules can be registered and triggered."""
+        from city.reactor import CityIntent, CityReactor, MetricStore, PainRule
+
+        class HighLatencyRule(PainRule):
+            @property
+            def name(self):
+                return "api_latency_high"
+
+            @property
+            def listens_to(self):
+                return ("api_latency",)
+
+            def evaluate(self, metric, store, **kwargs):
+                ms = kwargs.get("duration_ms", 0)
+                if ms > 1000:
+                    return CityIntent(signal="api_latency_high", priority="high",
+                                      context={"ms": ms})
+                return None
+
+        reactor = CityReactor()
+        reactor.register_rule(HighLatencyRule())
+
+        # Should not trigger on fast API
+        reactor.record("api_latency", duration_ms=50.0)
+        assert len(reactor.detect_pain()) == 0
+
+        # Should trigger on slow API
+        reactor.record("api_latency", duration_ms=1500.0)
+        intents = reactor.detect_pain()
+        assert len(intents) == 1
+        assert intents[0].signal == "api_latency_high"
+        assert intents[0].context["ms"] == 1500.0
+
+    def test_rule_replacement(self):
+        """Registering a rule with the same name replaces the old one."""
+        from city.reactor import CityReactor, MetabolizeSlowRule
+
+        reactor = CityReactor()
+
+        # Replace built-in with stricter threshold
+        strict = MetabolizeSlowRule(threshold_ms=100.0, consecutive=2)
+        reactor.register_rule(strict)
+
+        # 2× over 100ms should now trigger (was 3× over 500ms)
+        reactor.record("metabolize_all", duration_ms=150.0)
+        reactor.record("metabolize_all", duration_ms=200.0)
+        intents = reactor.detect_pain()
+        assert any(i.signal == "metabolize_slow" for i in intents)
+
+    def test_empty_reactor_no_rules(self):
+        """Reactor with no rules never produces pain."""
+        from city.reactor import CityReactor
+
+        reactor = CityReactor(rules=[])
+        reactor.record("metabolize_all", duration_ms=9999.0)
+        reactor.record("agent_deaths", count=100)
+        assert len(reactor.detect_pain()) == 0
+
+    def test_stats_lists_all_rules(self):
+        """Stats include names of all registered rules."""
+        from city.reactor import CityReactor
+
+        reactor = CityReactor()
+        stats = reactor.stats()
+        assert "metabolize_slow" in stats["rules"]
+        assert "agent_death_spike" in stats["rules"]
+        assert "zone_empty" in stats["rules"]
+
+    def test_rule_error_does_not_crash_reactor(self):
+        """A broken rule logs an error but doesn't crash the reactor."""
+        from city.reactor import CityIntent, CityReactor, MetricStore, PainRule
+
+        class BrokenRule(PainRule):
+            @property
+            def name(self):
+                return "broken"
+
+            @property
+            def listens_to(self):
+                return ("metabolize_all",)
+
+            def evaluate(self, metric, store, **kwargs):
+                raise RuntimeError("I'm broken")
+
+        reactor = CityReactor()
+        reactor.register_rule(BrokenRule())
+
+        # Should not crash — broken rule is caught
+        reactor.record("metabolize_all", duration_ms=600.0)
+        reactor.record("metabolize_all", duration_ms=600.0)
+        reactor.record("metabolize_all", duration_ms=600.0)
+
+        # Built-in metabolize_slow should still fire despite broken rule
+        intents = reactor.detect_pain()
+        signals = [i.signal for i in intents]
+        assert "metabolize_slow" in signals
+
+    def test_multi_metric_rule(self):
+        """A single rule can listen to multiple metrics."""
+        from city.reactor import CityIntent, CityReactor, MetricStore, PainRule
+
+        class ComboRule(PainRule):
+            @property
+            def name(self):
+                return "system_overload"
+
+            @property
+            def listens_to(self):
+                return ("cpu_usage", "memory_usage")
+
+            def evaluate(self, metric, store, **kwargs):
+                pct = kwargs.get("count", 0)
+                if pct > 90:
+                    return CityIntent(signal="system_overload", priority="critical",
+                                      context={"metric": metric, "pct": pct})
+                return None
+
+        reactor = CityReactor(rules=[])  # no built-ins
+        reactor.register_rule(ComboRule())
+
+        # Trigger via cpu_usage
+        reactor.record("cpu_usage", count=95)
+        intents = reactor.detect_pain()
+        assert len(intents) == 1
+        assert intents[0].context["metric"] == "cpu_usage"
+
+        # Trigger via memory_usage
+        reactor.record("memory_usage", count=92)
+        intents = reactor.detect_pain()
+        assert len(intents) == 1
+        assert intents[0].context["metric"] == "memory_usage"
+
+    def test_custom_rule_with_attention_routing(self):
+        """Custom rule + custom attention handler = end-to-end."""
+        from city.attention import CityAttention
+        from city.reactor import CityIntent, CityReactor, MetricStore, PainRule
+
+        class DiskFullRule(PainRule):
+            @property
+            def name(self):
+                return "disk_full"
+
+            @property
+            def listens_to(self):
+                return ("disk_usage",)
+
+            def evaluate(self, metric, store, **kwargs):
+                pct = kwargs.get("count", 0)
+                if pct > 95:
+                    return CityIntent(signal="disk_full", priority="critical")
+                return None
+
+        reactor = CityReactor()
+        reactor.register_rule(DiskFullRule())
+
+        attention = CityAttention()
+        attention.register("disk_full", "emergency_cleanup")
+
+        # Trigger
+        reactor.record("disk_usage", count=98)
+        intents = reactor.detect_pain()
+        assert len(intents) == 1
+
+        handler = attention.route(intents[0].signal)
+        assert handler == "emergency_cleanup"
+
+
+class TestMetricStore:
+    """MetricStore rolling window tests."""
+
+    def test_series_append_and_read(self):
+        """Append values and read them back."""
+        from city.reactor import MetricStore
+
+        store = MetricStore(window=5)
+        for i in range(3):
+            store.append("test", i)
+        assert store.series("test") == [0, 1, 2]
+
+    def test_series_window_eviction(self):
+        """Old values evicted when window is full."""
+        from city.reactor import MetricStore
+
+        store = MetricStore(window=3)
+        for i in range(5):
+            store.append("test", i)
+        assert store.series("test") == [2, 3, 4]
+
+    def test_last_n(self):
+        """last_n returns exactly N most recent values."""
+        from city.reactor import MetricStore
+
+        store = MetricStore()
+        for i in range(7):
+            store.append("m", i)
+        assert store.last_n("m", 3) == [4, 5, 6]
+        assert store.last_n("m", 100) == []  # not enough data
+
+    def test_latest_snapshot(self):
+        """set_latest / latest stores and retrieves snapshots."""
+        from city.reactor import MetricStore
+
+        store = MetricStore()
+        store.set_latest("zones", {"north": 5, "east": 0})
+        assert store.latest("zones") == {"north": 5, "east": 0}
+        assert store.latest("nonexistent") is None
+
+    def test_empty_series(self):
+        """Unknown metric returns empty list."""
+        from city.reactor import MetricStore
+
+        store = MetricStore()
+        assert store.series("unknown") == []

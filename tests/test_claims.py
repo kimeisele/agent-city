@@ -1,0 +1,133 @@
+"""
+Tests for R1: Claim Levels — Graduated Identity Verification.
+
+    Hare Krishna Hare Krishna Krishna Krishna Hare Hare
+    Hare Rama   Hare Rama   Rama   Rama   Hare Hare
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from city.claims import ClaimLevel, ClaimManager
+
+
+def _mock_pokedex(current_level: int = 0) -> MagicMock:
+    """Create a mock Pokedex with claim_level support."""
+    pokedex = MagicMock()
+    pokedex.get_claim_level.return_value = current_level
+    pokedex.update_claim_level.return_value = None
+    pokedex.verify_identity.return_value = True
+    return pokedex
+
+
+def test_claim_level_ordering():
+    """ClaimLevel values are strictly ordered 0 < 1 < 2 < 3."""
+    assert ClaimLevel.DISCOVERED < ClaimLevel.SELF_CLAIMED
+    assert ClaimLevel.SELF_CLAIMED < ClaimLevel.PLATFORM_VERIFIED
+    assert ClaimLevel.PLATFORM_VERIFIED < ClaimLevel.CRYPTO_VERIFIED
+    assert int(ClaimLevel.DISCOVERED) == 0
+    assert int(ClaimLevel.CRYPTO_VERIFIED) == 3
+
+
+def test_self_claim_success():
+    """attempt_self_claim() upgrades level when tag matches."""
+    mgr = ClaimManager()
+    pokedex = _mock_pokedex(current_level=0)
+    result = mgr.attempt_self_claim(
+        "alice",
+        "Hello world [city-claim:alice] my post",
+        pokedex,
+    )
+    assert result is True
+    pokedex.update_claim_level.assert_called_once_with("alice", ClaimLevel.SELF_CLAIMED)
+
+
+def test_self_claim_no_tag():
+    """attempt_self_claim() returns False when tag not in title."""
+    mgr = ClaimManager()
+    pokedex = _mock_pokedex(current_level=0)
+    result = mgr.attempt_self_claim("alice", "Just a normal post", pokedex)
+    assert result is False
+    pokedex.update_claim_level.assert_not_called()
+
+
+def test_self_claim_already_claimed():
+    """attempt_self_claim() does not downgrade existing level."""
+    mgr = ClaimManager()
+    pokedex = _mock_pokedex(current_level=2)  # Already PLATFORM_VERIFIED
+    result = mgr.attempt_self_claim(
+        "alice",
+        "[city-claim:alice] I claim",
+        pokedex,
+    )
+    assert result is False
+    pokedex.update_claim_level.assert_not_called()
+
+
+def test_platform_challenge_flow():
+    """initiate + verify platform challenge upgrades to PLATFORM_VERIFIED."""
+    mgr = ClaimManager()
+    pokedex = _mock_pokedex(current_level=1)
+
+    nonce = mgr.initiate_platform_challenge("bob")
+    assert len(nonce) == 32  # 16 bytes hex = 32 chars
+    assert mgr.has_pending_challenge("bob")
+
+    # Agent replies with nonce in DM
+    result = mgr.verify_platform_response("bob", f"Here is my proof: {nonce}", pokedex)
+    assert result is True
+    assert not mgr.has_pending_challenge("bob")
+    pokedex.update_claim_level.assert_called_once_with("bob", ClaimLevel.PLATFORM_VERIFIED)
+
+
+def test_platform_challenge_wrong_nonce():
+    """verify_platform_response() rejects wrong nonce."""
+    mgr = ClaimManager()
+    pokedex = _mock_pokedex(current_level=1)
+
+    mgr.initiate_platform_challenge("charlie")
+    result = mgr.verify_platform_response("charlie", "wrong_nonce_here", pokedex)
+    assert result is False
+    assert mgr.has_pending_challenge("charlie")  # Still pending
+    pokedex.update_claim_level.assert_not_called()
+
+
+def test_crypto_verify():
+    """verify_crypto_claim() upgrades to CRYPTO_VERIFIED on valid sig."""
+    mgr = ClaimManager()
+    pokedex = _mock_pokedex(current_level=2)
+    pokedex.verify_identity.return_value = True
+
+    result = mgr.verify_crypto_claim("dave", "nonce123", "valid_sig_b64", pokedex)
+    assert result is True
+    pokedex.verify_identity.assert_called_once_with("dave", b"nonce123", "valid_sig_b64")
+    pokedex.update_claim_level.assert_called_once_with("dave", ClaimLevel.CRYPTO_VERIFIED)
+
+
+def test_crypto_verify_bad_signature():
+    """verify_crypto_claim() rejects invalid ECDSA signature."""
+    mgr = ClaimManager()
+    pokedex = _mock_pokedex(current_level=2)
+    pokedex.verify_identity.return_value = False
+
+    result = mgr.verify_crypto_claim("eve", "nonce456", "bad_sig", pokedex)
+    assert result is False
+    pokedex.update_claim_level.assert_not_called()
+
+
+if __name__ == "__main__":
+    test_claim_level_ordering()
+    test_self_claim_success()
+    test_self_claim_no_tag()
+    test_self_claim_already_claimed()
+    test_platform_challenge_flow()
+    test_platform_challenge_wrong_nonce()
+    test_crypto_verify()
+    test_crypto_verify_bad_signature()
+    print("All 8 claim level tests passed.")

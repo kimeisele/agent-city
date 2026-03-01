@@ -121,6 +121,12 @@ def execute(ctx: PhaseContext) -> list[str]:
             discovered.append(f"directive:{d.directive_type}:{executed}")
             ctx.federation.acknowledge_directive(d.id)
 
+    # Moltbook Assistant: follow discovered agents
+    if ctx.moltbook_assistant is not None and not ctx.offline_mode:
+        followed = ctx.moltbook_assistant.on_genesis(discovered)
+        for name in followed:
+            discovered.append(f"followed:{name}")
+
     return discovered
 
 
