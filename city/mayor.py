@@ -45,6 +45,7 @@ from city.registry import (
     SVC_LEARNING,
     SVC_MOLTBOOK_BRIDGE,
     SVC_MOLTBOOK_CLIENT,
+    SVC_PRAHLAD,
     SVC_REFLECTION,
     SVC_SANKALPA,
     CityServiceRegistry,
@@ -133,6 +134,7 @@ class Mayor:
     _learning: object = None
     _agent_nadi: object = None
     _immune: object = None
+    _prahlad: object = None
 
     # Internal state
     _last_audit_time: float = field(default=0.0)
@@ -154,6 +156,7 @@ class Mayor:
             "_knowledge_graph": SVC_KNOWLEDGE_GRAPH,
             "_event_bus": SVC_EVENT_BUS, "_learning": SVC_LEARNING,
             "_agent_nadi": SVC_AGENT_NADI, "_immune": SVC_IMMUNE,
+            "_prahlad": SVC_PRAHLAD,
         }
         for field_name, svc_name in _field_to_svc.items():
             val = getattr(self, field_name, None)
@@ -180,6 +183,7 @@ class Mayor:
             "_knowledge_graph": SVC_KNOWLEDGE_GRAPH,
             "_event_bus": SVC_EVENT_BUS, "_learning": SVC_LEARNING,
             "_agent_nadi": SVC_AGENT_NADI, "_immune": SVC_IMMUNE,
+            "_prahlad": SVC_PRAHLAD,
         }
         for field_name, svc_name in _field_to_svc.items():
             val = getattr(self, field_name, None)
@@ -262,6 +266,14 @@ class Mayor:
         elif department == MOKSHA:
             from city.phases import moksha
             result["reflection"] = moksha.execute(ctx)
+            
+            # Autonomous Introspection — The city checks itself for bleeding
+            # Triggered during MOKSHA, every 10 cycles (40 heartbeats) to prevent fatigue
+            if self._heartbeat_count % 40 == 3:
+                if self._immune is not None and hasattr(self._immune, "run_self_diagnostics"):
+                    logger.info("MOKSHA Phase: Triggering Autonomous Immune Diagnostics.")
+                    heals = self._immune.run_self_diagnostics()
+                    result["reflection"]["immune_heals"] = len(heals)
 
         self._sync_from_ctx(ctx)
 

@@ -15,7 +15,10 @@ Pipeline:
 
 from __future__ import annotations
 
+import json
 import logging
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -200,6 +203,77 @@ class CityImmune:
                     diagnosis.confidence, result.success,
                 )
         return results
+
+    def run_self_diagnostics(self) -> list[HealResult]:
+        """SOTA CI/CD: Autonomous Introspection.
+        
+        The immune system runs its own tests in an isolated subprocess,
+        forcing strict JSON output so we can precisely extract tracebacks
+        without brittle regex scanning of stdout.
+        """
+        logger.info("Immune: Initiating Autonomous Self-Diagnostic...")
+        
+        # Determine paths
+        city_dir = Path(__file__).parent
+        repo_root = city_dir.parent
+        test_dir = repo_root / "tests"
+        report_path = repo_root / ".introspection.json"
+        
+        if report_path.exists():
+            report_path.unlink()
+            
+        cmd = [
+            sys.executable, "-m", "pytest", str(test_dir),
+            "-q", "--json-report", f"--json-report-file={report_path}"
+        ]
+        
+        try:
+            # Execute the tests (The Mirror)
+            subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            
+            if not report_path.exists():
+                logger.error("Immune: Self-Diagnostic failed to generate JSON report.")
+                return []
+                
+            # Digestion: Parse structured failures
+            with open(report_path, "r") as f:
+                report = json.load(f)
+                
+            summary = report.get("summary", {})
+            failed_count = summary.get("failed", 0)
+            
+            if failed_count == 0:
+                logger.info("Immune: Self-Diagnostic passed. Federation is Watertight.")
+                # TODO: Boost MantraShield
+                return []
+                
+            logger.warning("Immune: Bleeding detected! %d tests failed.", failed_count)
+            
+            # Extract tracebacks as pathogens
+            pathogens = []
+            for test in report.get("tests", []):
+                if test.get("outcome") == "failed":
+                    crash = test.get("call", {}).get("crash", {})
+                    path = crash.get("path", "")
+                    message = crash.get("message", "")
+                    
+                    if path and message:
+                        # Reconstruct a generic audit-like detail string for our Hebbian parser
+                        # e.g., "Failure in test_foo.py: some_error"
+                        pathogens.append(f"Failure in {path}: {message}")
+            
+            # Push pathogens into the Healing System
+            if pathogens:
+                return self.scan_and_heal(pathogens)
+            
+            return []
+            
+        except subprocess.TimeoutExpired:
+            logger.error("Immune: Self-Diagnostic TIMED OUT (120s).")
+            return []
+        except Exception as e:
+            logger.error("Immune: Self-Diagnostic critical error: %s", e)
+            return []
 
     def list_remedies(self) -> list[str]:
         """List available ShuddhiEngine remedy rule_ids."""

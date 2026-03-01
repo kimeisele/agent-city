@@ -32,6 +32,7 @@ SVC_LEARNING = "learning"
 SVC_AGENT_NADI = "agent_nadi"
 SVC_IMMUNE = "immune"
 SVC_IDENTITY = "identity"
+SVC_PRAHLAD = "prahlad"
 
 
 class CityServiceRegistry:
