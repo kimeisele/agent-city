@@ -76,17 +76,47 @@ def execute(ctx: PhaseContext) -> list[str]:
 
 
 def _get_election_candidates(ctx: PhaseContext) -> list[dict]:
-    """Build candidate list from living citizens with prana data."""
+    """Build candidate list from living citizens with multi-dimensional ranking.
+
+    Composite rank_score: 50% prana + 40% integrity + 10% guna bonus.
+    Falls back to prana-only if steward-protocol modules unavailable.
+    """
+    # Try to load Guna module for multi-dimensional ranking
+    try:
+        from vibe_core.mahamantra.substrate.core.guna import Guna, get_guna_by_position
+        guna_available = True
+    except Exception:
+        guna_available = False
+
     citizens = ctx.pokedex.list_citizens()
     candidates = []
     for c in citizens:
         cell = ctx.pokedex.get_cell(c["name"])
         if cell is not None and cell.is_alive:
+            position = c["classification"]["position"]
+            prana_norm = cell.prana / 21600  # Normalize to 0-1
+
+            if guna_available:
+                try:
+                    guna = get_guna_by_position(position)
+                    integrity = getattr(cell, "membrane_integrity", cell.prana) / 21600
+                    # Composite: 50% prana + 40% integrity + 10% guna bonus
+                    rank_score = prana_norm * 0.5 + integrity * 0.4
+                    if guna == Guna.SATTVA:
+                        rank_score += 0.1
+                    elif guna == Guna.RAJAS:
+                        rank_score += 0.05
+                except Exception:
+                    rank_score = prana_norm
+            else:
+                rank_score = prana_norm
+
             candidates.append({
                 "name": c["name"],
                 "prana": cell.prana,
                 "guardian": c["classification"]["guardian"],
-                "position": c["classification"]["position"],
+                "position": position,
+                "rank_score": rank_score,
             })
     return candidates
 

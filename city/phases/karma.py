@@ -120,19 +120,50 @@ def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
 
 
 def _council_auto_vote(ctx: PhaseContext) -> None:
-    """Council members vote on all open proposals (prana-weighted)."""
+    """Council members vote on all open proposals (buddhi-driven).
+
+    Instead of blindly voting YES, each member consults buddhi.think()
+    to discriminate proposal quality via integrity + mode signals.
+    """
     if ctx.council is None:
         return
 
     from city.council import VoteChoice
 
+    # Buddhi-driven voting: real discrimination, not rubber-stamping
+    try:
+        from vibe_core.mahamantra.substrate.buddhi import get_buddhi
+        buddhi = get_buddhi()
+    except Exception:
+        buddhi = None
+
     open_proposals = ctx.council.get_open_proposals()
     for proposal in open_proposals:
+        # Run buddhi once per proposal (deterministic for same title)
+        cognition = None
+        if buddhi is not None:
+            try:
+                cognition = buddhi.think(proposal.title)
+            except Exception as e:
+                logger.debug("Buddhi think failed for '%s': %s", proposal.title, e)
+
         for seat_idx, member_name in ctx.council.seats.items():
             cell = ctx.pokedex.get_cell(member_name)
             prana = cell.prana if cell is not None and cell.is_alive else 0
             if prana > 0:
+                if cognition is not None:
+                    # Buddhi-driven: integrity + mode signals
+                    if cognition.integrity > 0.7 and cognition.is_alive:
+                        choice = VoteChoice.YES
+                    elif cognition.integrity > 0.4:
+                        choice = VoteChoice.ABSTAIN
+                    else:
+                        choice = VoteChoice.NO
+                else:
+                    # Fallback: auto-YES (backward compatible)
+                    choice = VoteChoice.YES
+
                 ctx.council.vote(
-                    proposal.id, member_name, VoteChoice.YES, prana,
+                    proposal.id, member_name, choice, prana,
                 )
         ctx.council.tally(proposal.id)
