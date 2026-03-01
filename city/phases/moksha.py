@@ -130,11 +130,23 @@ def execute(ctx: PhaseContext) -> dict:
         if closed_count > 0:
             reflection["issues_closed"] = closed_count
 
+    # Collect terminal missions (completed/failed) for [Mission Result] posts
+    terminal_missions = _collect_terminal_missions(ctx)
+    if terminal_missions:
+        reflection["mission_results_terminal"] = terminal_missions
+
     # Layer 6: Federation report
     if ctx.federation is not None:
         report = _build_city_report(ctx, reflection)
         sent = ctx.federation.send_report(report)
         reflection["federation_report_sent"] = sent
+
+    # Layer 6: Moltbook mission result posts (m/agent-city)
+    if ctx.moltbook_bridge is not None and not ctx.offline_mode:
+        mission_results = reflection.get("mission_results_terminal", [])
+        if mission_results:
+            results_posted = ctx.moltbook_bridge.post_mission_results(mission_results)
+            reflection["mission_results_posted"] = results_posted
 
     # Layer 6: Moltbook city update (m/agent-city)
     if ctx.moltbook_bridge is not None and not ctx.offline_mode:
@@ -143,6 +155,41 @@ def execute(ctx: PhaseContext) -> dict:
         reflection["moltbook_update_posted"] = posted
 
     return reflection
+
+
+def _collect_terminal_missions(ctx: PhaseContext) -> list[dict]:
+    """Collect completed/failed missions for [Mission Result] posts.
+
+    Returns dicts with: id, name, status, owner, pr_url (if any).
+    """
+    if ctx.sankalpa is None:
+        return []
+
+    try:
+        from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
+        all_missions = ctx.sankalpa.registry.list_missions()
+    except Exception:
+        return []
+
+    terminal: list[dict] = []
+    for m in all_missions:
+        if m.status not in (MissionStatus.COMPLETED, MissionStatus.ABANDONED):
+            continue
+        # Only report missions we haven't already reported
+        # Convention: owner changes to "reported" after posting
+        if getattr(m, "owner", "") == "reported":
+            continue
+        terminal.append({
+            "id": m.id,
+            "name": m.name,
+            "status": m.status.value if hasattr(m.status, "value") else str(m.status),
+            "owner": getattr(m, "owner", "unknown"),
+        })
+        # Mark as reported to prevent re-posting
+        m.owner = "reported"
+        ctx.sankalpa.registry.add_mission(m)
+
+    return terminal
 
 
 def _collect_pr_results(ctx: PhaseContext) -> list[dict]:
@@ -271,6 +318,10 @@ def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
         except Exception as e:
             logger.warning("MOKSHA: Failed to collect mission results for post: %s", e)
 
+    directive_acks = (
+        ctx.federation.pending_acks if ctx.federation is not None else []
+    )
+
     return {
         "heartbeat": ctx.heartbeat_count,
         "population": stats.get("total", 0),
@@ -282,6 +333,7 @@ def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
         "contract_status": contract_status,
         "chain_valid": reflection.get("chain_valid", False),
         "mission_results": mission_results,
+        "directive_acks": directive_acks,
         "pr_results": reflection.get("pr_results", []),
     }
 

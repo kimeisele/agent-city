@@ -702,6 +702,47 @@ def test_bridge_persistence():
     assert bridge2._subscribed is True
 
 
+def test_bridge_mission_result_post():
+    """[Mission Result] posts emit for completed missions."""
+    from city.moltbook_bridge import MISSION_RESULT_PREFIX, MoltbookBridge
+
+    client = _MockBridgeClient()
+    bridge = MoltbookBridge(_client=client, _own_username="mayor_bot")
+
+    missions = [
+        {"id": "signal_fix_abc123", "name": "Signal: fix", "status": "completed", "owner": "submolt"},
+        {"id": "heal_ruff_42", "name": "Heal: ruff_clean", "status": "active", "owner": "mayor"},
+        {"id": "exec_dir1_5", "name": "Execute: ruff_clean", "status": "failed", "owner": "federation"},
+    ]
+    posted = bridge.post_mission_results(missions)
+    assert posted == 2  # completed + failed, not active
+    assert len(client.posts_created) == 2
+    assert client.posts_created[0]["title"].startswith(MISSION_RESULT_PREFIX)
+    assert "completed" in client.posts_created[0]["title"]
+    assert "failed" in client.posts_created[1]["title"]
+
+
+def test_bridge_directive_acks_in_content():
+    """City report content includes directive acknowledgments."""
+    from city.moltbook_bridge import MoltbookBridge
+
+    client = _MockBridgeClient()
+    bridge = MoltbookBridge(_client=client, _own_username="mayor_bot")
+
+    data = {
+        "heartbeat": 10,
+        "population": 5,
+        "alive": 5,
+        "chain_valid": True,
+        "directive_acks": ["DIR-1709305200", "DIR-1709305300"],
+    }
+    bridge.post_city_update(data)
+    content = client.posts_created[0]["content"]
+    assert "Directives processed:" in content
+    assert "ACK: DIR-1709305200" in content
+    assert "ACK: DIR-1709305300" in content
+
+
 def test_bridge_offline_no_crash():
     """Mayor with bridge=None (offline) runs without crash."""
     tmp = Path(tempfile.mkdtemp())

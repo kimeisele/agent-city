@@ -38,6 +38,7 @@ GOVERNANCE_SIGNALS: frozenset[str] = frozenset({
 
 CITY_REPORT_PREFIX = "[City Report]"
 SIGNAL_PREFIX = "[Signal]"
+MISSION_RESULT_PREFIX = "[Mission Result]"
 SUBMOLT_NAME = "agent-city"
 
 
@@ -188,7 +189,41 @@ class MoltbookBridge:
             logger.warning("BRIDGE: Comment on %s failed: %s", post_id, e)
         return mission_id
 
-    # ── MOKSHA: Post city update ───────────────────────────────────
+    # ── MOKSHA: Post mission results + city update ────────────────
+
+    def post_mission_results(self, missions: list[dict]) -> int:
+        """Post [Mission Result] for each completed/failed mission.
+
+        OPUS_1's _parse_city_report() parses this format.
+        Returns count of results posted.
+        """
+        posted = 0
+        for m in missions:
+            status = m.get("status", "unknown")
+            if status not in ("completed", "failed", "abandoned"):
+                continue
+
+            name = m.get("name", "unknown")
+            pr_url = m.get("pr_url", "")
+            mission_id = m.get("id", "")
+
+            title = f"{MISSION_RESULT_PREFIX} {status}: {name}"
+            parts = [f"Mission `{mission_id}` finished with status **{status}**."]
+            if pr_url:
+                parts.append(f"\nPR: {pr_url}")
+            owner = m.get("owner", "")
+            if owner:
+                parts.append(f"Owner: {owner}")
+            content = "\n".join(parts)
+
+            try:
+                self._client.sync_create_post(title, content, submolt=SUBMOLT_NAME)
+                posted += 1
+                logger.info("BRIDGE: Posted mission result: %s (%s)", mission_id, status)
+            except Exception as e:
+                logger.warning("BRIDGE: Mission result post failed: %s", e)
+
+        return posted
 
     def post_city_update(self, report_data: dict) -> bool:
         """Post a human-readable city update to m/agent-city.
@@ -277,6 +312,14 @@ class MoltbookBridge:
                 pr_url = pr.get("pr_url", "")
                 branch = pr.get("branch", "")
                 parts.append(f"- {branch}: {pr_url}")
+
+        # Directive acknowledgments (for OPUS_1 parser)
+        acks = data.get("directive_acks", [])
+        if acks:
+            parts.append("")
+            parts.append("Directives processed:")
+            for ack_id in acks[:10]:
+                parts.append(f"- ACK: {ack_id}")
 
         # Chain integrity
         chain = "verified" if data.get("chain_valid") else "BROKEN"
