@@ -84,6 +84,7 @@ def main() -> None:
         SVC_EVENT_BUS,
         SVC_EXECUTOR,
         SVC_FEDERATION,
+        SVC_FEDERATION_NADI,
         SVC_IMMUNE,
         SVC_ISSUES,
         SVC_KNOWLEDGE_GRAPH,
@@ -148,6 +149,20 @@ def main() -> None:
             _mothership_repo=args.mothership,
             _dry_run=args.federation_dry_run or not args.federation,
         ))
+
+    # Federation Nadi — file-based inter-repo message bridge
+    try:
+        from city.federation_nadi import FederationNadi
+        fed_nadi_dir = db_path.parent / "federation"
+        fed_nadi = FederationNadi(_federation_dir=fed_nadi_dir)
+        registry.register(SVC_FEDERATION_NADI, fed_nadi)
+        fed_stats = fed_nadi.stats()
+        log.info(
+            "FederationNadi wired (outbox=%d, inbox=%d)",
+            fed_stats["outbox_on_disk"], fed_stats["inbox_on_disk"],
+        )
+    except Exception as e:
+        log.debug("FederationNadi unavailable: %s", e)
 
     # Hebbian learning (graceful fallback)
     try:

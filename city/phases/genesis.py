@@ -89,6 +89,21 @@ def execute(ctx: PhaseContext) -> list[str]:
                 })
                 discovered.append(f"submolt_signal:{signal['post_id']}")
 
+    # Layer 6: Federation Nadi — receive cross-repo messages
+    if ctx.federation_nadi is not None:
+        fed_messages = ctx.federation_nadi.receive()
+        for msg in fed_messages:
+            # Enqueue federation messages for KARMA processing
+            _enqueue_item(ctx, {
+                "source": f"federation:{msg.source}",
+                "text": msg.operation,
+                "federation_payload": msg.payload,
+                "correlation_id": msg.correlation_id,
+            })
+            discovered.append(f"fed_nadi:{msg.source}:{msg.operation}")
+        if fed_messages:
+            logger.info("GENESIS: %d federation Nadi messages received", len(fed_messages))
+
     # Layer 6: Federation directives
     if ctx.federation is not None:
         directives = ctx.federation.check_directives()

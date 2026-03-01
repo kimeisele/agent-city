@@ -24,6 +24,7 @@ from city.registry import (
     SVC_EVENT_BUS,
     SVC_EXECUTOR,
     SVC_FEDERATION,
+    SVC_FEDERATION_NADI,
     SVC_IDENTITY,
     SVC_IMMUNE,
     SVC_ISSUES,
@@ -173,6 +174,10 @@ class PhaseContext:
     @property
     def immune(self) -> object | None:
         return self.registry.get(SVC_IMMUNE)
+
+    @property
+    def federation_nadi(self) -> object | None:
+        return self.registry.get(SVC_FEDERATION_NADI)
 
     @property
     def identity(self) -> object | None:

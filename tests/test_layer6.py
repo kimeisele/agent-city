@@ -1173,6 +1173,286 @@ def test_moltbook_post_includes_mission_outcomes():
         shutil.rmtree(tmp)
 
 
+# ── Phase 8: FederationNadi Tests ─────────────────────────────────
+
+
+def test_federation_nadi_creation():
+    """FederationNadi starts with empty state and creates dirs."""
+    from city.federation_nadi import FederationNadi
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        nadi = FederationNadi(_federation_dir=tmp / "federation")
+        assert (tmp / "federation").exists()
+        stats = nadi.stats()
+        assert stats["outbox_pending"] == 0
+        assert stats["outbox_on_disk"] == 0
+        assert stats["inbox_on_disk"] == 0
+        assert stats["processed"] == 0
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_federation_nadi_emit_and_flush():
+    """emit() queues messages, flush() writes them to disk."""
+    from city.federation_nadi import FederationNadi
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        nadi = FederationNadi(_federation_dir=tmp / "federation")
+
+        # Emit 3 messages
+        nadi.emit("moksha", "city_report", {"heartbeat": 1, "alive": 10})
+        nadi.emit("karma", "pr_created", {"pr_url": "https://github.com/test/1"})
+        nadi.emit("karma", "heal_done", {"contract": "ruff_clean"}, priority=3)
+
+        assert nadi.stats()["outbox_pending"] == 3
+
+        # Flush to disk
+        count = nadi.flush()
+        assert count == 3
+        assert nadi.stats()["outbox_pending"] == 0
+        assert nadi.stats()["outbox_on_disk"] == 3
+
+        # Verify file contents
+        data = json.loads(nadi.outbox_path.read_text())
+        assert len(data) == 3
+        # Highest priority first (SUDDHA=3)
+        assert data[0]["operation"] == "heal_done"
+        assert data[0]["priority"] == 3
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_federation_nadi_receive():
+    """receive() reads messages from inbox and deduplicates."""
+    from city.federation_nadi import FederationNadi
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        nadi = FederationNadi(_federation_dir=tmp / "federation")
+
+        # Write inbox messages (simulating mothership delivery)
+        inbox_data = [
+            {
+                "source": "genesis",
+                "target": "agent-city",
+                "operation": "register_agent",
+                "payload": {"name": "NewAgent"},
+                "priority": 2,
+                "correlation_id": "dir_001",
+                "timestamp": time.time(),
+                "ttl_s": 900.0,
+            },
+            {
+                "source": "dharma",
+                "target": "agent-city",
+                "operation": "execute_code",
+                "payload": {"contract": "ruff_clean"},
+                "priority": 1,
+                "correlation_id": "dir_002",
+                "timestamp": time.time(),
+                "ttl_s": 900.0,
+            },
+        ]
+        nadi.inbox_path.write_text(json.dumps(inbox_data))
+
+        # Receive
+        messages = nadi.receive()
+        assert len(messages) == 2
+        # SATTVA (2) first
+        assert messages[0].source == "genesis"
+        assert messages[0].operation == "register_agent"
+        assert messages[0].payload["name"] == "NewAgent"
+
+        # Second receive — deduplication
+        messages2 = nadi.receive()
+        assert len(messages2) == 0
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_federation_nadi_expired_messages():
+    """Expired messages are filtered on receive."""
+    from city.federation_nadi import FederationNadi
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        nadi = FederationNadi(_federation_dir=tmp / "federation")
+
+        inbox_data = [
+            {
+                "source": "old",
+                "target": "agent-city",
+                "operation": "stale",
+                "payload": {},
+                "priority": 1,
+                "correlation_id": "",
+                "timestamp": time.time() - 2000,  # Expired (TTL=900)
+                "ttl_s": 900.0,
+            },
+            {
+                "source": "fresh",
+                "target": "agent-city",
+                "operation": "alive",
+                "payload": {},
+                "priority": 1,
+                "correlation_id": "",
+                "timestamp": time.time(),
+                "ttl_s": 900.0,
+            },
+        ]
+        nadi.inbox_path.write_text(json.dumps(inbox_data))
+
+        messages = nadi.receive()
+        assert len(messages) == 1
+        assert messages[0].source == "fresh"
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_federation_nadi_buffer_cap():
+    """Outbox caps at NADI_BUFFER_SIZE (144)."""
+    from city.federation_nadi import FederationNadi, NADI_BUFFER_SIZE
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        nadi = FederationNadi(_federation_dir=tmp / "federation")
+
+        # Emit 200 messages (exceeds buffer)
+        for i in range(200):
+            nadi.emit("test", f"op_{i}", {"index": i})
+
+        count = nadi.flush()
+        assert count == 200
+
+        # Disk should be capped at buffer size
+        data = json.loads(nadi.outbox_path.read_text())
+        assert len(data) == NADI_BUFFER_SIZE
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_federation_nadi_clear_inbox():
+    """clear_inbox removes expired messages from disk."""
+    from city.federation_nadi import FederationNadi
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        nadi = FederationNadi(_federation_dir=tmp / "federation")
+
+        inbox_data = [
+            {
+                "source": "old", "target": "agent-city", "operation": "stale",
+                "payload": {}, "priority": 1, "correlation_id": "",
+                "timestamp": time.time() - 2000, "ttl_s": 900.0,
+            },
+            {
+                "source": "fresh", "target": "agent-city", "operation": "alive",
+                "payload": {}, "priority": 1, "correlation_id": "",
+                "timestamp": time.time(), "ttl_s": 900.0,
+            },
+        ]
+        nadi.inbox_path.write_text(json.dumps(inbox_data))
+
+        nadi.clear_inbox()
+
+        remaining = json.loads(nadi.inbox_path.read_text())
+        assert len(remaining) == 1
+        assert remaining[0]["source"] == "fresh"
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_federation_nadi_message_serialization():
+    """FederationMessage round-trips through dict correctly."""
+    from city.federation_nadi import FederationMessage, SATTVA
+
+    msg = FederationMessage(
+        source="moksha",
+        target="steward-protocol",
+        operation="city_report",
+        payload={"heartbeat": 42, "alive": 18},
+        priority=SATTVA,
+        correlation_id="cor_123",
+    )
+    d = msg.to_dict()
+    assert d["source"] == "moksha"
+    assert d["priority"] == SATTVA
+    assert d["payload"]["heartbeat"] == 42
+
+    msg2 = FederationMessage.from_dict(d)
+    assert msg2.source == msg.source
+    assert msg2.operation == msg.operation
+    assert msg2.payload == msg.payload
+    assert msg2.priority == msg.priority
+    assert msg2.correlation_id == msg.correlation_id
+
+
+def test_federation_nadi_genesis_integration():
+    """FederationNadi messages are enqueued in GENESIS phase."""
+    from city.federation_nadi import FederationNadi
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        mayor, pokedex, relay = _make_mayor_with_federation(tmp)
+
+        # Create FederationNadi and register it
+        fed_nadi = FederationNadi(_federation_dir=tmp / "federation")
+        mayor._registry.register("federation_nadi", fed_nadi)
+
+        # Write inbox messages (simulating mothership delivery)
+        inbox_data = [
+            {
+                "source": "opus_1",
+                "target": "agent-city",
+                "operation": "code_intent",
+                "payload": {"topic": "fix ruff violations"},
+                "priority": 2,
+                "correlation_id": "dir_999",
+                "timestamp": time.time(),
+                "ttl_s": 900.0,
+            },
+        ]
+        fed_nadi.inbox_path.write_text(json.dumps(inbox_data))
+
+        # Run GENESIS
+        result = mayor.heartbeat()
+        assert result["department"] == "GENESIS"
+        assert any("fed_nadi:" in d for d in result["discovered"])
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_federation_nadi_moksha_flush():
+    """FederationNadi flushes outbox messages in MOKSHA phase."""
+    from city.federation_nadi import FederationNadi
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        mayor, pokedex, relay = _make_mayor_with_federation(tmp)
+
+        # Create FederationNadi and register it
+        fed_nadi = FederationNadi(_federation_dir=tmp / "federation")
+        mayor._registry.register("federation_nadi", fed_nadi)
+
+        # Run full MURALI rotation → MOKSHA should flush
+        results = mayor.run_cycle(4)
+        moksha = results[3]
+        assert moksha["department"] == "MOKSHA"
+
+        # Outbox file should exist with city_report message
+        if fed_nadi.outbox_path.exists():
+            data = json.loads(fed_nadi.outbox_path.read_text())
+            assert len(data) >= 1
+            report_msgs = [m for m in data if m["operation"] == "city_report"]
+            assert len(report_msgs) >= 1
+            assert report_msgs[0]["source"] == "moksha"
+            assert "heartbeat" in report_msgs[0]["payload"]
+    finally:
+        shutil.rmtree(tmp)
+
+
 # ── Runner ────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
