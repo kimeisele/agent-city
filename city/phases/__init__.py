@@ -76,6 +76,9 @@ class PhaseContext:
     # Hebbian learning (cross-session memory)
     learning: object = None  # CityLearning (city.learning)
 
+    # Agent Nadi (inter-agent messaging)
+    agent_nadi: object = None  # AgentNadiManager (city.agent_nadi)
+
     # Internal
     last_audit_time: float = 0.0
     recent_events: list = field(default_factory=list)

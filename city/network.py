@@ -68,6 +68,7 @@ class CityNetwork:
     _anchor: AnantaShesha = field(default_factory=get_system_anchor)
     _message_log: list[MessageRecord] = field(default_factory=list)
     _registered_agents: set[str] = field(default_factory=set)
+    _agent_nadi: object = None  # AgentNadiManager (city.agent_nadi)
     _message_limit: int = field(
         default_factory=lambda: get_config().get("network", {}).get("message_log_limit", 1000)
     )
@@ -123,6 +124,10 @@ class CityNetwork:
             "target_address": header.kirtanam,
         })
 
+        # Also deliver via AgentNadi (if wired)
+        if self._agent_nadi is not None:
+            self._agent_nadi.send(from_name, to_name, message)
+
         logger.debug("Message routed: %s → %s (verified=%s)", from_name, to_name, verified)
         return True
 
@@ -153,6 +158,10 @@ class CityNetwork:
         }
         self._append_record(record)
 
+        # Also broadcast via AgentNadi (if wired)
+        if self._agent_nadi is not None:
+            self._agent_nadi.broadcast(from_name, message)
+
         recipients = len(self._registered_agents - {from_name})
         logger.debug("Broadcast from %s to %d agents", from_name, recipients)
         return recipients
@@ -165,6 +174,10 @@ class CityNetwork:
         """
         address = self._address_book.register(name, cell)
         self._registered_agents.add(name)
+
+        # Register agent Nadi endpoint (if AgentNadiManager wired)
+        if self._agent_nadi is not None:
+            self._agent_nadi.register(name)
 
         # Register as gene with AnantaShesha for health monitoring
         self._anchor.register_gene_simple(f"city_agent_{name}", {
@@ -185,6 +198,9 @@ class CityNetwork:
         """Remove an agent from the network."""
         removed = self._address_book.unregister(name)
         self._registered_agents.discard(name)
+        # Remove agent Nadi endpoint
+        if self._agent_nadi is not None:
+            self._agent_nadi.unregister(name)
         if removed:
             self._anchor.emit_event("AGENT_UNREGISTERED", {"name": name})
         return removed
