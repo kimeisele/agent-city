@@ -123,18 +123,31 @@ _PREFIX_PROTOCOL: dict[str, str] = {
 # ── Hard Gate ─────────────────────────────────────────────────────────
 
 
-def check_capability_gate(spec: dict, requirement: MissionRequirement) -> bool:
+def check_capability_gate(
+    spec: dict,
+    requirement: MissionRequirement,
+    inventory: list[dict] | None = None,
+) -> bool:
     """Hard gate. Returns False = agent CANNOT handle this mission.
 
-    Two checks, both must pass:
-    1. Agent's capability_tier rank >= mission's min_tier rank
-    2. ALL required capabilities present in agent's merged capabilities
+    Three checks:
+    1. Agent's capability_tier rank >= mission's min_tier rank (NEVER bypassed)
+    2. ALL required capabilities present in agent's static capabilities
+    3. If missing, check inventory for matching capability_token (dynamic bypass)
+
+    Tier check is NEVER bypassed by assets — you can't buy your way to sovereign.
     """
     agent_tier = spec.get("capability_tier", "observer")
     if TIER_RANK.get(agent_tier, 0) < TIER_RANK.get(requirement["min_tier"], 0):
         return False
 
+    # Static capabilities + inventory capability_tokens
     agent_caps = set(spec.get("capabilities", []))
+    if inventory is not None:
+        for asset in inventory:
+            if asset.get("asset_type") == "capability_token":
+                agent_caps.add(asset["asset_id"])
+
     for cap in requirement["required"]:
         if cap not in agent_caps:
             return False
@@ -195,6 +208,7 @@ def route_mission(
     mission: object,
     specs: dict[str, dict],
     active_agents: set[str],
+    inventories: dict[str, list[dict]] | None = None,
 ) -> RoutingResult:
     """Route one mission to the best-fit agent.
 
@@ -202,6 +216,7 @@ def route_mission(
         mission: SankalpaMission (needs .id attribute).
         specs: All agent specs {name: AgentSpec dict}.
         active_agents: Set of currently active agent names.
+        inventories: Optional {agent_name: [asset_dicts]} for dynamic capability bypass.
 
     Returns:
         RoutingResult with best agent, score, or blocked=True.
@@ -216,7 +231,8 @@ def route_mission(
         if name not in active_agents:
             continue
 
-        if not check_capability_gate(spec, requirement):
+        inventory = inventories.get(name) if inventories else None
+        if not check_capability_gate(spec, requirement, inventory):
             blocked_count += 1
             continue
 
@@ -248,6 +264,7 @@ def authorize_mission(
     mission_id: str,
     specs: dict[str, dict],
     active_agents: set[str],
+    inventories: dict[str, list[dict]] | None = None,
 ) -> bool:
     """Universal authorization gate for dedicated processors.
 
@@ -264,7 +281,8 @@ def authorize_mission(
     for name, spec in specs.items():
         if name not in active_agents:
             continue
-        if check_capability_gate(spec, requirement):
+        inventory = inventories.get(name) if inventories else None
+        if check_capability_gate(spec, requirement, inventory):
             return True
 
     return False

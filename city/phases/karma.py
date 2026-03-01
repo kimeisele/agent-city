@@ -117,21 +117,22 @@ def execute(ctx: PhaseContext) -> list[str]:
             operations.append(f"sankalpa_intent:{intent.title}")
             logger.info("KARMA: Sankalpa intent — %s", intent.title)
 
-    # Collect agent specs ONCE for all routing decisions (shared across call sites)
+    # Collect agent specs + inventories ONCE for all routing decisions
     all_specs = _get_all_specs(ctx)
+    all_inventories = _get_all_inventories(ctx)
 
     # Cartridge routing: capability-scored agent dispatch
-    _route_to_cartridges(ctx, operations, all_specs)
+    _route_to_cartridges(ctx, operations, all_specs, all_inventories)
 
     # Issue-driven missions: process strategyless missions from DHARMA
     if ctx.sankalpa is not None:
-        _process_issue_missions(ctx, operations, all_specs)
+        _process_issue_missions(ctx, operations, all_specs, all_inventories)
 
     # Layer 4: Execute HEAL intents on failing contracts (CAPABILITY GATED)
     if ctx.executor is not None and ctx.contracts is not None:
         from city.mission_router import authorize_mission
 
-        heal_authorized = authorize_mission("heal_", all_specs, ctx.active_agents)
+        heal_authorized = authorize_mission("heal_", all_specs, ctx.active_agents, all_inventories)
         if not heal_authorized:
             logger.info(
                 "KARMA: Heal operations blocked — no agent with validate capability at contributor tier"
@@ -322,7 +323,10 @@ def _council_auto_vote(ctx: PhaseContext) -> None:
 
 
 def _process_issue_missions(
-    ctx: PhaseContext, operations: list[str], all_specs: dict[str, dict]
+    ctx: PhaseContext,
+    operations: list[str],
+    all_specs: dict[str, dict],
+    all_inventories: dict[str, list[dict]] | None = None,
 ) -> None:
     """Process Sankalpa missions created from GitHub Issues and federation directives.
 
@@ -348,7 +352,7 @@ def _process_issue_missions(
         # Handle federation execute_code missions
         if mission.id.startswith("exec_"):
             # CAPABILITY GATE: must have at least one agent with execute + verified tier
-            if not authorize_mission(mission.id, all_specs, ctx.active_agents):
+            if not authorize_mission(mission.id, all_specs, ctx.active_agents, all_inventories):
                 operations.append(f"exec_blocked:{mission.id}:capability_gate")
                 logger.info(
                     "KARMA: Exec mission %s blocked — no agent with execute capability",
@@ -385,7 +389,7 @@ def _process_issue_missions(
             continue
 
         # CAPABILITY GATE: must have at least one agent with execute + verified tier
-        if not authorize_mission(mission.id, all_specs, ctx.active_agents):
+        if not authorize_mission(mission.id, all_specs, ctx.active_agents, all_inventories):
             operations.append(f"issue_blocked:{mission.id}:capability_gate")
             logger.info(
                 "KARMA: Issue mission %s blocked — no agent with execute capability",
@@ -519,7 +523,10 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
 
 
 def _route_to_cartridges(
-    ctx: PhaseContext, operations: list[str], all_specs: dict[str, dict]
+    ctx: PhaseContext,
+    operations: list[str],
+    all_specs: dict[str, dict],
+    all_inventories: dict[str, list[dict]] | None = None,
 ) -> None:
     """Route domain missions to best-fit agents via capability scoring + hard enforcement.
 
@@ -545,7 +552,7 @@ def _route_to_cartridges(
         if mission.id.startswith(("issue_", "exec_")):
             continue
 
-        result = route_mission(mission, all_specs, ctx.active_agents)
+        result = route_mission(mission, all_specs, ctx.active_agents, all_inventories)
 
         if result["blocked"]:
             operations.append(f"route_blocked:{mission.id}:no_qualified_agent")
@@ -600,6 +607,20 @@ def _get_all_specs(ctx: PhaseContext) -> dict[str, dict]:
         if spec is not None:
             specs[name] = spec
     return specs
+
+
+def _get_all_inventories(ctx: PhaseContext) -> dict[str, list[dict]]:
+    """Collect inventories for all active agents.
+
+    Shared across routing functions — called once per KARMA cycle.
+    Returns {agent_name: [asset_dicts]} for agents with assets.
+    """
+    inventories: dict[str, list[dict]] = {}
+    for name in ctx.active_agents:
+        inv = ctx.pokedex.get_inventory(name)
+        if inv:
+            inventories[name] = inv
+    return inventories
 
 
 def _record_pr_event(ctx: PhaseContext, issue_number: int, pr: object) -> None:

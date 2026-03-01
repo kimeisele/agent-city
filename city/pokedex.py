@@ -87,12 +87,27 @@ class Pokedex:
         self._init_schema()
 
         # Load agent_classes from config (variable prana classes — Issue #17)
-        self._agent_classes = get_config().get("agent_classes", {
-            "ephemeral": {"genesis_prana": GENESIS_PRANA_EPHEMERAL, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_EPHEMERAL},
-            "standard": {"genesis_prana": GENESIS_PRANA_STANDARD, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_STANDARD},
-            "resilient": {"genesis_prana": GENESIS_PRANA_RESILIENT, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_RESILIENT},
-            "immortal": {"genesis_prana": -1, "metabolic_cost": 0, "max_age": -1},
-        })
+        self._agent_classes = get_config().get(
+            "agent_classes",
+            {
+                "ephemeral": {
+                    "genesis_prana": GENESIS_PRANA_EPHEMERAL,
+                    "metabolic_cost": METABOLIC_COST,
+                    "max_age": MAX_AGE_EPHEMERAL,
+                },
+                "standard": {
+                    "genesis_prana": GENESIS_PRANA_STANDARD,
+                    "metabolic_cost": METABOLIC_COST,
+                    "max_age": MAX_AGE_STANDARD,
+                },
+                "resilient": {
+                    "genesis_prana": GENESIS_PRANA_RESILIENT,
+                    "metabolic_cost": METABOLIC_COST,
+                    "max_age": MAX_AGE_RESILIENT,
+                },
+                "immortal": {"genesis_prana": -1, "metabolic_cost": 0, "max_age": -1},
+            },
+        )
 
         # Wire to CivicBank from steward-protocol (shared DB or separate)
         self._bank = bank or CivicBank(db_path=str(self._db_path.parent / "economy.db"))
@@ -260,6 +275,24 @@ class Pokedex:
                 updated_at TEXT NOT NULL
             )
         """)
+        self._conn.commit()
+
+        # Semantic Asset Inventory (Phase 5 — dynamic capabilities)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS agent_inventory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_name TEXT NOT NULL,
+                asset_type TEXT NOT NULL,
+                asset_id TEXT NOT NULL,
+                quantity INTEGER DEFAULT 1,
+                expires_at TEXT,
+                source TEXT NOT NULL,
+                acquired_at TEXT NOT NULL,
+                tx_id TEXT,
+                FOREIGN KEY(agent_name) REFERENCES agents(name)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_inventory_agent ON agent_inventory(agent_name)")
         self._conn.commit()
 
     # ── Public API ────────────────────────────────────────────────────
@@ -543,11 +576,13 @@ class Pokedex:
                 "revive",
                 "frozen",
                 "active",
-                json.dumps({
-                    "prana_dose": prana_dose,
-                    "sponsor": sponsor,
-                    "reason": reason,
-                }),
+                json.dumps(
+                    {
+                        "prana_dose": prana_dose,
+                        "sponsor": sponsor,
+                        "reason": reason,
+                    }
+                ),
             )
             self._conn.commit()
 
@@ -573,7 +608,9 @@ class Pokedex:
             recipient_agent = self._require(recipient)
 
             if donor_agent["status"] not in ("citizen", "active"):
-                raise ValueError(f"Donor {donor} must be citizen/active, is '{donor_agent['status']}'")
+                raise ValueError(
+                    f"Donor {donor} must be citizen/active, is '{donor_agent['status']}'"
+                )
 
             # Check donor has enough prana
             cur = self._conn.cursor()
@@ -610,8 +647,11 @@ class Pokedex:
             cur.execute("SELECT prana FROM agents WHERE name = ?", (recipient,))
             new_prana = cur.fetchone()["prana"]
             from city.seed_constants import HIBERNATION_THRESHOLD
+
             if new_prana > HIBERNATION_THRESHOLD:
-                return self.revive(recipient, prana_dose=0, sponsor=donor, reason=f"revive:peer_donation:{donor}")
+                return self.revive(
+                    recipient, prana_dose=0, sponsor=donor, reason=f"revive:peer_donation:{donor}"
+                )
 
         return self.get(recipient)
 
@@ -626,12 +666,14 @@ class Pokedex:
         )
         dormant = []
         for row in cur.fetchall():
-            dormant.append({
-                "name": row["name"],
-                "prana": row["prana"],
-                "cell_cycle": row["cell_cycle"],
-                "prana_class": row["prana_class"],
-            })
+            dormant.append(
+                {
+                    "name": row["name"],
+                    "prana": row["prana"],
+                    "cell_cycle": row["cell_cycle"],
+                    "prana_class": row["prana_class"],
+                }
+            )
         return dormant
 
     def exile(self, name: str, reason: str = "constitutional_violation") -> dict:
@@ -811,7 +853,9 @@ class Pokedex:
 
             # 2. Add energy for active agents (TEMP TABLE pattern for scalability)
             if active_agents:
-                cur.execute("CREATE TEMP TABLE IF NOT EXISTS _active_agents (name TEXT PRIMARY KEY)")
+                cur.execute(
+                    "CREATE TEMP TABLE IF NOT EXISTS _active_agents (name TEXT PRIMARY KEY)"
+                )
                 cur.execute("DELETE FROM _active_agents")
                 cur.executemany(
                     "INSERT OR IGNORE INTO _active_agents (name) VALUES (?)",
@@ -1118,6 +1162,11 @@ class Pokedex:
             "claim_level": d.get("claim_level", 0),
             "claim_verified_at": d.get("claim_verified_at"),
             "civic_role": d.get("civic_role", "citizen"),
+            "inventory": {
+                "asset_count": self._count_assets(d["name"]),
+            }
+            if d["status"] in ("citizen", "active")
+            else None,
             "discovered_at": d["discovered_at"],
             "registered_at": d["registered_at"],
             "updated_at": d["updated_at"],
@@ -1201,6 +1250,127 @@ class Pokedex:
         if row["cell_active"] is not None:
             cell.lifecycle.is_active = bool(row["cell_active"])
         return cell
+
+    # ── Inventory (Semantic Asset System) ─────────────────────────────
+
+    def get_inventory(self, name: str) -> list[dict]:
+        """Get all non-expired assets for an agent."""
+        now = datetime.now(timezone.utc).isoformat()
+        cur = self._conn.cursor()
+        cur.execute(
+            """SELECT id, agent_name, asset_type, asset_id, quantity,
+                      expires_at, source, acquired_at, tx_id
+               FROM agent_inventory
+               WHERE agent_name = ?
+                 AND (expires_at IS NULL OR expires_at > ?)
+                 AND quantity > 0""",
+            (name, now),
+        )
+        return [dict(row) for row in cur.fetchall()]
+
+    def has_asset(self, name: str, asset_type: str, asset_id: str) -> bool:
+        """Check if agent owns a specific non-expired asset (quantity > 0)."""
+        now = datetime.now(timezone.utc).isoformat()
+        cur = self._conn.cursor()
+        cur.execute(
+            """SELECT 1 FROM agent_inventory
+               WHERE agent_name = ? AND asset_type = ? AND asset_id = ?
+                 AND (expires_at IS NULL OR expires_at > ?)
+                 AND quantity > 0
+               LIMIT 1""",
+            (name, asset_type, asset_id, now),
+        )
+        return cur.fetchone() is not None
+
+    def grant_asset(
+        self,
+        name: str,
+        asset_type: str,
+        asset_id: str,
+        quantity: int = 1,
+        source: str = "mint",
+        expires_at: str | None = None,
+        tx_id: str | None = None,
+    ) -> int:
+        """Grant an asset to an agent. Returns row id.
+
+        If agent already has this asset_type+asset_id (non-expired),
+        INCREMENT quantity instead of creating a new row.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cur = self._conn.cursor()
+            # Check for existing stack
+            cur.execute(
+                """SELECT id, quantity FROM agent_inventory
+                   WHERE agent_name = ? AND asset_type = ? AND asset_id = ?
+                     AND (expires_at IS NULL OR expires_at > ?)
+                     AND quantity > 0
+                   LIMIT 1""",
+                (name, asset_type, asset_id, now),
+            )
+            existing = cur.fetchone()
+            if existing:
+                new_qty = existing["quantity"] + quantity
+                cur.execute(
+                    "UPDATE agent_inventory SET quantity = ? WHERE id = ?",
+                    (new_qty, existing["id"]),
+                )
+                self._conn.commit()
+                return existing["id"]
+
+            cur.execute(
+                """INSERT INTO agent_inventory
+                   (agent_name, asset_type, asset_id, quantity, expires_at, source, acquired_at, tx_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (name, asset_type, asset_id, quantity, expires_at, source, now, tx_id),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def consume_asset(self, name: str, asset_type: str, asset_id: str, quantity: int = 1) -> bool:
+        """Consume (decrement) an asset. Returns False if insufficient.
+
+        Deletes row when quantity reaches 0.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """SELECT id, quantity FROM agent_inventory
+                   WHERE agent_name = ? AND asset_type = ? AND asset_id = ?
+                     AND (expires_at IS NULL OR expires_at > ?)
+                     AND quantity > 0
+                   LIMIT 1""",
+                (name, asset_type, asset_id, now),
+            )
+            row = cur.fetchone()
+            if not row or row["quantity"] < quantity:
+                return False
+
+            new_qty = row["quantity"] - quantity
+            if new_qty <= 0:
+                cur.execute("DELETE FROM agent_inventory WHERE id = ?", (row["id"],))
+            else:
+                cur.execute(
+                    "UPDATE agent_inventory SET quantity = ? WHERE id = ?",
+                    (new_qty, row["id"]),
+                )
+            self._conn.commit()
+            return True
+
+    def _count_assets(self, name: str) -> int:
+        """Count non-expired assets for an agent (lightweight for _row_to_dict)."""
+        now = datetime.now(timezone.utc).isoformat()
+        cur = self._conn.cursor()
+        cur.execute(
+            """SELECT COUNT(*) FROM agent_inventory
+               WHERE agent_name = ?
+                 AND (expires_at IS NULL OR expires_at > ?)
+                 AND quantity > 0""",
+            (name, now),
+        )
+        return cur.fetchone()[0]
 
     # ── Issue Persistence (Watertight) ────────────────────────────────
 

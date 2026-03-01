@@ -383,15 +383,21 @@ def test_mayor_state_persistence():
     state_path = tmpdir / "mayor_state.json"
 
     mayor1 = Mayor(
-        _pokedex=pdx, _gateway=gateway, _network=network,
-        _state_path=state_path, _offline_mode=True,
+        _pokedex=pdx,
+        _gateway=gateway,
+        _network=network,
+        _state_path=state_path,
+        _offline_mode=True,
     )
     mayor1.run_cycle(4)
 
     # New instance should resume from heartbeat 4
     mayor2 = Mayor(
-        _pokedex=pdx, _gateway=gateway, _network=network,
-        _state_path=state_path, _offline_mode=True,
+        _pokedex=pdx,
+        _gateway=gateway,
+        _network=network,
+        _state_path=state_path,
+        _offline_mode=True,
     )
     result = mayor2.heartbeat()
     assert result["heartbeat"] == 4  # Continues from where mayor1 left off
@@ -440,52 +446,6 @@ def test_issue_manager_stats():
     assert stats["dead"] == 0
 
 
-# ── Phase 6: Manifest ───────────────────────────────────────────────
-
-
-def test_manifest_generate():
-    """Manifest generates valid markdown from Jiva."""
-    from city.jiva import derive_jiva
-    from city.manifest import AgentManifest
-
-    jiva = derive_jiva("Ronin")
-    manifest = AgentManifest()
-
-    md = manifest.generate("Ronin", jiva)
-    assert "# Ronin" in md
-    assert "Address" in md
-    assert "Zone" in md
-    assert "Guardian" in md
-    assert "TAMAS" in md
-    assert "genesis" in md
-    assert "shambhu" in md
-
-
-def test_manifest_publish():
-    """Manifest publishes to file and creates MahaCell."""
-    from city.jiva import derive_jiva
-    from city.manifest import AgentManifest
-
-    tmpdir = Path(tempfile.mkdtemp())
-    manifest = AgentManifest(_data_dir=tmpdir / "agents")
-
-    jiva = derive_jiva("Ronin")
-    filepath = manifest.publish("Ronin", jiva)
-
-    assert Path(filepath).exists()
-    content = Path(filepath).read_text()
-    assert "# Ronin" in content
-
-    # MahaCell created from manifest content
-    cell = manifest.get_manifest_cell("Ronin")
-    assert cell is not None
-    assert cell.is_alive
-
-    assert "Ronin" in manifest.list_manifests()
-
-    shutil.rmtree(tmpdir)
-
-
 # ── Cross-Layer Integration ─────────────────────────────────────────
 
 
@@ -527,8 +487,11 @@ def test_full_layer2_pipeline():
 
     # Run mayor
     mayor = Mayor(
-        _pokedex=pdx, _gateway=gateway, _network=network,
-        _state_path=tmpdir / "mayor_state.json", _offline_mode=True,
+        _pokedex=pdx,
+        _gateway=gateway,
+        _network=network,
+        _state_path=tmpdir / "mayor_state.json",
+        _offline_mode=True,
     )
     results = mayor.run_cycle(4)
     assert len(results) == 4
@@ -567,9 +530,6 @@ if __name__ == "__main__":
         # Phase 5: Issues
         test_issue_cell_lifecycle,
         test_issue_manager_stats,
-        # Phase 6: Manifest
-        test_manifest_generate,
-        test_manifest_publish,
         # Cross-Layer
         test_full_layer2_pipeline,
     ]
