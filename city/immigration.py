@@ -373,8 +373,14 @@ class ImmigrationService:
 
         # Resolve parampara: look up sponsor's visa to chain the lineage
         sponsor_visa = self._visas.get(sponsor)
-        sponsor_visa_id = sponsor_visa.visa_id if sponsor_visa else None
-        lineage_depth = (sponsor_visa.lineage_depth + 1) if sponsor_visa else 1
+        if sponsor_visa:
+            sponsor_visa_id = sponsor_visa.visa_id
+            lineage_depth = sponsor_visa.lineage_depth + 1
+        else:
+            # Fallback to City Genesis if sponsor not found (unbroken lineage)
+            sponsor_visa_id = self._genesis_visa.visa_id
+            lineage_depth = 1
+            sponsor = "city_genesis"
 
         visa = issue_visa(
             agent_name=app.agent_name,

@@ -117,9 +117,12 @@ class CityIssueManager:
 
     Each issue gets a living cell. Prana decays per metabolism cycle.
     Activity on the issue feeds energy. Dead issues get auto-closed.
+
+    Watertight: persists all cells and metadata to Pokedex (SQLite).
     """
 
     _repo: str = ""
+    _pokedex: object | None = None  # city.pokedex.Pokedex
     _issue_cells: dict[int, MahaCellUnified] = field(default_factory=dict)
     _issue_types: dict[int, IssueType] = field(default_factory=dict)
     _bound_missions: dict[int, str] = field(default_factory=dict)
@@ -130,6 +133,29 @@ class CityIssueManager:
             # Auto-detect from git remote
             out = _gh_run(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])
             self._repo = out or ""
+
+        # Hydrate from Pokedex if available (Watertight persistence)
+        if self._pokedex is not None and hasattr(self._pokedex, "load_all_issue_cells"):
+            try:
+                persisted = self._pokedex.load_all_issue_cells()
+                for number, data in persisted.items():
+                    self._issue_cells[number] = data["cell"]
+                    self._issue_types[number] = IssueType(data["issue_type"])
+                    if data["mission_id"]:
+                        self._bound_missions[number] = data["mission_id"]
+                logger.info("Hydrated %d issues from Pokedex", len(persisted))
+            except Exception as e:
+                logger.warning("Failed to hydrate issues from Pokedex: %s", e)
+
+    def _persist_issue(self, number: int) -> None:
+        """Helper to save a single issue state to SQLite."""
+        if self._pokedex is not None and hasattr(self._pokedex, "save_issue_cell"):
+            self._pokedex.save_issue_cell(
+                number=number,
+                issue_type=self._issue_types[number].value,
+                cell=self._issue_cells[number],
+                mission_id=self._bound_missions.get(number),
+            )
 
     def create_issue(
         self,
@@ -162,6 +188,9 @@ class CityIssueManager:
         cell = MahaCellUnified.from_content(title, register=False)
         self._issue_cells[issue_number] = cell
         self._issue_types[issue_number] = issue_type
+
+        # Watertight persistence
+        self._persist_issue(issue_number)
 
         logger.info(
             "Created issue #%d (%s) with MahaCell (prana=%d)",
@@ -256,6 +285,9 @@ class CityIssueManager:
 
             # All types decay prana (signals urgency)
             cell.metabolize(energy)
+            
+            # Persist state after metabolism (Watertight)
+            self._persist_issue(number)
 
             # Ashrama-driven lifecycle (overrides type-only logic when available)
             if ashrama == "sannyasa":
@@ -285,6 +317,9 @@ class CityIssueManager:
                         logger.info("Auto-closed issue #%d (prana exhausted)", number)
                     del self._issue_cells[number]
                     self._issue_types.pop(number, None)
+                    # Watertight: remove from SQLite
+                    if self._pokedex is not None and hasattr(self._pokedex, "delete_issue_cell"):
+                        self._pokedex.delete_issue_cell(number)
                 elif issue_type == IssueType.ITERATIVE:
                     actions.append(f"intent_needed:#{number}:low_prana")
                     self._last_directives.append(
@@ -369,6 +404,9 @@ class CityIssueManager:
                             logger.info("Auto-closed issue #%d (prana exhausted)", number)
                         del self._issue_cells[number]
                         self._issue_types.pop(number, None)
+                        # Watertight: remove from SQLite
+                        if self._pokedex is not None and hasattr(self._pokedex, "delete_issue_cell"):
+                            self._pokedex.delete_issue_cell(number)
 
                 elif issue_type == IssueType.ITERATIVE:
                     if cell.prana < LOW_PRANA_THRESHOLD:
@@ -422,6 +460,10 @@ class CityIssueManager:
                 )
                 self._last_directives[i] = bound
                 self._bound_missions[issue_number] = mission_id
+                
+                # Watertight: persist the binding
+                self._persist_issue(issue_number)
+
                 logger.info(
                     "Bound mission %s to issue #%d",
                     mission_id,
@@ -451,6 +493,11 @@ class CityIssueManager:
             return False
 
         del self._bound_missions[issue_number]
+        
+        # Watertight: update persistence (remove mission_id link)
+        if issue_number in self._issue_cells:
+            self._persist_issue(issue_number)
+
         logger.info(
             "Issue #%d resolved by mission %s", issue_number, mission_id
         )

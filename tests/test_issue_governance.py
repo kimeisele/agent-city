@@ -201,7 +201,14 @@ def test_karma_process_issue_audit_mission():
 
         from city.phases.karma import _process_issue_missions
         operations: list[str] = []
-        _process_issue_missions(ctx, operations)
+        ctx.active_agents.add("test_agent")
+        specs = {
+            "test_agent": {
+                "capability_tier": "verified",
+                "capabilities": ["execute", "audit"],
+            }
+        }
+        _process_issue_missions(ctx, operations, specs)
 
         assert any("issue_mission:issue_42_10:success" in op for op in operations)
         mock_audit.run_all.assert_called_once()
@@ -238,7 +245,14 @@ def test_karma_process_issue_heal_no_immune():
 
         from city.phases.karma import _process_issue_missions
         operations: list[str] = []
-        _process_issue_missions(ctx, operations)
+        ctx.active_agents.add("test_agent")
+        specs = {
+            "test_agent": {
+                "capability_tier": "verified",
+                "capabilities": ["execute"],
+            }
+        }
+        _process_issue_missions(ctx, operations, specs)
 
         assert any("issue_mission:issue_5_10:pending" in op for op in operations)
         # Should NOT be completed (no immune to heal)
@@ -275,7 +289,7 @@ def test_karma_skips_non_issue_missions():
 
         from city.phases.karma import _process_issue_missions
         operations: list[str] = []
-        _process_issue_missions(ctx, operations)
+        _process_issue_missions(ctx, operations, {})
 
         assert len(operations) == 0  # skipped
     finally:
