@@ -13,24 +13,25 @@ from city.daemon import DaemonService, SADHANA
 from city.gateway import CityGateway
 from city.mayor import Mayor
 from city.network import CityNetwork
-from city.ouroboros import OuroborosGeneSystem
 from city.pokedex import Pokedex
 from vibe_core.cartridges.system.civic.tools.economy import CivicBank
-
-
-def test_ouroboros_chaos_engineering():
-    """GREEN TEST: Ouroboros Gene System injects runtime chaos."""
-    genes = OuroborosGeneSystem()
+def test_prahlad_survives_hiranyakashipu():
+    """RED TEST: The domain-native chaos engineering dynamic.
+    Hiranyakashipu (Anti-pattern) attacks by refusing to yield resource/CPU.
+    Prahlad (Resilience) must detect the starvation, absorb the attack, and recover.
+    """
+    from vibe_core.protocols.mahajanas.bali.yield_cpu import Hiranyakashipu
+    from city.registry import CityServiceRegistry
     
-    # Run the chaos engine a few times
-    for _ in range(5):
-        genes.inject_chaos()
-        
-    stats = genes.stats()
-    assert "entropy_load" in stats
-    assert "mutation_vector" in stats
-    assert stats["enabled"] is True
-    assert stats["mantra_shield"] <= 100
+    # The Attack
+    demon = Hiranyakashipu()
+    assert demon.yield_cpu().yielded is False, "Hiranyakashipu must refuse to yield"
+    
+    # The System
+    registry = CityServiceRegistry()
+    
+    # Prahlad (The Defender) should be registered to absorb this
+    assert registry.has("prahlad"), "Diamond Protocol RED: Prahlad is not protecting the system"
 
 
 def test_daemon_heartbeat_frequency():
