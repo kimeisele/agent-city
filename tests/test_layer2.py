@@ -121,6 +121,7 @@ def test_gateway_process():
 
     assert result["seed"] > 0
     assert result["source"] == "TestAgent"
+    assert result["source_class"] == "external"
     assert result["source_address"] > 0
     assert result["buddhi_function"]  # BuddhiResult.function — carrier/creator/etc.
     assert 1 <= result["buddhi_chapter"] <= 18
@@ -148,6 +149,39 @@ def test_gateway_signature_verification():
 
     # Tampered payload fails
     assert not gw.validate_agent_message("Ronin", b"tampered", sig, identity.public_key_pem)
+
+
+def test_gateway_source_classification():
+    """Gateway classifies sources into trust tiers."""
+    from city.gateway import _classify_source
+
+    assert _classify_source("ci_pipeline") == "ci"
+    assert _classify_source("github_webhook") == "ci"
+    assert _classify_source("local_dev") == "local"
+    assert _classify_source("agent_prahlad") == "agent"
+    assert _classify_source("federation_relay") == "agent"
+    assert _classify_source("moltbook_dm") == "agent"
+    assert _classify_source("random_input") == "external"
+
+
+def test_gateway_webhook_rejects_empty_secret():
+    """Gateway rejects webhook with empty secret."""
+    from city.gateway import CityGateway
+
+    gw = CityGateway()
+    result = gw.ingest_github_webhook(b'{"test": 1}', "sha256=abc123", "")
+    assert result["status"] == "error"
+    assert result["message"] == "missing_secret"
+
+
+def test_gateway_webhook_rejects_missing_signature():
+    """Gateway rejects webhook with missing/invalid signature header."""
+    from city.gateway import CityGateway
+
+    gw = CityGateway()
+    result = gw.ingest_github_webhook(b'{"test": 1}', "", "valid_secret")
+    assert result["status"] == "error"
+    assert result["message"] == "invalid_signature_format"
 
 
 # ── Phase 3: Network ────────────────────────────────────────────────

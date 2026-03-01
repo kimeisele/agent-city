@@ -28,10 +28,36 @@ from city.addressing import CityAddressBook
 logger = logging.getLogger("AGENT_CITY.GATEWAY")
 
 
+MAX_PATHOGEN_COUNT = 50
+MAX_PATHOGEN_LENGTH = 500
+
+# Source classification: determines trust level for immune system
+SOURCE_CLASSES = {
+    "ci": "ci",           # CI/CD pipeline (authenticated via HMAC)
+    "github": "ci",       # GitHub webhook
+    "webhook": "ci",      # Generic webhook
+    "local": "local",     # Local dev environment
+    "dev": "local",       # Developer
+    "agent": "agent",     # Agent-to-agent (authenticated via ECDSA)
+    "moltbook": "agent",  # Moltbook social
+    "federation": "agent",  # Federation relay
+}
+
+
+def _classify_source(source: str) -> str:
+    """Classify source into trust tier: local, ci, agent, external."""
+    source_lower = source.lower()
+    for prefix, cls in SOURCE_CLASSES.items():
+        if source_lower.startswith(prefix):
+            return cls
+    return "external"
+
+
 class GatewayResult(TypedDict):
     """Result of processing input through the gateway."""
     seed: int
     source: str
+    source_class: str
     source_address: int
     buddhi_function: str
     buddhi_chapter: int
@@ -78,6 +104,7 @@ class CityGateway:
         result: GatewayResult = {
             "seed": compressed.seed,
             "source": source,
+            "source_class": _classify_source(source),
             "source_address": source_address,
             "buddhi_function": cognition.function,
             "buddhi_chapter": cognition.chapter,
@@ -108,12 +135,17 @@ class CityGateway:
         """Verify and ingest a GitHub Webhook (Arsenal Telemetry).
 
         Requires `X-Hub-Signature-256` header to verify the HMAC.
+        Secret MUST be non-empty — unauthenticated webhooks are rejected.
         """
         import hmac
         import hashlib
         import json
 
-        if not signature_header.startswith("sha256="):
+        if not secret:
+            logger.warning("Gateway: Webhook secret is empty — rejecting unauthenticated input.")
+            return {"status": "error", "message": "missing_secret"}
+
+        if not signature_header or not signature_header.startswith("sha256="):
             logger.warning("Invalid GitHub webhook signature format.")
             return {"status": "error", "message": "invalid_signature_format"}
 
@@ -190,22 +222,28 @@ class CityGateway:
             with urllib.request.urlopen(req) as response:
                 zip_data = response.read()
                 
-            pathogens = []
+            pathogens: list[str] = []
             with zipfile.ZipFile(io.BytesIO(zip_data)) as z:
                 for filename in z.namelist():
                     if filename.endswith(".json"):
                         with z.open(filename) as f:
                             report = json.load(f)
-                            
-                        # Extract pathogens from the JSON structure
+
                         for test in report.get("tests", []):
                             if test.get("outcome") == "failed":
                                 crash = test.get("call", {}).get("crash", {})
                                 path = crash.get("path", "")
                                 msg = crash.get("message", "")
                                 if path and msg:
-                                    pathogens.append(f"CI Failure in {path}: {msg}")
-                                    
+                                    trimmed = f"CI Failure in {path}: {msg}"[:MAX_PATHOGEN_LENGTH]
+                                    pathogens.append(trimmed)
+                                    if len(pathogens) >= MAX_PATHOGEN_COUNT:
+                                        break
+                    if len(pathogens) >= MAX_PATHOGEN_COUNT:
+                        break
+
+            if len(pathogens) == MAX_PATHOGEN_COUNT:
+                logger.warning("Pathogen limit reached (%d), remaining failures trimmed.", MAX_PATHOGEN_COUNT)
             logger.info("Extracted %d pathogens from GitHub Arsenal artifact.", len(pathogens))
             return pathogens
             
