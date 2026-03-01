@@ -101,6 +101,25 @@ def _agent_header(spec: dict) -> str:
     return f"**{name}** | {guardian} ({domain}) | {element} element | {guna} guna"
 
 
+# ── Agent Introduction ───────────────────────────────────────────────
+
+
+def build_agent_intro(spec: dict) -> str:
+    """Build self-introduction for the Agent Registry thread."""
+    header = _agent_header(spec)
+    caps = ", ".join(spec.get("capabilities", [])[:6])
+    role = spec.get("role", "agent")
+    domain = spec.get("domain", "general")
+    guardian = spec.get("guardian", "unknown")
+    return (
+        f"{header}\n\n"
+        f"I am a {role} in the {domain} domain, "
+        f"serving under guardian **{guardian}**.\n\n"
+        f"**Capabilities**: {caps}\n\n"
+        f"Ready to serve the city."
+    )
+
+
 # ── Response Generators ──────────────────────────────────────────────
 
 

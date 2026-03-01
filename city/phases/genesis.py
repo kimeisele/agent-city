@@ -127,8 +127,14 @@ def execute(ctx: PhaseContext) -> list[str]:
         for name in followed:
             discovered.append(f"followed:{name}")
 
-    # GitHub Discussions: scan + @mention extraction + agent spawning
+    # GitHub Discussions: seed threads + scan + @mention extraction + agent spawning
     if ctx.discussions is not None and not ctx.offline_mode:
+        # Seed idempotent threads on first run
+        seeded = ctx.discussions.seed_discussions()
+        for key, number in seeded.items():
+            if number:
+                discovered.append(f"disc_seed:{key}:#{number}")
+
         from city.discussions_inbox import extract_mentions
 
         disc_signals = ctx.discussions.scan()
@@ -192,6 +198,30 @@ def execute(ctx: PhaseContext) -> list[str]:
                         "discussion_number": signal["number"],
                         "discussion_title": signal.get("title", ""),
                     })
+
+    # Drip-feed agent introductions (Pokedex SSOT, NOT discovered list)
+    if ctx.discussions is not None and not ctx.offline_mode:
+        max_intros = get_config().get("discussions", {}).get(
+            "max_agent_comments_per_cycle", 3,
+        )
+        all_agents = ctx.pokedex.list_all()
+        queued = 0
+        for agent in all_agents:
+            if queued >= max_intros:
+                break
+            name = agent.get("name", "")
+            if not name:
+                continue
+            if ctx.pokedex.has_asset(name, "word_token", "introduced"):
+                continue
+            _enqueue_item(ctx, {
+                "source": "agent_intro",
+                "text": f"New agent: {name}",
+                "agent_name": name,
+            })
+            queued += 1
+        if queued:
+            logger.info("GENESIS: Queued %d agent introductions", queued)
 
     return discovered
 
@@ -354,6 +384,7 @@ def _enqueue_item(ctx: PhaseContext, item: dict) -> None:
             discussion_number=item.get("discussion_number", 0),
             discussion_title=item.get("discussion_title", ""),
             direct_agent=item.get("direct_agent", ""),
+            agent_name=item.get("agent_name", ""),
         )
     else:
         ctx.gateway_queue.append(item)
