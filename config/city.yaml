@@ -51,6 +51,20 @@ federation:
   report_log_max: 50
   report_log_trim: 25
 
+discussions:
+  owner: "kimeisele"
+  repo: "agent-city"
+  repo_id: "R_kgDORWL0eg"
+  categories:
+    Announcements: "DIC_kwDORWL0es4C3exl"
+    General: "DIC_kwDORWL0es4C3exm"
+    Ideas: "DIC_kwDORWL0es4C3exo"
+    Q&A: "DIC_kwDORWL0es4C3exn"
+    Show and tell: "DIC_kwDORWL0es4C3exp"
+  scan_limit: 10
+  gh_timeout_s: 30
+  report_every_n_moksha: 4
+
 pr_lifecycle:
   stale_heartbeats: 40
   auto_merge: true

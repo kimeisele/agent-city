@@ -448,6 +448,10 @@ class Pokedex:
             zone_tax = effective_grant // 10
             self._bank.transfer(name, zone_account, zone_tax, "zone_tax", "tax")
 
+            # Semantic Asset starter pack (Phase 6 — only for full genesis)
+            if grant_override is None:
+                self._grant_starter_pack(name)
+
             # Upgrade to citizen
             cur = self._conn.cursor()
             cur.execute(
@@ -1358,6 +1362,59 @@ class Pokedex:
                 )
             self._conn.commit()
             return True
+
+    def _grant_starter_pack(self, name: str) -> None:
+        """Grant starter semantic assets at citizenship registration.
+
+        Every new citizen gets STARTER_PACK_TOKENS (3) capability tokens
+        based on their guardian's primary capabilities. Early citizens
+        (first EARLY_CITIZEN_THRESHOLD = 108) get a bonus.
+        """
+        from city.seed_constants import (
+            EARLY_CITIZEN_BONUS,
+            EARLY_CITIZEN_THRESHOLD,
+            STARTER_PACK_TOKENS,
+        )
+
+        from city.guardian_spec import build_agent_spec
+
+        agent_dict = self.get(name)
+        if agent_dict is None:
+            return
+        try:
+            spec = build_agent_spec(name, agent_dict)
+        except Exception:
+            return
+
+        # Grant capability tokens from the agent's own capability set
+        caps = spec.get("capabilities", [])
+        tokens_to_grant = min(STARTER_PACK_TOKENS, len(caps))
+        for i in range(tokens_to_grant):
+            self.grant_asset(name, "capability_token", caps[i], source="starter_pack")
+
+        # Early citizen bonus: extra word_tokens
+        citizen_count = self._count_citizens()
+        if citizen_count <= EARLY_CITIZEN_THRESHOLD:
+            self.grant_asset(
+                name,
+                "word_token",
+                "early_citizen",
+                quantity=EARLY_CITIZEN_BONUS,
+                source="genesis_bonus",
+            )
+
+        logger.info(
+            "Starter pack granted: %s (%d tokens%s)",
+            name,
+            tokens_to_grant,
+            f" + {EARLY_CITIZEN_BONUS} early bonus" if citizen_count <= EARLY_CITIZEN_THRESHOLD else "",
+        )
+
+    def _count_citizens(self) -> int:
+        """Count total citizens ever registered (for early-bird threshold)."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM agents WHERE status != 'discovered'")
+        return cur.fetchone()[0]
 
     def _count_assets(self, name: str) -> int:
         """Count non-expired assets for an agent (lightweight for _row_to_dict)."""

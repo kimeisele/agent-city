@@ -71,6 +71,13 @@ REVIVE_DOSE: int = MALA * TEN                               # 108 × 10 = 1080 (
 REVIVE_COOLDOWN_CYCLES: int = MALA                          # 108 heartbeats between auto-revives per agent
 WORKER_VISA_STIPEND: int = MALA // TRINITY                  # 108 / 3 = 36 (survival prana for workers)
 
+# ── Minting: Semantic Assets ───────────────────────────────────────
+
+STARTER_PACK_TOKENS: int = TRINITY                           # 3 capability tokens per new citizen
+MISSION_REWARD_TOKENS: int = 1                               # 1 token per completed mission
+EARLY_CITIZEN_BONUS: int = NAVA                              # 9 bonus word_tokens for early citizens
+EARLY_CITIZEN_THRESHOLD: int = MALA                          # first 108 citizens get the bonus
+
 # ── Prana Class Resolution ────────────────────────────────────────────
 
 # Ordered thresholds: if prana >= threshold → class
@@ -112,3 +119,6 @@ assert MAX_AGE_RESILIENT       == 4320,  f"resilient max_age {MAX_AGE_RESILIENT}
 assert GENESIS_GRANT           == 108,   f"genesis grant {GENESIS_GRANT} != 108"
 assert HIBERNATION_THRESHOLD   == 972,   f"hibernation threshold {HIBERNATION_THRESHOLD} != 972"
 assert PRANA_NORM_MAX          == 21600, f"prana norm max {PRANA_NORM_MAX} != 21600"
+assert STARTER_PACK_TOKENS     == 3,     f"starter pack {STARTER_PACK_TOKENS} != 3"
+assert EARLY_CITIZEN_BONUS     == 9,     f"early bonus {EARLY_CITIZEN_BONUS} != 9"
+assert EARLY_CITIZEN_THRESHOLD == 108,   f"early threshold {EARLY_CITIZEN_THRESHOLD} != 108"

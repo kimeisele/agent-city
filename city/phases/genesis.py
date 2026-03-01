@@ -127,6 +127,22 @@ def execute(ctx: PhaseContext) -> list[str]:
         for name in followed:
             discovered.append(f"followed:{name}")
 
+    # GitHub Discussions: scan for new threads/comments
+    if ctx.discussions is not None and not ctx.offline_mode:
+        disc_signals = ctx.discussions.scan()
+        for signal in disc_signals:
+            discovered.append(f"discussion:{signal['number']}")
+            for comment in signal.get("new_comments", []):
+                _enqueue_item(
+                    ctx,
+                    {
+                        "source": "discussion",
+                        "text": comment.get("body", ""),
+                        "from_agent": comment.get("author", ""),
+                        "discussion_number": signal["number"],
+                    },
+                )
+
     return discovered
 
 

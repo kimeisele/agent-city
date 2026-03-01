@@ -204,6 +204,19 @@ def main() -> None:
         except Exception:
             pass
 
+    # Wire Discussions Bridge (GitHub Discussions)
+    from city.registry import SVC_DISCUSSIONS
+
+    discussions = registry.get(SVC_DISCUSSIONS)
+    _discussions_state_path = db_path.parent / "discussions_state.json"
+    if discussions is not None and _discussions_state_path.exists():
+        try:
+            import json as _json_d
+
+            discussions.restore(_json_d.loads(_discussions_state_path.read_text()))
+        except Exception:
+            pass
+
     # Spawn system agents from cartridge registry
     from city.registry import SVC_SPAWNER
 
@@ -266,6 +279,17 @@ def main() -> None:
             )
         except Exception as e:
             log.warning("Assistant state save failed: %s", e)
+
+    # Persist discussions state
+    if discussions is not None:
+        import json as _json_e
+
+        try:
+            _discussions_state_path.write_text(
+                _json_e.dumps(discussions.snapshot(), indent=2),
+            )
+        except Exception as e:
+            log.warning("Discussions state save failed: %s", e)
 
     for r in results:
         dept = r["department"]
