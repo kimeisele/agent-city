@@ -45,7 +45,7 @@ from city.seed_constants import (
     MAX_AGE_RESILIENT,
     MAX_AGE_STANDARD,
     METABOLIC_COST,
-    SANJIVANI_DOSE,
+    REVIVE_DOSE,
     classify_prana_class,
 )
 from config import get_config
@@ -497,11 +497,11 @@ class Pokedex:
     def revive(
         self,
         name: str,
-        prana_dose: int = SANJIVANI_DOSE,
-        sponsor: str = "sanjivani",
-        reason: str = "sanjivani:auto_revive",
+        prana_dose: int = REVIVE_DOSE,
+        sponsor: str = "treasury",
+        reason: str = "revive:auto",
     ) -> dict:
-        """Sanjivani Protocol — revive a dormant (frozen) agent.
+        """Revive a dormant (frozen) agent with prana injection.
 
         Injects *prana_dose* into the agent's prana pool AND unfreezes the
         bank account, transitioning ``frozen → active``.  Without prana
@@ -513,7 +513,7 @@ class Pokedex:
             2. **Peer donation**: Another citizen transfers prana via sponsor.
             3. **Council amnesty**: Governance vote triggers revive.
 
-        The dose defaults to SANJIVANI_DOSE (1080 = MALA × TEN), which is
+        The dose defaults to REVIVE_DOSE (1080 = MALA × TEN), which is
         above HIBERNATION_THRESHOLD (972) to prevent immediate re-freeze.
         """
         with self._lock:
@@ -552,7 +552,7 @@ class Pokedex:
             self._conn.commit()
 
             logger.info(
-                "SANJIVANI: Revived %s (+%d prana, sponsor=%s)",
+                "REVIVE: %s (+%d prana, sponsor=%s)",
                 name,
                 prana_dose,
                 sponsor,
@@ -611,15 +611,14 @@ class Pokedex:
             new_prana = cur.fetchone()["prana"]
             from city.seed_constants import HIBERNATION_THRESHOLD
             if new_prana > HIBERNATION_THRESHOLD:
-                return self.revive(recipient, prana_dose=0, sponsor=donor, reason=f"peer_donation:{donor}")
+                return self.revive(recipient, prana_dose=0, sponsor=donor, reason=f"revive:peer_donation:{donor}")
 
         return self.get(recipient)
 
     def list_dormant(self) -> list[dict]:
-        """List all frozen agents with dormant:prana_exhaustion reason.
+        """List all frozen agents eligible for revival evaluation.
 
-        Returns list of dicts with name, prana, cell_cycle, prana_class,
-        and last freeze event timestamp for Sanjivani evaluation.
+        Returns list of dicts with name, prana, cell_cycle, prana_class.
         """
         cur = self._conn.cursor()
         cur.execute(

@@ -1,6 +1,6 @@
 """
-TEST SANJIVANI — Resurrection Protocol for Dormant Agents.
-============================================================
+TEST REVIVAL — Dormant Agent Revival Protocol.
+==============================================
 
 Verifies that frozen agents can be revived via:
 1. Direct revive() with prana injection
@@ -17,7 +17,7 @@ import pytest
 
 from city.seed_constants import (
     HIBERNATION_THRESHOLD,
-    SANJIVANI_DOSE,
+    REVIVE_DOSE,
 )
 
 
@@ -64,7 +64,7 @@ def test_revive_basic(tmp_path):
     cur = pkdx._conn.cursor()
     cur.execute("SELECT prana FROM agents WHERE name = ?", ("agent-dormant",))
     prana = cur.fetchone()["prana"]
-    assert prana == SANJIVANI_DOSE  # 0 + 1080 = 1080
+    assert prana == REVIVE_DOSE  # 0 + 1080 = 1080
 
 
 def test_revive_custom_dose(tmp_path):
@@ -233,18 +233,18 @@ def test_list_dormant_excludes_active(tmp_path):
     assert len(dormant) == 0
 
 
-# ── Sanjivani Constants ──────────────────────────────────────────────
+# ── Revival Constants ───────────────────────────────────────────────────
 
 
-def test_sanjivani_dose_above_hibernation():
-    """SANJIVANI_DOSE must be above HIBERNATION_THRESHOLD to prevent immediate re-freeze."""
-    assert SANJIVANI_DOSE > HIBERNATION_THRESHOLD
+def test_revive_dose_above_hibernation():
+    """REVIVE_DOSE must be above HIBERNATION_THRESHOLD to prevent immediate re-freeze."""
+    assert REVIVE_DOSE > HIBERNATION_THRESHOLD
 
 
-def test_sanjivani_dose_is_mahamantra_derived():
-    """SANJIVANI_DOSE must be MALA × TEN = 1080."""
+def test_revive_dose_is_mahamantra_derived():
+    """REVIVE_DOSE must be MALA × TEN = 1080."""
     from vibe_core.mahamantra.protocols import MALA, TEN
-    assert SANJIVANI_DOSE == MALA * TEN
+    assert REVIVE_DOSE == MALA * TEN
 
 
 # ── Worker-Visa Stipendium ───────────────────────────────────────────
