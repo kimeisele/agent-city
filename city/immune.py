@@ -249,6 +249,9 @@ class CityImmune:
 
             logger.warning("Immune: Bleeding detected! %d tests failed.", failed_count)
 
+            # Adaptive immunity: auto-discover new pathogens from failures
+            _PATHOGEN_INDEX.ingest_diagnostics(report)
+
             # Extract tracebacks as pathogens
             pathogens = []
             for test in report.get("tests", []):
