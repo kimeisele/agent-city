@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 
+from city.cognition import emit_event
 from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.PHASES.KARMA")
@@ -126,6 +127,10 @@ def execute(ctx: PhaseContext) -> list[str]:
                 pr = ctx.executor.create_fix_pr(fix, ctx.heartbeat_count)
                 if pr is not None and pr.success:
                     operations.append(f"pr_created:{pr.pr_url}")
+                    emit_event("ACTION", "karma", f"PR created: {pr.pr_url}", {
+                        "action": "pr_created", "contract": contract.name,
+                        "pr_url": pr.pr_url, "heartbeat": ctx.heartbeat_count,
+                    })
                     logger.info("KARMA: PR created — %s", pr.pr_url)
 
     # Layer 5: Council governance cycle
@@ -286,6 +291,10 @@ def _process_issue_missions(ctx: PhaseContext, operations: list[str]) -> None:
             if success:
                 mission.status = MissionStatus.COMPLETED
                 ctx.sankalpa.registry.add_mission(mission)
+                emit_event("ACTION", "karma", f"Mission completed: {mission.name}", {
+                    "action": "mission_completed", "mission_id": mission.id,
+                    "mission_name": mission.name, "owner": getattr(mission, "owner", ""),
+                })
             _learn(ctx, mission.id, "exec_mission", success=success)
             logger.info(
                 "KARMA: Exec mission %s — %s",
@@ -320,6 +329,10 @@ def _process_issue_missions(ctx: PhaseContext, operations: list[str]) -> None:
         if success:
             mission.status = MissionStatus.COMPLETED
             ctx.sankalpa.registry.add_mission(mission)
+            emit_event("ACTION", "karma", f"Issue mission completed: #{issue_number}", {
+                "action": "mission_completed", "mission_id": mission.id,
+                "issue_number": issue_number, "owner": getattr(mission, "owner", ""),
+            })
 
         # Learn from outcome
         _learn(ctx, f"issue_{issue_number}", "issue_mission", success=success)
