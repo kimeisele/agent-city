@@ -292,6 +292,33 @@ class Mayor:
             results.append(self.heartbeat())
         return results
 
+    # ── Async CI/CD Arsenal Integration ───────────────────────────────
+
+    def process_github_webhook(
+        self, payload: bytes, signature_header: str, secret: str, github_token: str
+    ) -> dict:
+        """Process an asynchronous GitHub webhook from the CI/CD Arsenal.
+        
+        If a workflow failed, fetches the JSON report artifact and injects
+        the extracted tracebacks directly into the Immune System.
+        """
+        result = self._gateway.ingest_github_webhook(payload, signature_header, secret)
+        
+        if result.get("status") == "success" and result.get("event") == "workflow_run_failed":
+            if self._immune is not None and hasattr(self._gateway, "fetch_github_artifact"):
+                logger.info("Mayor: Routing failed Arsenal workflow to Immune System.")
+                pathogens = self._gateway.fetch_github_artifact(
+                    repo_name=result["repo_name"], 
+                    run_id=result["run_id"], 
+                    github_token=github_token
+                )
+                if pathogens:
+                    heals = self._immune.scan_and_heal(pathogens)
+                    result["immune_heals"] = len(heals)
+                    logger.info("Mayor: Immune System completed %d healing attempts.", len(heals))
+                    
+        return result
+
     # ── Reflection Recording ──────────────────────────────────────────
 
     def _record_execution(self, department: str, duration_ms: float) -> None:

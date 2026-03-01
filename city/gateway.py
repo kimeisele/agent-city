@@ -115,6 +115,117 @@ class CityGateway:
             logger.warning("Invalid signature from %s", from_agent)
             return False
 
+    def ingest_github_webhook(
+        self, payload: bytes, signature_header: str, secret: str
+    ) -> dict:
+        """Verify and ingest a GitHub Webhook (Arsenal Telemetry).
+
+        Requires `X-Hub-Signature-256` header to verify the HMAC.
+        """
+        import hmac
+        import hashlib
+        import json
+
+        if not signature_header.startswith("sha256="):
+            logger.warning("Invalid GitHub webhook signature format.")
+            return {"status": "error", "message": "invalid_signature_format"}
+
+        expected_sig = hmac.new(
+            secret.encode("utf-8"), msg=payload, digestmod=hashlib.sha256
+        ).hexdigest()
+        
+        provided_sig = signature_header[7:]  # Strip 'sha256='
+        
+        if not hmac.compare_digest(expected_sig, provided_sig):
+            logger.warning("GitHub webhook HMAC verification failed.")
+            return {"status": "error", "message": "signature_mismatch"}
+
+        try:
+            data = json.loads(payload.decode("utf-8"))
+        except json.JSONDecodeError:
+            return {"status": "error", "message": "invalid_json"}
+            
+        # Optional: We only care about workflow_runs that completed and failed
+        if "workflow_run" in data:
+            action = data.get("action")
+            conclusion = data["workflow_run"].get("conclusion")
+            logger.info("Gateway received GitHub workflow_run: action=%s conclusion=%s", action, conclusion)
+            
+            if action == "completed" and conclusion == "failure":
+                run_id = data["workflow_run"]["id"]
+                repo_name = data["repository"]["full_name"]
+                return {
+                    "status": "success",
+                    "event": "workflow_run_failed",
+                    "run_id": run_id,
+                    "repo_name": repo_name
+                }
+                
+        return {"status": "success", "event": "ignored"}
+
+    def fetch_github_artifact(self, repo_name: str, run_id: int, github_token: str) -> list[str]:
+        """Fetch the pytest-json-report payload from a failed GitHub Actions run.
+        
+        Uses PyGithub to download the artifact and extract the traceback pathogens.
+        """
+        try:
+            from github import Github
+            import zipfile
+            import io
+            import json
+            import urllib.request
+        except ImportError:
+            logger.error("PyGithub missing. Cannot retrieve Arsenal telemetry.")
+            return []
+            
+        g = Github(github_token)
+        try:
+            repo = g.get_repo(repo_name)
+            workflow_run = repo.get_workflow_run(run_id)
+            
+            # Find the pytest json report artifact
+            target_artifact = None
+            for artifact in workflow_run.get_artifacts():
+                if "report" in artifact.name.lower() or "json" in artifact.name.lower():
+                    target_artifact = artifact
+                    break
+                    
+            if not target_artifact:
+                logger.warning("No JSON report artifact found for run %d in %s", run_id, repo_name)
+                return []
+                
+            logger.info("Downloading Arsenal artifact: %s", target_artifact.name)
+            
+            # Download the artifact zip using urllib with the token auth
+            req = urllib.request.Request(target_artifact.archive_download_url)
+            req.add_header("Authorization", f"Bearer {github_token}")
+            
+            with urllib.request.urlopen(req) as response:
+                zip_data = response.read()
+                
+            pathogens = []
+            with zipfile.ZipFile(io.BytesIO(zip_data)) as z:
+                for filename in z.namelist():
+                    if filename.endswith(".json"):
+                        with z.open(filename) as f:
+                            report = json.load(f)
+                            
+                        # Extract pathogens from the JSON structure
+                        for test in report.get("tests", []):
+                            if test.get("outcome") == "failed":
+                                crash = test.get("call", {}).get("crash", {})
+                                path = crash.get("path", "")
+                                msg = crash.get("message", "")
+                                if path and msg:
+                                    pathogens.append(f"CI Failure in {path}: {msg}")
+                                    
+            logger.info("Extracted %d pathogens from GitHub Arsenal artifact.", len(pathogens))
+            return pathogens
+            
+        except Exception as e:
+            logger.error("Failed to fetch Arsenal artifact: %s", e)
+            return []
+
     def stats(self) -> dict:
         """Gateway statistics."""
         return {

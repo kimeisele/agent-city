@@ -75,14 +75,111 @@ def test_daemon_heartbeat_frequency():
 
 
 def test_arsenal_gateway_integration():
-    """RED TEST: The city gateway must integrate with the Steward Protocol Arsenal."""
-    import pytest
-    pytest.fail("Diamond Protocol RED: Arsenal integration is not yet implemented.")
+    """GREEN TEST: The city gateway must integrate with the Steward Protocol Arsenal."""
+    import json
+    import hmac
+    import hashlib
+    
+    gateway = CityGateway()
+    secret = "my_arsenal_secret"
+    
+    payload_dict = {
+        "action": "completed",
+        "workflow_run": {
+            "id": 849302,
+            "conclusion": "failure"
+        },
+        "repository": {
+            "full_name": "kimeisele/agent-city"
+        }
+    }
+    payload_bytes = json.dumps(payload_dict).encode("utf-8")
+    
+    # 3. Cryptographic Signature
+    sig = hmac.new(secret.encode("utf-8"), msg=payload_bytes, digestmod=hashlib.sha256).hexdigest()
+    sig_header = f"sha256={sig}"
+    
+    # 4. Gateway Ingests Arsenal Webhook
+    result = gateway.ingest_github_webhook(payload_bytes, sig_header, secret)
+    
+    # 5. Assertions
+    assert result["status"] == "success"
+    assert result["event"] == "workflow_run_failed"
+    assert result["run_id"] == 849302
+    assert result["repo_name"] == "kimeisele/agent-city"
 
 
-def test_8th_dimension_telemetry():
-    """RED TEST: Cross-dimension telemetry between agent-city and steward routing."""
-    import pytest
-    pytest.fail("Diamond Protocol RED: 8th Dimension telemetry missing.")
+def test_8th_dimension_telemetry(monkeypatch):
+    """GREEN TEST: Cross-dimension telemetry between agent-city and steward routing.
+    
+    Proves that the Gateway can fetch Arsenal JSON artifacts using a GitHub token
+    and extract the traceback payloads as actionable Pathogens.
+    """
+    import sys
+    import json
+    import zipfile
+    import io
+    from unittest.mock import MagicMock
+    from city.gateway import CityGateway
+    
+    # 1. Setup Mock PyGithub
+    mock_github = MagicMock()
+    mock_g = MagicMock()
+    mock_repo = MagicMock()
+    mock_run = MagicMock()
+    mock_artifact = MagicMock()
+    
+    mock_artifact.name = "pytest-json-report"
+    mock_artifact.archive_download_url = "http://fake-artifact-url"
+    mock_run.get_artifacts.return_value = [mock_artifact]
+    mock_repo.get_workflow_run.return_value = mock_run
+    mock_g.get_repo.return_value = mock_repo
+    mock_github.Github.return_value = mock_g
+    
+    sys.modules["github"] = mock_github
+    
+    # 2. Setup Mock Artifact Download (Zip File parsing)
+    report_data = {
+        "tests": [
+            {
+                "outcome": "failed",
+                "call": {
+                    "crash": {
+                        "path": "tests/test_layer8.py",
+                        "message": "Chaos Engineering Vulnerability"
+                    }
+                }
+            }
+        ]
+    }
+    
+    mem_zip = io.BytesIO()
+    with zipfile.ZipFile(mem_zip, mode="w") as zf:
+        zf.writestr(".report.json", json.dumps(report_data))
+        
+    class MockResponse:
+        def __init__(self, data):
+            self.data = data
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self): return self.data
+        
+    def mock_urlopen(request):
+        return MockResponse(mem_zip.getvalue())
+        
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    
+    # 3. Execute the Gateway Telemetry Retrieval
+    gateway = CityGateway()
+    pathogens = gateway.fetch_github_artifact("steward/repo", 999, "fake_token")
+    
+    # 4. Assert Tracebacks were extracted cleanly as Pathogen payloads
+    assert len(pathogens) == 1
+    assert "tests/test_layer8.py" in pathogens[0]
+    assert "Chaos Engineering Vulnerability" in pathogens[0]
+    
+    # Cleanup mock
+    del sys.modules["github"]
 
 
