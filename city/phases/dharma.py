@@ -56,6 +56,18 @@ def execute(ctx: PhaseContext) -> list[str]:
                     f"election:seats={len(result['council_seats'])}"
                 )
 
+    # Cognition: constraint checking via KnowledgeGraph
+    if ctx.knowledge_graph is not None:
+        from city.cognition import check_constraints
+        violations = check_constraints("governance_cycle", {
+            "heartbeat": ctx.heartbeat_count,
+            "dead_agents": len(dead),
+            "empty_zones": [z for z, c in zones.items() if c == 0],
+        })
+        for v in violations:
+            actions.append(f"constraint_violated:{v}")
+            logger.warning("DHARMA: Constraint violated — %s", v)
+
     # Layer 3: Quality Contracts
     if ctx.contracts is not None:
         results = ctx.contracts.check_all()

@@ -121,6 +121,10 @@ class Mayor:
     # Layer 7 Moltbook inbox (optional for backward compatibility)
     _moltbook_client: object = None  # MoltbookClient (steward-protocol)
 
+    # Cognition layer (steward-protocol KnowledgeGraph + EventBus)
+    _knowledge_graph: object = None  # UnifiedKnowledgeGraph
+    _event_bus: object = None  # EventBus (Narada)
+
     # Internal state
     _last_audit_time: float = field(default=0.0)
     _recent_events: list = field(default_factory=list)
@@ -153,6 +157,8 @@ class Mayor:
             federation=self._federation,
             moltbook_bridge=self._moltbook_bridge,
             moltbook_client=self._moltbook_client,
+            knowledge_graph=self._knowledge_graph,
+            event_bus=self._event_bus,
             last_audit_time=self._last_audit_time,
             recent_events=self._recent_events,
         )
@@ -197,6 +203,15 @@ class Mayor:
         }
 
         ctx = self._build_ctx()
+
+        # Cognition: emit phase transition event
+        if self._event_bus is not None:
+            from city.cognition import emit_event
+            emit_event(
+                "PHASE_TRANSITION", "mayor",
+                f"heartbeat #{self._heartbeat_count} → {dept_name}",
+                {"heartbeat": self._heartbeat_count, "department": dept_name},
+            )
 
         if department == GENESIS:
             from city.phases import genesis

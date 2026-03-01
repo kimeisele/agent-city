@@ -130,12 +130,28 @@ def main() -> None:
             _dry_run=args.federation_dry_run or not args.federation,
         )
 
+    # Cognition layer: KnowledgeGraph + EventBus (graceful fallback)
+    cognition_kwargs: dict = {}
+    try:
+        from city.cognition import get_city_bus, get_city_knowledge
+        kg = get_city_knowledge()
+        if kg is not None:
+            cognition_kwargs["_knowledge_graph"] = kg
+            logging.getLogger("HEARTBEAT").info("KnowledgeGraph wired")
+        bus = get_city_bus()
+        if bus is not None:
+            cognition_kwargs["_event_bus"] = bus
+            logging.getLogger("HEARTBEAT").info("EventBus wired")
+    except Exception as e:
+        logging.getLogger("HEARTBEAT").debug("Cognition layer unavailable: %s", e)
+
     mayor = Mayor(
         _pokedex=pokedex,
         _gateway=gateway,
         _network=network,
         _offline_mode=args.offline,
         **governance_kwargs,
+        **cognition_kwargs,
     )
 
     # Wire MoltbookClient for DM pipeline (online mode only)

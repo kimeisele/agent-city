@@ -66,6 +66,10 @@ class PhaseContext:
     # Layer 7 Moltbook inbox (DM pipeline)
     moltbook_client: object = None  # MoltbookClient (steward-protocol)
 
+    # Cognition layer (steward-protocol KnowledgeGraph + EventBus)
+    knowledge_graph: object = None  # UnifiedKnowledgeGraph
+    event_bus: object = None  # EventBus (Narada)
+
     # Internal
     last_audit_time: float = 0.0
     recent_events: list = field(default_factory=list)

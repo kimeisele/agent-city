@@ -21,6 +21,12 @@ def execute(ctx: PhaseContext) -> list[str]:
     """KARMA: Process gateway queue, sankalpa, heal, council cycle."""
     operations: list[str] = []
 
+    # Cognition: compile KG context for this KARMA cycle
+    kg_context = ""
+    if ctx.knowledge_graph is not None:
+        from city.cognition import compile_context
+        kg_context = compile_context("process gateway queue operations")
+
     # Process queued gateway items
     while ctx.gateway_queue:
         item = ctx.gateway_queue.pop(0)
@@ -30,7 +36,9 @@ def execute(ctx: PhaseContext) -> list[str]:
         from_agent = item.get("from_agent", "")
 
         try:
-            result = ctx.gateway.process(text, source)
+            # Enrich text with KG context if available
+            enriched_text = f"{text}\n\n{kg_context}" if kg_context else text
+            result = ctx.gateway.process(enriched_text, source)
 
             # DM messages: generate response and send back
             if conversation_id and from_agent and ctx.moltbook_client is not None:

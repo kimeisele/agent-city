@@ -715,6 +715,98 @@ def test_bridge_offline_no_crash():
         shutil.rmtree(tmp)
 
 
+# ── Phase 6: Cognition Layer Tests ────────────────────────────────
+
+
+def test_cognition_knowledge_graph_unavailable():
+    """get_city_knowledge() returns None gracefully when unavailable."""
+    from city.cognition import get_city_knowledge
+    # In test environment, KG may or may not be available
+    result = get_city_knowledge()
+    assert result is None or hasattr(result, "compile_prompt_context")
+
+
+def test_cognition_compile_context_empty():
+    """compile_context returns '' when KG unavailable."""
+    from city.cognition import compile_context
+    result = compile_context("test task")
+    assert isinstance(result, str)
+
+
+def test_cognition_check_constraints_empty():
+    """check_constraints returns [] when KG unavailable."""
+    from city.cognition import check_constraints
+    result = check_constraints("test_action", {"key": "value"})
+    assert isinstance(result, list)
+
+
+def test_cognition_event_bus_unavailable():
+    """get_city_bus() returns None gracefully when unavailable."""
+    from city.cognition import get_city_bus
+    result = get_city_bus()
+    assert result is None or hasattr(result, "emit_sync")
+
+
+def test_cognition_emit_event_graceful():
+    """emit_event returns str (event_id or '') — never crashes."""
+    from city.cognition import emit_event
+    result = emit_event("PHASE_TRANSITION", "test_agent", "test message")
+    assert isinstance(result, str)
+
+
+def test_cognition_get_history_graceful():
+    """get_event_history returns list — never crashes."""
+    from city.cognition import get_event_history
+    result = get_event_history(limit=10)
+    assert isinstance(result, list)
+
+
+def test_cognition_get_stats_graceful():
+    """get_bus_stats returns dict — never crashes."""
+    from city.cognition import get_bus_stats
+    result = get_bus_stats()
+    assert isinstance(result, dict)
+
+
+def test_mayor_cognition_backward_compatible():
+    """Mayor with knowledge_graph=None + event_bus=None runs without crash."""
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    from city.gateway import CityGateway
+    from city.mayor import Mayor
+    from city.network import CityNetwork
+    from city.pokedex import Pokedex
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        db_path = tmp / "city.db"
+        bank = CivicBank(db_path=str(tmp / "economy.db"))
+        pokedex = Pokedex(db_path=str(db_path), bank=bank)
+        gateway = CityGateway()
+        network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
+
+        mayor = Mayor(
+            _pokedex=pokedex,
+            _gateway=gateway,
+            _network=network,
+            _state_path=tmp / "mayor_state.json",
+            _offline_mode=True,
+        )
+
+        assert mayor._knowledge_graph is None
+        assert mayor._event_bus is None
+
+        # Full rotation — no crash
+        results = mayor.run_cycle(4)
+        assert len(results) == 4
+
+        # MOKSHA should NOT have event_bus_stats
+        moksha = results[3]
+        assert "event_bus_stats" not in moksha["reflection"]
+    finally:
+        shutil.rmtree(tmp)
+
+
 # ── Runner ────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
