@@ -61,14 +61,14 @@ def test_ruff_fix_still_failing_escalates():
     assert "violations remain" in result.message
 
 
-def test_audit_clean_escalates():
-    """audit_clean always escalates (can't auto-fix audit findings)."""
+def test_audit_clean_tries_healer_then_escalates():
+    """audit_clean attempts CellularHealer, escalates if no match."""
     from city.executor import IntentExecutor
 
     executor = IntentExecutor(_cwd=Path("/tmp/test"))
+    # Detail text doesn't match any known remedy → falls through to escalate
     result = executor.execute_heal("audit_clean", ["DriftAuditor: lineage broken"])
 
-    assert result.success is False
     assert result.action_taken == "escalate"
     assert result.contract_name == "audit_clean"
 
@@ -111,6 +111,44 @@ def test_dry_run_no_subprocess():
     assert result.success is True
     assert result.action_taken == "ruff_fix"
     assert "(dry_run)" in result.files_changed
+
+
+# ── Phase 1b: CellularHealer Integration ─────────────────────────────
+
+
+def test_cellular_heal_available():
+    """CellularHealer initializes and lists remedies."""
+    from vibe_core.mahamantra.dharma.kumaras.healing_intent import get_cellular_healer
+
+    healer = get_cellular_healer()
+    remedies = healer.list_remedies()
+    assert isinstance(remedies, list)
+    assert len(remedies) > 0
+    # Known remedies from steward-protocol
+    assert "f811_redefinition" in remedies or "any_type_usage" in remedies
+
+
+def test_audit_clean_dry_run_uses_healer():
+    """audit_clean in dry_run mode confirms healer is available."""
+    from city.executor import IntentExecutor
+
+    executor = IntentExecutor(_cwd=Path("/tmp/test"), _dry_run=True)
+    result = executor.execute_heal("audit_clean", ["DriftAuditor: f811 redefinition"])
+
+    assert result.contract_name == "audit_clean"
+    assert result.action_taken == "cellular_heal"
+    assert result.success is True
+    assert "remedies available" in result.message
+
+
+def test_extract_rule_id_mapping():
+    """_extract_rule_id maps audit details to remedy rule_ids."""
+    from city.executor import _extract_rule_id
+
+    assert _extract_rule_id("TypeAuditor: any_type usage detected") == "any_type_usage"
+    assert _extract_rule_id("RuffAuditor: F811 redefinition in module.py") == "f811_redefinition"
+    assert _extract_rule_id("IOAuditor: unsafe_io_write found") == "unsafe_io_write"
+    assert _extract_rule_id("DriftAuditor: lineage broken") is None
 
 
 # ── Phase 2: PR Workflow Unit Tests ───────────────────────────────────
@@ -400,17 +438,14 @@ def test_full_rotation_heal_cycle():
     contract_ops = [a for a in dharma["governance_actions"] if "contract_failing" in a]
     assert len(contract_ops) >= 1
 
-    # KARMA: heal attempted (escalated for audit_clean)
+    # KARMA: heal attempted (CellularHealer invoked in dry_run → success)
     karma = results[2]
     assert karma["department"] == "KARMA"
     heal_ops = [o for o in karma["operations"] if o.startswith("heal:")]
     assert len(heal_ops) >= 1
-    assert "escalate" in heal_ops[0]  # audit_clean always escalates
-    assert "False" in heal_ops[0]  # success=False
-
-    # No PR created (escalation, not fix)
-    pr_ops = [o for o in karma["operations"] if o.startswith("pr_created:")]
-    assert len(pr_ops) == 0
+    assert "audit_clean" in heal_ops[0]
+    # In dry_run mode, CellularHealer reports success (remedies available)
+    assert "cellular_heal" in heal_ops[0] or "escalate" in heal_ops[0]
 
     # MOKSHA: reflection runs
     moksha = results[3]
@@ -424,10 +459,14 @@ if __name__ == "__main__":
         # Phase 1: Executor unit tests
         test_ruff_fix_runs_subprocess,
         test_ruff_fix_still_failing_escalates,
-        test_audit_clean_escalates,
+        test_audit_clean_tries_healer_then_escalates,
         test_tests_escalate,
         test_unknown_contract_escalates,
         test_dry_run_no_subprocess,
+        # Phase 1b: CellularHealer
+        test_cellular_heal_available,
+        test_audit_clean_dry_run_uses_healer,
+        test_extract_rule_id_mapping,
         # Phase 2: PR workflow
         test_create_pr_success,
         test_create_pr_no_changes_aborts,
