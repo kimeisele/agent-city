@@ -480,6 +480,241 @@ def test_full_rotation_with_federation():
         shutil.rmtree(tmp)
 
 
+# ── Phase 5: Moltbook Bridge Tests ───────────────────────────────
+
+
+class _MockBridgeClient:
+    """Minimal mock for MoltbookClient with bridge methods."""
+
+    def __init__(self, feed=None):
+        self._feed = feed or []
+        self.subscribed = False
+        self.posts_created = []
+        self.comments_created = []
+
+    def sync_subscribe_submolt(self, name):
+        self.subscribed = True
+        return {"success": True}
+
+    def sync_get_personalized_feed(self, sort="hot", limit=25):
+        return self._feed
+
+    def sync_get_feed(self, sort="hot", limit=25):
+        return self._feed
+
+    def sync_create_post(self, title, content, submolt=None):
+        self.posts_created.append({"title": title, "content": content, "submolt": submolt})
+        return {"id": f"post_{len(self.posts_created)}"}
+
+    def sync_comment_with_verification(self, post_id, content):
+        self.comments_created.append({"post_id": post_id, "content": content})
+        return {"id": f"comment_{len(self.comments_created)}"}
+
+
+def test_bridge_creation():
+    """Bridge starts with empty state."""
+    from city.moltbook_bridge import MoltbookBridge
+
+    bridge = MoltbookBridge(_client=_MockBridgeClient(), _own_username="mayor_bot")
+    assert bridge._seen_post_ids == set()
+    assert bridge._last_post_time == 0.0
+    assert bridge._subscribed is False
+
+
+def test_bridge_scan_filters_own_posts():
+    """Own posts are skipped during scan."""
+    from city.moltbook_bridge import MoltbookBridge, SUBMOLT_NAME
+
+    feed = [
+        {"id": "p1", "author": {"username": "mayor_bot"}, "title": "My post",
+         "content": "test", "submolt": {"name": SUBMOLT_NAME}},
+        {"id": "p2", "author": {"username": "steward-protocol"}, "title": "Fix bug in ruff",
+         "content": "Need to fix", "submolt": {"name": SUBMOLT_NAME}},
+    ]
+    client = _MockBridgeClient(feed=feed)
+    bridge = MoltbookBridge(_client=client, _own_username="mayor_bot")
+    signals = bridge.scan_submolt()
+    assert len(signals) == 1
+    assert signals[0]["author"] == "steward-protocol"
+
+
+def test_bridge_scan_dedup():
+    """Seen posts are not re-processed."""
+    from city.moltbook_bridge import MoltbookBridge, SUBMOLT_NAME
+
+    feed = [
+        {"id": "p1", "author": {"username": "other"}, "title": "Hello",
+         "content": "test", "submolt": {"name": SUBMOLT_NAME}},
+    ]
+    client = _MockBridgeClient(feed=feed)
+    bridge = MoltbookBridge(_client=client, _own_username="mayor_bot")
+    signals1 = bridge.scan_submolt()
+    assert len(signals1) == 1
+    signals2 = bridge.scan_submolt()
+    assert len(signals2) == 0  # Deduped
+
+
+def test_bridge_scan_filters_other_submolts():
+    """Posts from other submolts are ignored."""
+    from city.moltbook_bridge import MoltbookBridge
+
+    feed = [
+        {"id": "p1", "author": {"username": "someone"}, "title": "Random post",
+         "content": "hi", "submolt": {"name": "ai_agents"}},
+    ]
+    client = _MockBridgeClient(feed=feed)
+    bridge = MoltbookBridge(_client=client, _own_username="mayor_bot")
+    signals = bridge.scan_submolt()
+    assert len(signals) == 0
+
+
+def test_bridge_scan_skips_city_reports():
+    """Posts with [City Report] prefix are skipped (feedback loop prevention)."""
+    from city.moltbook_bridge import CITY_REPORT_PREFIX, MoltbookBridge, SUBMOLT_NAME
+
+    feed = [
+        {"id": "p1", "author": {"username": "other_city"},
+         "title": f"{CITY_REPORT_PREFIX} 20 agents, chain verified",
+         "content": "test", "submolt": {"name": SUBMOLT_NAME}},
+    ]
+    client = _MockBridgeClient(feed=feed)
+    bridge = MoltbookBridge(_client=client, _own_username="mayor_bot")
+    signals = bridge.scan_submolt()
+    assert len(signals) == 0
+
+
+def test_bridge_code_signal_extraction():
+    """Posts with code keywords produce code_signals."""
+    from city.moltbook_bridge import MoltbookBridge, SUBMOLT_NAME
+
+    feed = [
+        {"id": "p1", "author": {"username": "steward"},
+         "title": "Fix regression in audit pipeline",
+         "content": "We need to refactor the test suite",
+         "submolt": {"name": SUBMOLT_NAME}},
+    ]
+    client = _MockBridgeClient(feed=feed)
+    bridge = MoltbookBridge(_client=client, _own_username="mayor_bot")
+    signals = bridge.scan_submolt()
+    assert len(signals) == 1
+    assert "fix" in signals[0]["code_signals"]
+    assert "regression" in signals[0]["code_signals"]
+    assert "refactor" in signals[0]["code_signals"]
+    assert "test" in signals[0]["code_signals"]
+    # Should have acknowledged with a comment
+    assert len(client.comments_created) == 1
+    assert "fix" in client.comments_created[0]["content"]
+
+
+def test_bridge_governance_signal_extraction():
+    """Posts with governance keywords produce governance_signals."""
+    from city.moltbook_bridge import MoltbookBridge, SUBMOLT_NAME
+
+    feed = [
+        {"id": "p1", "author": {"username": "admin"},
+         "title": "New proposal for council election",
+         "content": "We should audit the policy",
+         "submolt": {"name": SUBMOLT_NAME}},
+    ]
+    client = _MockBridgeClient(feed=feed)
+    bridge = MoltbookBridge(_client=client, _own_username="mayor_bot")
+    signals = bridge.scan_submolt()
+    assert len(signals) == 1
+    assert "proposal" in signals[0]["governance_signals"]
+    assert "council" in signals[0]["governance_signals"]
+    assert "election" in signals[0]["governance_signals"]
+    assert "audit" in signals[0]["governance_signals"]
+
+
+def test_bridge_post_cooldown():
+    """Posts respect cooldown period."""
+    from city.moltbook_bridge import MoltbookBridge
+
+    client = _MockBridgeClient()
+    bridge = MoltbookBridge(
+        _client=client, _own_username="mayor_bot", _post_cooldown_s=1800,
+    )
+
+    data = {"heartbeat": 1, "population": 10, "alive": 8, "chain_valid": True}
+    result1 = bridge.post_city_update(data)
+    assert result1 is True
+    assert len(client.posts_created) == 1
+
+    result2 = bridge.post_city_update(data)
+    assert result2 is False  # Cooldown active
+    assert len(client.posts_created) == 1  # No new post
+
+
+def test_bridge_post_format():
+    """City update post has correct title prefix and readable content."""
+    from city.moltbook_bridge import CITY_REPORT_PREFIX, MoltbookBridge
+
+    client = _MockBridgeClient()
+    bridge = MoltbookBridge(_client=client, _own_username="mayor_bot")
+
+    data = {
+        "heartbeat": 42,
+        "population": 20,
+        "alive": 18,
+        "elected_mayor": "Agent_Alpha",
+        "council_seats": 6,
+        "open_proposals": 1,
+        "recent_actions": ["election:mayor=Agent_Alpha"],
+        "contract_status": {"total": 3, "passing": 2, "failing": 1},
+        "chain_valid": True,
+    }
+    result = bridge.post_city_update(data)
+    assert result is True
+
+    post = client.posts_created[0]
+    assert post["title"].startswith(CITY_REPORT_PREFIX)
+    assert "20 agents" in post["title"]
+    assert "verified" in post["title"]
+    assert post["submolt"] == "agent-city"
+
+    # Content is human-readable
+    assert "heartbeat cycle #42" in post["content"]
+    assert "20 agents" in post["content"]
+    assert "Agent_Alpha" in post["content"]
+    assert "6 seats" in post["content"]
+    assert "Failing contracts: 1" in post["content"]
+
+
+def test_bridge_persistence():
+    """State survives snapshot/restore cycle."""
+    from city.moltbook_bridge import MoltbookBridge
+
+    client = _MockBridgeClient()
+    bridge = MoltbookBridge(_client=client, _own_username="mayor_bot")
+    bridge._seen_post_ids = {"p1", "p2", "p3"}
+    bridge._last_post_time = 12345.0
+    bridge._subscribed = True
+
+    snapshot = bridge.snapshot()
+
+    bridge2 = MoltbookBridge(_client=client, _own_username="mayor_bot")
+    bridge2.restore(snapshot)
+
+    assert bridge2._seen_post_ids == {"p1", "p2", "p3"}
+    assert bridge2._last_post_time == 12345.0
+    assert bridge2._subscribed is True
+
+
+def test_bridge_offline_no_crash():
+    """Mayor with bridge=None (offline) runs without crash."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        mayor, pokedex, relay = _make_mayor_with_federation(tmp)
+        assert mayor._moltbook_bridge is None
+        results = mayor.run_cycle(4)
+        assert len(results) == 4
+        # MOKSHA should NOT have moltbook_update_posted
+        moksha = results[3]
+        assert "moltbook_update_posted" not in moksha["reflection"]
+    finally:
+        shutil.rmtree(tmp)
+
+
 # ── Runner ────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

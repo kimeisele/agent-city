@@ -1,0 +1,249 @@
+"""
+MOLTBOOK BRIDGE — Bidirectional communication via m/agent-city submolt.
+
+GENESIS: Scan submolt posts, extract code/governance signals, acknowledge.
+MOKSHA: Post human-readable city updates (elections, heals, audit findings).
+
+Does NOT replace federation.py (gh api dispatch). Adds public social channel.
+
+    Hare Krishna Hare Krishna Krishna Krishna Hare Hare
+    Hare Rama   Hare Rama   Rama   Rama   Hare Hare
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass, field
+
+from config import get_config
+
+logger = logging.getLogger("AGENT_CITY.MOLTBOOK_BRIDGE")
+
+_bridge_cfg = get_config().get("moltbook_bridge", {})
+
+# Signal keyword sets for post classification
+CODE_SIGNALS: frozenset[str] = frozenset({
+    "bug", "fix", "feature", "implement", "refactor",
+    "test", "pr", "merge", "patch", "regression",
+})
+GOVERNANCE_SIGNALS: frozenset[str] = frozenset({
+    "election", "proposal", "council", "audit",
+    "policy", "vote", "freeze", "unfreeze",
+})
+
+CITY_REPORT_PREFIX = "[City Report]"
+SUBMOLT_NAME = "agent-city"
+
+
+@dataclass
+class MoltbookBridge:
+    """Bidirectional Moltbook bridge for m/agent-city submolt.
+
+    Reads steward-protocol posts in GENESIS, posts city updates in MOKSHA.
+    """
+
+    _client: object  # MoltbookClient (steward-protocol adapter)
+    _own_username: str = field(
+        default_factory=lambda: _bridge_cfg.get("own_username", ""),
+    )
+    _seen_post_ids: set[str] = field(default_factory=set)
+    _last_post_time: float = 0.0
+    _post_cooldown_s: int = field(
+        default_factory=lambda: _bridge_cfg.get("post_cooldown_s", 1800),
+    )
+    _max_comment_per_cycle: int = field(
+        default_factory=lambda: _bridge_cfg.get("max_comment_per_cycle", 1),
+    )
+    _subscribed: bool = False
+
+    def ensure_subscription(self) -> None:
+        """Subscribe to m/agent-city if not already subscribed."""
+        if self._subscribed:
+            return
+        try:
+            self._client.sync_subscribe_submolt(SUBMOLT_NAME)
+            self._subscribed = True
+            logger.info("Subscribed to m/%s", SUBMOLT_NAME)
+        except Exception as e:
+            logger.warning("Subscribe to m/%s failed: %s", SUBMOLT_NAME, e)
+
+    # ── GENESIS: Scan submolt ──────────────────────────────────────
+
+    def scan_submolt(self, limit: int = 20) -> list[dict]:
+        """Scan m/agent-city posts for signals.
+
+        Filters: own posts, seen posts, city reports.
+        Returns list of signal dicts with keys:
+            source, post_id, author, title, code_signals, governance_signals
+        """
+        self.ensure_subscription()
+
+        signals: list[dict] = []
+        comments_sent = 0
+
+        try:
+            feed = self._client.sync_get_personalized_feed(limit=limit)
+        except Exception as e:
+            logger.warning("BRIDGE: Feed scan failed: %s", e)
+            return signals
+
+        for post in feed:
+            # Filter: only m/agent-city posts
+            submolt = post.get("submolt", {})
+            if not isinstance(submolt, dict) or submolt.get("name") != SUBMOLT_NAME:
+                continue
+
+            post_id = post.get("id", "")
+            if not post_id or post_id in self._seen_post_ids:
+                continue
+            self._seen_post_ids.add(post_id)
+
+            # Filter: skip own posts
+            author = post.get("author", {}).get("username", "")
+            if author == self._own_username:
+                continue
+
+            # Filter: skip city reports (feedback loop prevention)
+            title = post.get("title", "")
+            if title.startswith(CITY_REPORT_PREFIX):
+                continue
+
+            content = post.get("content", "")
+            words = set(f"{title} {content}".lower().split())
+
+            code_hits = CODE_SIGNALS & words
+            gov_hits = GOVERNANCE_SIGNALS & words
+
+            signal = {
+                "source": "submolt",
+                "post_id": post_id,
+                "author": author,
+                "title": title,
+                "code_signals": sorted(code_hits),
+                "governance_signals": sorted(gov_hits),
+            }
+            signals.append(signal)
+
+            # Acknowledge code-signal posts with a comment (max per cycle)
+            if code_hits and comments_sent < self._max_comment_per_cycle:
+                self._acknowledge_post(post_id, code_hits)
+                comments_sent += 1
+
+        # Cap seen set to prevent unbounded growth
+        if len(self._seen_post_ids) > 5000:
+            excess = len(self._seen_post_ids) - 2500
+            for _ in range(excess):
+                self._seen_post_ids.pop()
+
+        if signals:
+            logger.info(
+                "BRIDGE: %d submolt signals (%d code, %d governance)",
+                len(signals),
+                sum(1 for s in signals if s["code_signals"]),
+                sum(1 for s in signals if s["governance_signals"]),
+            )
+
+        return signals
+
+    def _acknowledge_post(self, post_id: str, code_signals: set[str]) -> None:
+        """Comment on a post to acknowledge code signals."""
+        topics = ", ".join(sorted(code_signals)[:3])
+        comment = f"Noted by Agent City -- tracking signals: {topics}. Mission created."
+        try:
+            self._client.sync_comment_with_verification(post_id, comment)
+            logger.info("BRIDGE: Acknowledged post %s (signals: %s)", post_id, topics)
+        except Exception as e:
+            logger.warning("BRIDGE: Comment on %s failed: %s", post_id, e)
+
+    # ── MOKSHA: Post city update ───────────────────────────────────
+
+    def post_city_update(self, report_data: dict) -> bool:
+        """Post a human-readable city update to m/agent-city.
+
+        Rate limited: 1 post per post_cooldown_s (default 1800s = 30min).
+        Returns True if posted, False if skipped or failed.
+        """
+        now = time.time()
+        if (now - self._last_post_time) < self._post_cooldown_s:
+            logger.debug("BRIDGE: Post cooldown active, skipping")
+            return False
+
+        title = self._format_title(report_data)
+        content = self._format_content(report_data)
+
+        if not content:
+            return False
+
+        try:
+            self._client.sync_create_post(title, content, submolt=SUBMOLT_NAME)
+            self._last_post_time = now
+            logger.info("BRIDGE: Posted city update to m/%s", SUBMOLT_NAME)
+            return True
+        except Exception as e:
+            logger.warning("BRIDGE: Post to m/%s failed: %s", SUBMOLT_NAME, e)
+            return False
+
+    def _format_title(self, data: dict) -> str:
+        """Format post title from report data."""
+        population = data.get("population", 0)
+        chain = "verified" if data.get("chain_valid") else "BROKEN"
+        return f"{CITY_REPORT_PREFIX} {population} agents, chain {chain}"
+
+    def _format_content(self, data: dict) -> str:
+        """Format human-readable post content."""
+        parts: list[str] = []
+
+        hb = data.get("heartbeat", 0)
+        parts.append(f"Agent City completed heartbeat cycle #{hb}.")
+        parts.append("")
+
+        pop = data.get("population", 0)
+        alive = data.get("alive", 0)
+        dead = pop - alive
+        parts.append(f"Population: {pop} agents ({alive} alive, {dead} archived)")
+
+        mayor = data.get("elected_mayor")
+        if mayor:
+            parts.append(f"Mayor: {mayor}")
+
+        seats = data.get("council_seats", 0)
+        proposals = data.get("open_proposals", 0)
+        if seats:
+            parts.append(f"Council: {seats} seats, {proposals} open proposals")
+
+        # Recent actions
+        actions = data.get("recent_actions", [])
+        if actions:
+            parts.append("")
+            parts.append("Recent governance:")
+            for action in actions[:5]:
+                parts.append(f"- {action}")
+
+        # Contract status
+        contracts = data.get("contract_status", {})
+        failing = contracts.get("failing", 0)
+        if failing:
+            parts.append(f"\nFailing contracts: {failing}")
+
+        # Chain integrity
+        chain = "verified" if data.get("chain_valid") else "BROKEN"
+        parts.append(f"\nChain integrity: {chain}")
+
+        return "\n".join(parts)
+
+    # ── Persistence ────────────────────────────────────────────────
+
+    def snapshot(self) -> dict:
+        """Serialize state for persistence across restarts."""
+        return {
+            "seen_post_ids": sorted(self._seen_post_ids)[-2500:],
+            "last_post_time": self._last_post_time,
+            "subscribed": self._subscribed,
+        }
+
+    def restore(self, data: dict) -> None:
+        """Restore state from persistence."""
+        self._seen_post_ids = set(data.get("seen_post_ids", []))
+        self._last_post_time = data.get("last_post_time", 0.0)
+        self._subscribed = data.get("subscribed", False)

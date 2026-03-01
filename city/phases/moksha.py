@@ -90,6 +90,12 @@ def execute(ctx: PhaseContext) -> dict:
         sent = ctx.federation.send_report(report)
         reflection["federation_report_sent"] = sent
 
+    # Layer 6: Moltbook city update (m/agent-city)
+    if ctx.moltbook_bridge is not None and not ctx.offline_mode:
+        post_data = _build_post_data(ctx, reflection)
+        posted = ctx.moltbook_bridge.post_city_update(post_data)
+        reflection["moltbook_update_posted"] = posted
+
     return reflection
 
 
@@ -118,6 +124,40 @@ def _submit_reflection_proposal(ctx: PhaseContext, proposal: object) -> None:
         action={"type": "improve", "proposal_id": proposal.id},
         timestamp=time.time(),
     )
+
+
+def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
+    """Build data dict for Moltbook city update post."""
+    stats = reflection.get("city_stats", {})
+
+    elected_mayor = None
+    council_seats = 0
+    open_proposals = 0
+    if ctx.council is not None:
+        elected_mayor = ctx.council.elected_mayor
+        council_seats = ctx.council.member_count
+        open_proposals = len(ctx.council.get_open_proposals())
+
+    contract_status: dict = {}
+    if ctx.contracts is not None:
+        cs = ctx.contracts.stats()
+        contract_status = {
+            "total": cs.get("total", 0),
+            "passing": cs.get("passing", 0),
+            "failing": cs.get("failing", 0),
+        }
+
+    return {
+        "heartbeat": ctx.heartbeat_count,
+        "population": stats.get("total", 0),
+        "alive": stats.get("alive", 0),
+        "elected_mayor": elected_mayor,
+        "council_seats": council_seats,
+        "open_proposals": open_proposals,
+        "recent_actions": [],
+        "contract_status": contract_status,
+        "chain_valid": reflection.get("chain_valid", False),
+    }
 
 
 def _build_city_report(ctx: PhaseContext, reflection: dict) -> object:

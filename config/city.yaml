@@ -38,6 +38,12 @@ executor:
   subprocess_timeout_s: 30
   ruff_timeout_s: 60
 
+moltbook_bridge:
+  own_username: ""
+  post_cooldown_s: 1800
+  max_comment_per_cycle: 1
+  feed_scan_limit: 20
+
 federation:
   mothership_repo: "kimeisele/steward-protocol"
   dispatch_timeout_s: 30
