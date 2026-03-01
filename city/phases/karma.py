@@ -180,6 +180,28 @@ def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
             )
         return fix.success
 
+    if action_type == "integrity":
+        files = proposal.action.get("files", [])
+        if not files:
+            logger.warning("Proposal %s: integrity action with no files", proposal.id)
+            return False
+        try:
+            from city.git_client import GitStateAuthority
+            gsa = GitStateAuthority()
+            gsa.stage(files)
+            gsa.commit(
+                f"council-approved({proposal.id}): integrity update — "
+                + ", ".join(files),
+            )
+            logger.info(
+                "Proposal %s: integrity approved — committed %d file(s)",
+                proposal.id, len(files),
+            )
+            return True
+        except Exception as e:
+            logger.warning("Proposal %s: integrity commit failed: %s", proposal.id, e)
+            return False
+
     if action_type == "improve":
         logger.info("Proposal %s: improvement noted — %s", proposal.id, proposal.title)
         return True

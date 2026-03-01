@@ -23,6 +23,8 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from city.security import VajraGuarded
+
 logger = logging.getLogger("AGENT_CITY.GIT")
 
 HASH_FILE = "scripts/governance/core_hashes.json"
@@ -35,7 +37,7 @@ _GITIGNORE_HEADER = """\
 """
 
 
-class GitStateAuthority:
+class GitStateAuthority(VajraGuarded):
     """Single point of git mutation for Agent City.
 
     Reads config/city.yaml git section to classify every file as:
@@ -43,13 +45,21 @@ class GitStateAuthority:
       - security:  forbidden, never enters repo
       - protected: immutable core, hash-verified before commit
       - code:      everything else, normal workflow
+
+    Sealed via VajraGuarded — config, workspace, and classification
+    rules are immutable at runtime. No agent can tamper.
     """
 
     def __init__(self, workspace: Optional[Path] = None, config: Optional[dict] = None):
+        VajraGuarded.__init__(self)
         self._workspace = workspace or Path.cwd()
         self._config = config or self._load_config()
         self._git_cfg = self._config.get("git", {})
         self._gpg_available = self._check_gpg_key_available()
+        self.protect_attribute("_config")
+        self.protect_attribute("_git_cfg")
+        self.protect_attribute("_workspace")
+        self.vajra_seal()
 
     # ── Config ─────────────────────────────────────────────────────────────
 
