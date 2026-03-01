@@ -160,7 +160,6 @@ class FederationNadi:
         Returns list of FederationMessage, priority-sorted (highest first).
         """
         raw = self._read_file(self.inbox_path)
-        now = time.time()
 
         messages: list[FederationMessage] = []
         for data in raw:

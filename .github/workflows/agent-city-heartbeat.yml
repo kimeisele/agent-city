@@ -68,6 +68,17 @@ jobs:
             > "data/federation/directives/${DIRECTIVE_ID}.json"
           echo "Received directive: ${DIRECTIVE_ID}"
 
+      - name: Sync Nadi inbox from mothership
+        run: |
+          # If steward-protocol has Nadi messages for agent-city, copy them
+          NADI_SRC="steward-protocol/.vibe/state/nadi_to_city.json"
+          NADI_DST="data/federation/nadi_inbox.json"
+          if [ -f "$NADI_SRC" ]; then
+            mkdir -p data/federation
+            cp "$NADI_SRC" "$NADI_DST"
+            echo "Synced Nadi inbox from mothership ($(wc -c < "$NADI_SRC") bytes)"
+          fi
+
       - name: Run heartbeat
         env:
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
