@@ -89,11 +89,13 @@ class CityImmune:
 
         try:
             from vibe_core.mahamantra.dharma.kumaras.engine import ShuddhiEngine
+
             self._engine = ShuddhiEngine()
             self._available = True
             remedies = self._engine.list_remedies()
             logger.info(
-                "CityImmune initialized (%d remedies)", len(remedies),
+                "CityImmune initialized (%d remedies)",
+                len(remedies),
             )
         except Exception as e:
             logger.warning("ShuddhiEngine unavailable: %s", e)
@@ -119,7 +121,8 @@ class CityImmune:
         # Check Hebbian confidence for this pattern→remedy
         if rule_id and self._learning is not None:
             confidence = self._learning.get_confidence(
-                f"immune:{rule_id}", "heal",
+                f"immune:{rule_id}",
+                "heal",
             )
 
         healable = (
@@ -177,7 +180,9 @@ class CityImmune:
             self._learn(diagnosis.rule_id, False)
             logger.warning(
                 "Immune heal failed for %s (%s): %s",
-                diagnosis.file_path, diagnosis.rule_id, e,
+                diagnosis.file_path,
+                diagnosis.rule_id,
+                e,
             )
             return HealResult(
                 pattern=diagnosis.pattern,
@@ -199,56 +204,63 @@ class CityImmune:
                 results.append(result)
                 logger.info(
                     "Immune: %s → %s (confidence=%.2f, success=%s)",
-                    diagnosis.rule_id, diagnosis.file_path,
-                    diagnosis.confidence, result.success,
+                    diagnosis.rule_id,
+                    diagnosis.file_path,
+                    diagnosis.confidence,
+                    result.success,
                 )
         return results
 
     def run_self_diagnostics(self) -> list[HealResult]:
         """SOTA CI/CD: Autonomous Introspection.
-        
+
         The immune system runs its own tests in an isolated subprocess,
         forcing strict JSON output so we can precisely extract tracebacks
         without brittle regex scanning of stdout.
         """
         logger.info("Immune: Initiating Autonomous Self-Diagnostic...")
-        
+
         # Determine paths
         city_dir = Path(__file__).parent
         repo_root = city_dir.parent
         test_dir = repo_root / "tests"
         report_path = repo_root / ".introspection.json"
-        
+
         if report_path.exists():
             report_path.unlink()
-            
+
         cmd = [
-            sys.executable, "-m", "pytest", str(test_dir),
-            "-q", "--json-report", f"--json-report-file={report_path}"
+            sys.executable,
+            "-m",
+            "pytest",
+            str(test_dir),
+            "-q",
+            "--json-report",
+            f"--json-report-file={report_path}",
         ]
-        
+
         try:
             # Execute the tests (The Mirror)
             subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-            
+
             if not report_path.exists():
                 logger.error("Immune: Self-Diagnostic failed to generate JSON report.")
                 return []
-                
+
             # Digestion: Parse structured failures
             with open(report_path, "r") as f:
                 report = json.load(f)
-                
+
             summary = report.get("summary", {})
             failed_count = summary.get("failed", 0)
-            
+
             if failed_count == 0:
                 logger.info("Immune: Self-Diagnostic passed. Federation is Watertight.")
                 # TODO: Boost MantraShield
                 return []
-                
+
             logger.warning("Immune: Bleeding detected! %d tests failed.", failed_count)
-            
+
             # Extract tracebacks as pathogens
             pathogens = []
             for test in report.get("tests", []):
@@ -256,18 +268,18 @@ class CityImmune:
                     crash = test.get("call", {}).get("crash", {})
                     path = crash.get("path", "")
                     message = crash.get("message", "")
-                    
+
                     if path and message:
                         # Reconstruct a generic audit-like detail string for our Hebbian parser
                         # e.g., "Failure in test_foo.py: some_error"
                         pathogens.append(f"Failure in {path}: {message}")
-            
+
             # Push pathogens into the Healing System
             if pathogens:
                 return self.scan_and_heal(pathogens)
-            
+
             return []
-            
+
         except subprocess.TimeoutExpired:
             logger.error("Immune: Self-Diagnostic TIMED OUT (120s).")
             return []
@@ -294,7 +306,8 @@ class CityImmune:
 
         if self._heals_attempted > 0:
             result["success_rate"] = round(
-                self._heals_succeeded / self._heals_attempted, 3,
+                self._heals_succeeded / self._heals_attempted,
+                3,
             )
 
         return result
@@ -303,7 +316,9 @@ class CityImmune:
         """Record healing outcome in Hebbian learning."""
         if self._learning is not None:
             self._learning.record_outcome(
-                f"immune:{rule_id}", "heal", success,
+                f"immune:{rule_id}",
+                "heal",
+                success,
             )
 
 
@@ -320,7 +335,7 @@ def _extract_file_path(detail: str) -> Path | None:
     """Try to extract a .py file path from a detail string."""
     import re
 
-    match = re.search(r'([\w/.]+\.py)', detail)
+    match = re.search(r"([\w/.]+\.py)", detail)
     if match:
         candidate = Path(match.group(1))
         if candidate.exists():

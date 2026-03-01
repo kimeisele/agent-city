@@ -25,16 +25,38 @@ _bridge_cfg = get_config().get("moltbook_bridge", {})
 # Signal keyword sets for post classification.
 # Aligned with steward-protocol's _CODE_SIGNALS in lifecycle.py —
 # both repos must use the same vocabulary for word-split signal detection.
-CODE_SIGNALS: frozenset[str] = frozenset({
-    "bug", "fix", "feature", "implement", "refactor",
-    "test", "pr", "merge", "patch", "regression",
-    "deploy", "infrastructure", "api", "security",
-    "performance", "migration",
-})
-GOVERNANCE_SIGNALS: frozenset[str] = frozenset({
-    "election", "proposal", "council", "audit",
-    "policy", "vote", "freeze", "unfreeze",
-})
+CODE_SIGNALS: frozenset[str] = frozenset(
+    {
+        "bug",
+        "fix",
+        "feature",
+        "implement",
+        "refactor",
+        "test",
+        "pr",
+        "merge",
+        "patch",
+        "regression",
+        "deploy",
+        "infrastructure",
+        "api",
+        "security",
+        "performance",
+        "migration",
+    }
+)
+GOVERNANCE_SIGNALS: frozenset[str] = frozenset(
+    {
+        "election",
+        "proposal",
+        "council",
+        "audit",
+        "policy",
+        "vote",
+        "freeze",
+        "unfreeze",
+    }
+)
 
 CITY_REPORT_PREFIX = "[City Report]"
 SIGNAL_PREFIX = "[Signal]"
@@ -121,7 +143,7 @@ class MoltbookBridge:
             # Extract keywords directly from title after prefix
             is_structured_signal = title.startswith(SIGNAL_PREFIX)
             if is_structured_signal:
-                signal_text = title[len(SIGNAL_PREFIX):].strip()
+                signal_text = title[len(SIGNAL_PREFIX) :].strip()
                 words = set(f"{signal_text} {content}".lower().split())
             else:
                 words = set(f"{title} {content}".lower().split())
@@ -169,21 +191,26 @@ class MoltbookBridge:
         return signals
 
     def _acknowledge_post(
-        self, post_id: str, code_signals: set[str], author: str = "",
+        self,
+        post_id: str,
+        code_signals: set[str],
+        author: str = "",
     ) -> str:
         """Comment on a post to acknowledge code signals. Returns mission_id."""
         topics = ", ".join(sorted(code_signals)[:3])
         # Generate deterministic mission ID from signal keywords + post
         mission_id = f"signal_{'_'.join(sorted(code_signals)[:2])}_{post_id[:8]}"
         comment = (
-            f"Noted by Agent City -- tracking signals: {topics}. "
-            f"Mission created: {mission_id}."
+            f"Noted by Agent City -- tracking signals: {topics}. Mission created: {mission_id}."
         )
         try:
             self._client.sync_comment_with_verification(post_id, comment)
             logger.info(
                 "BRIDGE: Acknowledged post %s from %s (signals: %s, mission: %s)",
-                post_id, author, topics, mission_id,
+                post_id,
+                author,
+                topics,
+                mission_id,
             )
         except Exception as e:
             logger.warning("BRIDGE: Comment on %s failed: %s", post_id, e)

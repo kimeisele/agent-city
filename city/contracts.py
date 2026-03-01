@@ -94,7 +94,8 @@ class ContractRegistry:
     def failing(self) -> list[QualityContract]:
         """Get contracts that failed their last check."""
         return [
-            c for c in self._contracts.values()
+            c
+            for c in self._contracts.values()
             if c.last_result is not None and c.last_result.status == ContractStatus.FAILING
         ]
 
@@ -103,11 +104,13 @@ class ContractRegistry:
         total = len(self._contracts)
         checked = sum(1 for c in self._contracts.values() if c.last_result is not None)
         passing = sum(
-            1 for c in self._contracts.values()
+            1
+            for c in self._contracts.values()
             if c.last_result is not None and c.last_result.status == ContractStatus.PASSING
         )
         failing = sum(
-            1 for c in self._contracts.values()
+            1
+            for c in self._contracts.values()
             if c.last_result is not None and c.last_result.status == ContractStatus.FAILING
         )
         return {
@@ -127,7 +130,8 @@ def check_ruff_clean(cwd: Path) -> ContractResult:
     try:
         result = subprocess.run(
             ["python", "-m", "ruff", "check", "--select", "F821,F811", str(cwd)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
             timeout=get_config().get("contracts", {}).get("ruff_timeout_s", 60),
         )
         if result.returncode == 0:
@@ -141,7 +145,7 @@ def check_ruff_clean(cwd: Path) -> ContractResult:
             name="ruff_clean",
             status=ContractStatus.FAILING,
             message=f"{len(lines)} ruff violations",
-            details=lines[:get_config().get("contracts", {}).get("max_violation_lines", 10)],
+            details=lines[: get_config().get("contracts", {}).get("max_violation_lines", 10)],
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         return ContractResult(
@@ -156,7 +160,8 @@ def check_tests_pass(cwd: Path) -> ContractResult:
     try:
         result = subprocess.run(
             ["python", "-m", "pytest", "-x", "-q", "--tb=no", str(cwd)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
             timeout=get_config().get("contracts", {}).get("pytest_timeout_s", 120),
         )
         if result.returncode == 0:
@@ -204,10 +209,7 @@ def check_audit_clean(cwd: Path) -> ContractResult:
             name="audit_clean",
             status=ContractStatus.FAILING,
             message=f"{len(critical)} critical findings",
-            details=[
-                f"{f.source}: {f.description}"
-                for f in critical[:10]
-            ],
+            details=[f"{f.source}: {f.description}" for f in critical[:10]],
         )
     except Exception as e:
         # AuditKernel unavailable — don't block deployments
@@ -250,7 +252,8 @@ def check_integrity(cwd: Path, protected_files: List[str] | None = None) -> Cont
         try:
             committed = subprocess.run(
                 ["git", "show", f"HEAD:{rel_path}"],
-                capture_output=True, cwd=str(cwd),
+                capture_output=True,
+                cwd=str(cwd),
                 timeout=10,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -267,7 +270,9 @@ def check_integrity(cwd: Path, protected_files: List[str] | None = None) -> Cont
             drifted.append(rel_path)
             logger.warning(
                 "INTEGRITY DRIFT: %s (HEAD=%s..., disk=%s...)",
-                rel_path, head_hash[:12], disk_hash[:12],
+                rel_path,
+                head_hash[:12],
+                disk_hash[:12],
             )
 
     if drifted:
@@ -288,27 +293,34 @@ def check_integrity(cwd: Path, protected_files: List[str] | None = None) -> Cont
 def create_default_contracts() -> ContractRegistry:
     """Create a ContractRegistry with the built-in quality contracts."""
     registry = ContractRegistry()
-    registry.register(QualityContract(
-        name="ruff_clean",
-        description="Ruff F821/F811 linting must pass",
-        check=check_ruff_clean,
-    ))
-    registry.register(QualityContract(
-        name="tests_pass",
-        description="All pytest tests must pass",
-        check=check_tests_pass,
-    ))
-    registry.register(QualityContract(
-        name="audit_clean",
-        description="AuditKernel finds no critical violations",
-        check=check_audit_clean,
-    ))
+    registry.register(
+        QualityContract(
+            name="ruff_clean",
+            description="Ruff F821/F811 linting must pass",
+            check=check_ruff_clean,
+        )
+    )
+    registry.register(
+        QualityContract(
+            name="tests_pass",
+            description="All pytest tests must pass",
+            check=check_tests_pass,
+        )
+    )
+    registry.register(
+        QualityContract(
+            name="audit_clean",
+            description="AuditKernel finds no critical violations",
+            check=check_audit_clean,
+        )
+    )
     # Integrity: protected files must match committed state
     protected = get_config().get("git", {}).get("protected_files", [])
-    registry.register(QualityContract(
-        name="integrity",
-        description="Protected files match their committed state (Council-governed)",
-        check=partial(check_integrity, protected_files=protected),
-    ))
+    registry.register(
+        QualityContract(
+            name="integrity",
+            description="Protected files match their committed state (Council-governed)",
+            check=partial(check_integrity, protected_files=protected),
+        )
+    )
     return registry
-

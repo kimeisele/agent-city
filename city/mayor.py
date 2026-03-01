@@ -70,6 +70,7 @@ DEPARTMENT_NAMES = {
 
 class HeartbeatResult(TypedDict):
     """Result of a single heartbeat cycle."""
+
     heartbeat: int
     department: str
     department_idx: int
@@ -82,6 +83,7 @@ class HeartbeatResult(TypedDict):
 
 class MayorState(TypedDict):
     """Persistent state for the Mayor agent."""
+
     heartbeat_count: int
     last_heartbeat: float
     discovered_agents: list[str]
@@ -146,16 +148,22 @@ class Mayor:
     def __post_init__(self) -> None:
         # Migrate legacy kwargs into registry (backward compat)
         _field_to_svc = {
-            "_contracts": SVC_CONTRACTS, "_issues": SVC_ISSUES,
-            "_sankalpa": SVC_SANKALPA, "_audit": SVC_AUDIT,
-            "_reflection": SVC_REFLECTION, "_executor": SVC_EXECUTOR,
-            "_council": SVC_COUNCIL, "_federation": SVC_FEDERATION,
+            "_contracts": SVC_CONTRACTS,
+            "_issues": SVC_ISSUES,
+            "_sankalpa": SVC_SANKALPA,
+            "_audit": SVC_AUDIT,
+            "_reflection": SVC_REFLECTION,
+            "_executor": SVC_EXECUTOR,
+            "_council": SVC_COUNCIL,
+            "_federation": SVC_FEDERATION,
             "_moltbook_bridge": SVC_MOLTBOOK_BRIDGE,
             "_moltbook_client": SVC_MOLTBOOK_CLIENT,
             "_city_nadi": SVC_CITY_NADI,
             "_knowledge_graph": SVC_KNOWLEDGE_GRAPH,
-            "_event_bus": SVC_EVENT_BUS, "_learning": SVC_LEARNING,
-            "_agent_nadi": SVC_AGENT_NADI, "_immune": SVC_IMMUNE,
+            "_event_bus": SVC_EVENT_BUS,
+            "_learning": SVC_LEARNING,
+            "_agent_nadi": SVC_AGENT_NADI,
+            "_immune": SVC_IMMUNE,
             "_prahlad": SVC_PRAHLAD,
         }
         for field_name, svc_name in _field_to_svc.items():
@@ -173,16 +181,22 @@ class Mayor:
         """Build PhaseContext from current Mayor state."""
         # Sync any post-init field mutations into registry
         _field_to_svc = {
-            "_contracts": SVC_CONTRACTS, "_issues": SVC_ISSUES,
-            "_sankalpa": SVC_SANKALPA, "_audit": SVC_AUDIT,
-            "_reflection": SVC_REFLECTION, "_executor": SVC_EXECUTOR,
-            "_council": SVC_COUNCIL, "_federation": SVC_FEDERATION,
+            "_contracts": SVC_CONTRACTS,
+            "_issues": SVC_ISSUES,
+            "_sankalpa": SVC_SANKALPA,
+            "_audit": SVC_AUDIT,
+            "_reflection": SVC_REFLECTION,
+            "_executor": SVC_EXECUTOR,
+            "_council": SVC_COUNCIL,
+            "_federation": SVC_FEDERATION,
             "_moltbook_bridge": SVC_MOLTBOOK_BRIDGE,
             "_moltbook_client": SVC_MOLTBOOK_CLIENT,
             "_city_nadi": SVC_CITY_NADI,
             "_knowledge_graph": SVC_KNOWLEDGE_GRAPH,
-            "_event_bus": SVC_EVENT_BUS, "_learning": SVC_LEARNING,
-            "_agent_nadi": SVC_AGENT_NADI, "_immune": SVC_IMMUNE,
+            "_event_bus": SVC_EVENT_BUS,
+            "_learning": SVC_LEARNING,
+            "_agent_nadi": SVC_AGENT_NADI,
+            "_immune": SVC_IMMUNE,
             "_prahlad": SVC_PRAHLAD,
         }
         for field_name, svc_name in _field_to_svc.items():
@@ -220,6 +234,7 @@ class Mayor:
         # Advance VenuOrchestrator — drives MURALI phase rotation
         try:
             from vibe_core.mahamantra import mahamantra
+
             mahamantra.venu.step()
         except Exception as e:
             logger.warning("VenuOrchestrator step failed: %s", e)
@@ -229,7 +244,8 @@ class Mayor:
 
         logger.info(
             "Mayor heartbeat #%d — department %s",
-            self._heartbeat_count, dept_name,
+            self._heartbeat_count,
+            dept_name,
         )
 
         result: HeartbeatResult = {
@@ -248,25 +264,31 @@ class Mayor:
         # Cognition: emit phase transition event
         if self._registry.get(SVC_EVENT_BUS) is not None:
             from city.cognition import emit_event
+
             emit_event(
-                "PHASE_TRANSITION", "mayor",
+                "PHASE_TRANSITION",
+                "mayor",
                 f"heartbeat #{self._heartbeat_count} → {dept_name}",
                 {"heartbeat": self._heartbeat_count, "department": dept_name},
             )
 
         if department == GENESIS:
             from city.phases import genesis
+
             result["discovered"] = genesis.execute(ctx)
         elif department == DHARMA:
             from city.phases import dharma
+
             result["governance_actions"] = dharma.execute(ctx)
         elif department == KARMA:
             from city.phases import karma
+
             result["operations"] = karma.execute(ctx)
         elif department == MOKSHA:
             from city.phases import moksha
+
             result["reflection"] = moksha.execute(ctx)
-            
+
             # Autonomous Introspection — The city checks itself for bleeding
             # Triggered during MOKSHA, every 10 cycles (40 heartbeats) to prevent fatigue
             # Skipped offline: diagnostics invoke ruff/subprocess which isn't available
@@ -299,25 +321,25 @@ class Mayor:
         self, payload: bytes, signature_header: str, secret: str, github_token: str
     ) -> dict:
         """Process an asynchronous GitHub webhook from the CI/CD Arsenal.
-        
+
         If a workflow failed, fetches the JSON report artifact and injects
         the extracted tracebacks directly into the Immune System.
         """
         result = self._gateway.ingest_github_webhook(payload, signature_header, secret)
-        
+
         if result.get("status") == "success" and result.get("event") == "workflow_run_failed":
             if self._immune is not None and hasattr(self._gateway, "fetch_github_artifact"):
                 logger.info("Mayor: Routing failed Arsenal workflow to Immune System.")
                 pathogens = self._gateway.fetch_github_artifact(
-                    repo_name=result["repo_name"], 
-                    run_id=result["run_id"], 
-                    github_token=github_token
+                    repo_name=result["repo_name"],
+                    run_id=result["run_id"],
+                    github_token=github_token,
                 )
                 if pathogens:
                     heals = self._immune.scan_and_heal(pathogens)
                     result["immune_heals"] = len(heals)
                     logger.info("Mayor: Immune System completed %d healing attempts.", len(heals))
-                    
+
         return result
 
     # ── Reflection Recording ──────────────────────────────────────────
@@ -343,29 +365,42 @@ class Mayor:
         """Subscribe to AnantaShesha events via CityNetwork's anchor."""
         try:
             from vibe_core.ouroboros.ananta_shesha import get_system_anchor
+
             anchor = get_system_anchor()
-            for event_type in ("AGENT_REGISTERED", "AGENT_UNREGISTERED",
-                               "AGENT_MESSAGE", "AGENT_BROADCAST"):
+            for event_type in (
+                "AGENT_REGISTERED",
+                "AGENT_UNREGISTERED",
+                "AGENT_MESSAGE",
+                "AGENT_BROADCAST",
+            ):
                 anchor.add_handler(event_type, self._on_city_event)
         except Exception as e:
             logger.warning("Event handler wiring failed: %s", e)
 
     def _on_city_event(self, event: object) -> None:
         """Handle city events from AnantaShesha. Buffers for MOKSHA reflection."""
-        self._recent_events.append({
-            "type": event.event_type,
-            "data": event.data,
-            "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, 'isoformat') else str(event.timestamp),
-        })
+        self._recent_events.append(
+            {
+                "type": event.event_type,
+                "data": event.data,
+                "timestamp": event.timestamp.isoformat()
+                if hasattr(event.timestamp, "isoformat")
+                else str(event.timestamp),
+            }
+        )
         _mayor_cfg = get_config().get("mayor", {})
         if len(self._recent_events) > _mayor_cfg.get("event_buffer_max", 200):
-            self._recent_events = self._recent_events[-_mayor_cfg.get("event_buffer_trim", 100):]
+            self._recent_events = self._recent_events[-_mayor_cfg.get("event_buffer_trim", 100) :]
 
     # ── External Interface ────────────────────────────────────────────
 
     def enqueue(
-        self, source: str, text: str,
-        *, conversation_id: str = "", from_agent: str = "",
+        self,
+        source: str,
+        text: str,
+        *,
+        conversation_id: str = "",
+        from_agent: str = "",
     ) -> None:
         """Add an item to the gateway queue for KARMA processing.
 
@@ -375,12 +410,14 @@ class Mayor:
             conversation_id: Moltbook DM conversation ID for response routing.
             from_agent: Sender's Moltbook username.
         """
-        self._gateway_queue.append({
-            "source": source,
-            "text": text,
-            "conversation_id": conversation_id,
-            "from_agent": from_agent,
-        })
+        self._gateway_queue.append(
+            {
+                "source": source,
+                "text": text,
+                "conversation_id": conversation_id,
+                "from_agent": from_agent,
+            }
+        )
 
     def mark_active(self, name: str) -> None:
         """Mark an agent as active for the current metabolism cycle."""

@@ -55,9 +55,11 @@ QUARTER_TO_ZONE = {
 
 # ── Jiva Data ────────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class JivaSeed:
     """Immutable Mahamantra seed — the cryptographic root of identity."""
+
     rama_coordinates: tuple[int, ...]
     signature: str
     coord_sum: int
@@ -67,6 +69,7 @@ class JivaSeed:
 @dataclass(frozen=True)
 class JivaElements:
     """Elemental composition derived from RAMA coordinates."""
+
     distribution: dict[str, int]
     dominant: str
 
@@ -74,40 +77,43 @@ class JivaElements:
 @dataclass(frozen=True)
 class JivaClassification:
     """Vedic classification — all from the real Mahamantra VM pipeline."""
-    guna: str           # VM: guna.mode (SATTVA/RAJAS/TAMAS)
-    varna: str          # Derived from dominant element
-    quarter: str        # VM: quarter (genesis/dharma/karma/moksha)
-    zone: str           # Quarter → city zone
-    guardian: str       # VM: guardian (Mahajana)
-    position: int       # VM: position (0-15)
-    holy_name: str      # VM: holy_name (H/K/R)
+
+    guna: str  # VM: guna.mode (SATTVA/RAJAS/TAMAS)
+    varna: str  # Derived from dominant element
+    quarter: str  # VM: quarter (genesis/dharma/karma/moksha)
+    zone: str  # Quarter → city zone
+    guardian: str  # VM: guardian (Mahajana)
+    position: int  # VM: position (0-15)
+    holy_name: str  # VM: holy_name (H/K/R)
     trinity_function: str  # VM: trinity_function (source/maintenance/dissolution)
-    chapter: int        # VM: chapter (1-18, Gita chapter)
+    chapter: int  # VM: chapter (1-18, Gita chapter)
     chapter_significance: str  # VM: chapter_significance
 
 
 @dataclass(frozen=True)
 class JivaVitals:
     """Life force metrics — from the VM cell system."""
-    prana: int          # VM: cell.prana (real cell energy)
-    integrity: float    # VM: cell.integrity (0.0 to 1.0)
-    is_alive: bool      # VM: cell.is_alive
-    diw_raw: int        # VM: diw.raw (19-bit Divine Instruction Word)
-    diw_venu: int       # VM: diw.venu (intensity)
-    diw_vamsi: int      # VM: diw.vamsi (name-region)
-    diw_murali: int     # VM: diw.murali (phase)
+
+    prana: int  # VM: cell.prana (real cell energy)
+    integrity: float  # VM: cell.integrity (0.0 to 1.0)
+    is_alive: bool  # VM: cell.is_alive
+    diw_raw: int  # VM: diw.raw (19-bit Divine Instruction Word)
+    diw_venu: int  # VM: diw.venu (intensity)
+    diw_vamsi: int  # VM: diw.vamsi (name-region)
+    diw_murali: int  # VM: diw.murali (phase)
 
 
 @dataclass(frozen=True)
 class JivaVibration:
     """Phonetic vibration signature from the VM."""
-    seed: int           # VM: vibration.seed
-    attractor: int      # VM: vibration.attractor
-    element: str        # VM: vibration.signature.element
-    varga: int          # VM: vibration.signature.varga
-    harmonic: int       # VM: vibration.signature.harmonic
-    shruti: bool        # VM: vibration.signature.shruti
-    frequency: int      # VM: vibration.signature.frequency
+
+    seed: int  # VM: vibration.seed
+    attractor: int  # VM: vibration.attractor
+    element: str  # VM: vibration.signature.element
+    varga: int  # VM: vibration.signature.varga
+    harmonic: int  # VM: vibration.signature.harmonic
+    shruti: bool  # VM: vibration.signature.shruti
+    frequency: int  # VM: vibration.signature.frequency
 
 
 @dataclass(frozen=True)
@@ -118,17 +124,18 @@ class Jiva:
     The cell has prana (energy), integrity (membrane health), lifecycle
     operations (conceive, metabolize, mitosis, apoptosis, homeostasis).
     """
+
     name: str
-    channel: str              # The origin frequency/channel (e.g., 'local', 'moltbook')
-    address: int              # MahaCompression seed — deterministic uint32 city address
+    channel: str  # The origin frequency/channel (e.g., 'local', 'moltbook')
+    address: int  # MahaCompression seed — deterministic uint32 city address
     seed: JivaSeed
     elements: JivaElements
     classification: JivaClassification
     vitals: JivaVitals
     vibration: JivaVibration
     phonemes: tuple[dict, ...]
-    cell: MahaCellUnified     # Living computational unit — THE agent
-    vm_result: dict           # Full 27-key VM output for downstream consumers
+    cell: MahaCellUnified  # Living computational unit — THE agent
+    vm_result: dict  # Full 27-key VM output for downstream consumers
 
     def to_dict(self) -> dict:
         """Serialize for JSON storage (Pokedex)."""
@@ -183,6 +190,7 @@ class Jiva:
 
 
 # ── Derivation ───────────────────────────────────────────────────────
+
 
 def derive_jiva(name: str, channel: str = "local") -> Jiva:
     """Derive complete Jiva identity from a name via the real Mahamantra VM.
@@ -252,6 +260,7 @@ def derive_jiva(name: str, channel: str = "local") -> Jiva:
     # The cell.header.sravanam is the raw MahaCompression seed (cell-level),
     # while the city address combines compression + SHA-256 for uniqueness.
     from city.addressing import CityAddressBook
+
     _city_book = CityAddressBook()
     address = _city_book.resolve(name)
 

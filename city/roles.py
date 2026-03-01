@@ -25,13 +25,25 @@ class CivicRole(str, Enum):
 # Permissions per role
 ROLE_PERMISSIONS: dict[CivicRole, frozenset[str]] = {
     CivicRole.CITIZEN: frozenset({"vote_public", "submit_petition"}),
-    CivicRole.COUNCIL_MEMBER: frozenset({
-        "vote_public", "submit_petition", "propose", "vote_council",
-    }),
-    CivicRole.ELECTED_MAYOR: frozenset({
-        "vote_public", "submit_petition", "propose", "vote_council",
-        "sign_proposal", "call_election", "freeze_agent",
-    }),
+    CivicRole.COUNCIL_MEMBER: frozenset(
+        {
+            "vote_public",
+            "submit_petition",
+            "propose",
+            "vote_council",
+        }
+    ),
+    CivicRole.ELECTED_MAYOR: frozenset(
+        {
+            "vote_public",
+            "submit_petition",
+            "propose",
+            "vote_council",
+            "sign_proposal",
+            "call_election",
+            "freeze_agent",
+        }
+    ),
 }
 
 

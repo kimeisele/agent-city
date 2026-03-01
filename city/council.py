@@ -54,8 +54,8 @@ class ProposalStatus(str, Enum):
 class ProposalType(str, Enum):
     """Determines voting threshold."""
 
-    POLICY = "policy"                   # Simple majority (>50%)
-    CONSTITUTIONAL = "constitutional"   # Supermajority (>67%)
+    POLICY = "policy"  # Simple majority (>50%)
+    CONSTITUTIONAL = "constitutional"  # Supermajority (>67%)
 
 
 class VoteChoice(str, Enum):
@@ -166,7 +166,8 @@ class CityCouncil:
         self._elected_mayor = data.get("elected_mayor")
         self._next_proposal_num = data.get("next_proposal_num", 1)
         self._last_election_heartbeat = data.get(
-            "last_election_heartbeat", -ELECTION_CYCLE,
+            "last_election_heartbeat",
+            -ELECTION_CYCLE,
         )
         # Restore proposals
         self._proposals = {}
@@ -238,13 +239,14 @@ class CityCouncil:
                     "guardian": c.get("guardian", ""),
                     "rank": i,
                 }
-                for i, c in enumerate(eligible[:COUNCIL_SEATS * 2])
+                for i, c in enumerate(eligible[: COUNCIL_SEATS * 2])
             ],
         }
 
         logger.info(
             "Election complete: mayor=%s, %d seats filled",
-            new_mayor, len(new_seats),
+            new_mayor,
+            len(new_seats),
         )
         self._auto_save()
         return result
@@ -272,6 +274,7 @@ class CityCouncil:
         route_score = 0.0
         try:
             from vibe_core.mahamantra.substrate.services.guardian_router import route_text
+
             routes = route_text(title, top_n=1)
             if routes:
                 guardian_name = routes[0].guardian.name
@@ -353,12 +356,8 @@ class CityCouncil:
         if proposal is None or proposal.status != ProposalStatus.OPEN:
             return None
 
-        yes_weight = sum(
-            v["prana_weight"] for v in proposal.votes if v["choice"] == "yes"
-        )
-        no_weight = sum(
-            v["prana_weight"] for v in proposal.votes if v["choice"] == "no"
-        )
+        yes_weight = sum(v["prana_weight"] for v in proposal.votes if v["choice"] == "yes")
+        no_weight = sum(v["prana_weight"] for v in proposal.votes if v["choice"] == "no")
         total_weight = yes_weight + no_weight
 
         if total_weight == 0:
@@ -368,13 +367,16 @@ class CityCouncil:
         threshold = proposal.threshold()
         passed = yes_ratio > threshold
 
-        tally_data = json.dumps({
-            "proposal_id": proposal.id,
-            "yes_weight": yes_weight,
-            "no_weight": no_weight,
-            "threshold": threshold,
-            "passed": passed,
-        }, sort_keys=True)
+        tally_data = json.dumps(
+            {
+                "proposal_id": proposal.id,
+                "yes_weight": yes_weight,
+                "no_weight": no_weight,
+                "threshold": threshold,
+                "passed": passed,
+            },
+            sort_keys=True,
+        )
         result_hash = hashlib.sha256(tally_data.encode()).hexdigest()
 
         new_status = ProposalStatus.PASSED if passed else ProposalStatus.REJECTED
@@ -397,8 +399,12 @@ class CityCouncil:
 
         logger.info(
             "Tally %s: %s (yes=%d no=%d ratio=%.2f threshold=%.2f)",
-            proposal.id, new_status.value,
-            yes_weight, no_weight, yes_ratio, threshold,
+            proposal.id,
+            new_status.value,
+            yes_weight,
+            no_weight,
+            yes_ratio,
+            threshold,
         )
         self._auto_save()
         return updated
@@ -462,6 +468,7 @@ class CityCouncil:
         """Route text through Guardian Router for topic analysis."""
         try:
             from vibe_core.mahamantra.substrate.services.guardian_router import route_text
+
             routes = route_text(text, top_n=3)
             return [
                 {
@@ -479,6 +486,7 @@ class CityCouncil:
         """Query the Mahamantra Antaranga for city health metrics."""
         try:
             from vibe_core.mahamantra.substrate.cell_system.antaranga import AntarangaRegistry
+
             antaranga = AntarangaRegistry()
             return {
                 "active_slots": antaranga.active_count(),
@@ -492,6 +500,7 @@ class CityCouncil:
         """Query the Mahajana Sabha for governance status."""
         try:
             from vibe_core.protocols.mahajanas.sabha import get_sabha
+
             sabha = get_sabha()
             status = sabha.get_status()
             return {

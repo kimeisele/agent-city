@@ -32,6 +32,7 @@ def execute(ctx: PhaseContext) -> list[str]:
     kg_context = ""
     if ctx.knowledge_graph is not None:
         from city.cognition import compile_context
+
         kg_context = compile_context("process gateway queue operations")
 
     # Drain from Nadi (priority-sorted) + fallback gateway_queue
@@ -69,15 +70,15 @@ def execute(ctx: PhaseContext) -> list[str]:
                         response.conversation_id,
                         response.text,
                     )
-                    operations.append(
-                        f"dm_replied:{from_agent}:seed={result['seed']}"
-                    )
+                    operations.append(f"dm_replied:{from_agent}:seed={result['seed']}")
                     _learn(ctx, source, "dm_reply", success=True)
                 except Exception as e:
                     operations.append(f"dm_reply_failed:{from_agent}:{e}")
                     _learn(ctx, source, "dm_reply", success=False)
                     logger.warning(
-                        "KARMA: DM reply failed for %s: %s", from_agent, e,
+                        "KARMA: DM reply failed for %s: %s",
+                        from_agent,
+                        e,
                     )
             else:
                 operations.append(f"processed:{source}:seed={result['seed']}")
@@ -96,7 +97,8 @@ def execute(ctx: PhaseContext) -> list[str]:
             if confidence < 0.2:
                 logger.warning(
                     "KARMA: Low confidence for %s→process (%.2f)",
-                    src, confidence,
+                    src,
+                    confidence,
                 )
 
     # Layer 3: Sankalpa strategic thinking
@@ -115,22 +117,29 @@ def execute(ctx: PhaseContext) -> list[str]:
         for contract in ctx.contracts.failing():
             details = contract.last_result.details if contract.last_result else []
             fix = ctx.executor.execute_heal(contract.name, details)
-            operations.append(
-                f"heal:{fix.contract_name}:{fix.action_taken}:{fix.success}"
-            )
+            operations.append(f"heal:{fix.contract_name}:{fix.action_taken}:{fix.success}")
             logger.info(
                 "KARMA: Heal %s — %s (success=%s)",
-                fix.contract_name, fix.action_taken, fix.success,
+                fix.contract_name,
+                fix.action_taken,
+                fix.success,
             )
 
             if fix.success and fix.files_changed:
                 pr = ctx.executor.create_fix_pr(fix, ctx.heartbeat_count)
                 if pr is not None and pr.success:
                     operations.append(f"pr_created:{pr.pr_url}")
-                    emit_event("ACTION", "karma", f"PR created: {pr.pr_url}", {
-                        "action": "pr_created", "contract": contract.name,
-                        "pr_url": pr.pr_url, "heartbeat": ctx.heartbeat_count,
-                    })
+                    emit_event(
+                        "ACTION",
+                        "karma",
+                        f"PR created: {pr.pr_url}",
+                        {
+                            "action": "pr_created",
+                            "contract": contract.name,
+                            "pr_url": pr.pr_url,
+                            "heartbeat": ctx.heartbeat_count,
+                        },
+                    )
                     logger.info("KARMA: PR created — %s", pr.pr_url)
 
     # Layer 5: Council governance cycle
@@ -139,9 +148,7 @@ def execute(ctx: PhaseContext) -> list[str]:
 
         for proposal in ctx.council.get_passed_proposals():
             executed = _execute_proposal(ctx, proposal)
-            operations.append(
-                f"council_executed:{proposal.id}:{executed}"
-            )
+            operations.append(f"council_executed:{proposal.id}:{executed}")
             ctx.council.mark_executed(proposal.id)
 
     if operations:
@@ -157,7 +164,8 @@ def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
     if action_type == "freeze" and params.get("target"):
         try:
             ctx.pokedex.freeze(
-                params["target"], f"council_proposal:{proposal.id}",
+                params["target"],
+                f"council_proposal:{proposal.id}",
             )
             return True
         except (ValueError, Exception) as e:
@@ -167,7 +175,8 @@ def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
     if action_type == "unfreeze" and params.get("target"):
         try:
             ctx.pokedex.unfreeze(
-                params["target"], f"council_proposal:{proposal.id}",
+                params["target"],
+                f"council_proposal:{proposal.id}",
             )
             return True
         except (ValueError, Exception) as e:
@@ -181,7 +190,9 @@ def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
         if fix.success:
             logger.info(
                 "Proposal %s: healed %s via %s",
-                proposal.id, contract_name, fix.action_taken,
+                proposal.id,
+                contract_name,
+                fix.action_taken,
             )
         return fix.success
 
@@ -192,15 +203,16 @@ def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
             return False
         try:
             from city.git_client import GitStateAuthority
+
             gsa = GitStateAuthority()
             gsa.stage(files)
             gsa.commit(
-                f"council-approved({proposal.id}): integrity update — "
-                + ", ".join(files),
+                f"council-approved({proposal.id}): integrity update — " + ", ".join(files),
             )
             logger.info(
                 "Proposal %s: integrity approved — committed %d file(s)",
-                proposal.id, len(files),
+                proposal.id,
+                len(files),
             )
             return True
         except Exception as e:
@@ -229,6 +241,7 @@ def _council_auto_vote(ctx: PhaseContext) -> None:
     # Buddhi-driven voting: real discrimination, not rubber-stamping
     try:
         from vibe_core.mahamantra.substrate.buddhi import get_buddhi
+
         buddhi = get_buddhi()
     except Exception:
         buddhi = None
@@ -260,7 +273,10 @@ def _council_auto_vote(ctx: PhaseContext) -> None:
                     choice = VoteChoice.YES
 
                 ctx.council.vote(
-                    proposal.id, member_name, choice, prana,
+                    proposal.id,
+                    member_name,
+                    choice,
+                    prana,
                 )
         ctx.council.tally(proposal.id)
 
@@ -285,20 +301,26 @@ def _process_issue_missions(ctx: PhaseContext, operations: list[str]) -> None:
         # Handle federation execute_code missions
         if mission.id.startswith("exec_"):
             success = _execute_code_mission(ctx, mission)
-            operations.append(
-                f"exec_mission:{mission.id}:{'success' if success else 'pending'}"
-            )
+            operations.append(f"exec_mission:{mission.id}:{'success' if success else 'pending'}")
             if success:
                 mission.status = MissionStatus.COMPLETED
                 ctx.sankalpa.registry.add_mission(mission)
-                emit_event("ACTION", "karma", f"Mission completed: {mission.name}", {
-                    "action": "mission_completed", "mission_id": mission.id,
-                    "mission_name": mission.name, "owner": getattr(mission, "owner", ""),
-                })
+                emit_event(
+                    "ACTION",
+                    "karma",
+                    f"Mission completed: {mission.name}",
+                    {
+                        "action": "mission_completed",
+                        "mission_id": mission.id,
+                        "mission_name": mission.name,
+                        "owner": getattr(mission, "owner", ""),
+                    },
+                )
             _learn(ctx, mission.id, "exec_mission", success=success)
             logger.info(
                 "KARMA: Exec mission %s — %s",
-                mission.id, "completed" if success else "pending",
+                mission.id,
+                "completed" if success else "pending",
             )
             continue
 
@@ -321,24 +343,30 @@ def _process_issue_missions(ctx: PhaseContext, operations: list[str]) -> None:
         else:
             success = _execute_issue_heal(ctx, issue_number)
 
-        operations.append(
-            f"issue_mission:{mission.id}:{'success' if success else 'pending'}"
-        )
+        operations.append(f"issue_mission:{mission.id}:{'success' if success else 'pending'}")
 
         # Update mission status
         if success:
             mission.status = MissionStatus.COMPLETED
             ctx.sankalpa.registry.add_mission(mission)
-            emit_event("ACTION", "karma", f"Issue mission completed: #{issue_number}", {
-                "action": "mission_completed", "mission_id": mission.id,
-                "issue_number": issue_number, "owner": getattr(mission, "owner", ""),
-            })
+            emit_event(
+                "ACTION",
+                "karma",
+                f"Issue mission completed: #{issue_number}",
+                {
+                    "action": "mission_completed",
+                    "mission_id": mission.id,
+                    "issue_number": issue_number,
+                    "owner": getattr(mission, "owner", ""),
+                },
+            )
 
         # Learn from outcome
         _learn(ctx, f"issue_{issue_number}", "issue_mission", success=success)
         logger.info(
             "KARMA: Issue mission %s — %s",
-            mission.id, "completed" if success else "pending",
+            mission.id,
+            "completed" if success else "pending",
         )
 
 
@@ -375,7 +403,8 @@ def _execute_issue_heal(ctx: PhaseContext, issue_number: int) -> bool:
                 _record_pr_event(ctx, issue_number, pr)
                 logger.info(
                     "KARMA: Issue #%d → PR created: %s",
-                    issue_number, pr.pr_url,
+                    issue_number,
+                    pr.pr_url,
                 )
                 return True
             if fix.success:
@@ -398,7 +427,7 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
     # Extract contract name from mission name (format: "Execute: ruff_clean")
     contract = "ruff_clean"  # default
     if mission.name.startswith("Execute: "):
-        contract = mission.name[len("Execute: "):]
+        contract = mission.name[len("Execute: ") :]
 
     try:
         fix = ctx.executor.execute_heal(contract, [f"mission_{mission.id}"])
@@ -408,7 +437,8 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
                 _record_pr_event(ctx, 0, pr)
                 logger.info(
                     "KARMA: Exec mission %s → PR created: %s",
-                    mission.id, pr.pr_url,
+                    mission.id,
+                    pr.pr_url,
                 )
                 return True
             if fix.success:
@@ -422,11 +452,13 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
 
 def _record_pr_event(ctx: PhaseContext, issue_number: int, pr: object) -> None:
     """Record a PR creation event for MOKSHA to pick up."""
-    ctx.recent_events.append({
-        "type": "pr_created",
-        "issue_number": issue_number,
-        "pr_url": pr.pr_url,
-        "branch": pr.branch,
-        "commit_hash": pr.commit_hash,
-        "heartbeat": ctx.heartbeat_count,
-    })
+    ctx.recent_events.append(
+        {
+            "type": "pr_created",
+            "issue_number": issue_number,
+            "pr_url": pr.pr_url,
+            "branch": pr.branch,
+            "commit_hash": pr.commit_hash,
+            "heartbeat": ctx.heartbeat_count,
+        }
+    )

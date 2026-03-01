@@ -56,10 +56,11 @@ def create_audit_mission(ctx: object, finding: object) -> None:
     prefix = f"audit_{finding.source}_"
     for existing in ctx.sankalpa.registry.get_active_missions():
         if existing.id.startswith(prefix) or (
-            existing.name == f"Audit: {finding.source}"
-            and existing.status == MissionStatus.ACTIVE
+            existing.name == f"Audit: {finding.source}" and existing.status == MissionStatus.ACTIVE
         ):
-            logger.debug("Audit mission for %s already exists (%s), skipping", finding.source, existing.id)
+            logger.debug(
+                "Audit mission for %s already exists (%s), skipping", finding.source, existing.id
+            )
             return
 
     mission_id = f"audit_{finding.source}_{ctx.heartbeat_count}"
@@ -100,7 +101,10 @@ def create_improvement_mission(ctx: object, proposal: object) -> None:
 
 
 def create_issue_mission(
-    ctx: object, issue_number: int, title: str, action_type: str,
+    ctx: object,
+    issue_number: int,
+    title: str,
+    action_type: str,
 ) -> str | None:
     """Create a Sankalpa mission from an issue lifecycle action.
 
@@ -180,7 +184,10 @@ def create_signal_mission(
     ctx.sankalpa.registry.add_mission(mission)
     logger.info(
         "Created signal mission %s from %s (post %s, priority=%s)",
-        mission_id, author, post_id[:8], priority.name,
+        mission_id,
+        author,
+        post_id[:8],
+        priority.name,
     )
     return mission_id
 

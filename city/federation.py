@@ -120,7 +120,8 @@ class FederationRelay:
 
         logger.info(
             "Federation: saved report (heartbeat=%d, pop=%d)",
-            report.heartbeat, report.population,
+            report.heartbeat,
+            report.population,
         )
         self._acknowledged.clear()
         return True
@@ -149,11 +150,14 @@ class FederationRelay:
                     directives.append(directive)
                     logger.info(
                         "Federation: read directive %s (%s)",
-                        directive.id, directive.directive_type,
+                        directive.id,
+                        directive.directive_type,
                     )
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning(
-                        "Federation: bad directive file %s: %s", path.name, e,
+                        "Federation: bad directive file %s: %s",
+                        path.name,
+                        e,
                     )
 
         return directives
@@ -198,8 +202,15 @@ class FederationRelay:
 
     def stats(self) -> dict:
         """Federation relay statistics."""
-        pending = len(list(self._directives_dir.glob("*.json"))) if self._directives_dir.exists() else 0
-        done = len(list(self._directives_dir.glob("*.done"))) + len(list(self._directives_dir.glob("*.done.json"))) if self._directives_dir.exists() else 0
+        pending = (
+            len(list(self._directives_dir.glob("*.json"))) if self._directives_dir.exists() else 0
+        )
+        done = (
+            len(list(self._directives_dir.glob("*.done")))
+            + len(list(self._directives_dir.glob("*.done.json")))
+            if self._directives_dir.exists()
+            else 0
+        )
         return {
             "mothership": self._mothership_repo,
             "dry_run": self._dry_run,

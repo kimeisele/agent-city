@@ -65,7 +65,7 @@ class DaemonService:
         """Internal execution loop."""
         while self._running:
             start_t = time.time()
-            
+
             try:
                 # Advance the city by exactly 1 heartbeat (1 department)
                 self.mayor.run_cycle(1)
@@ -75,7 +75,7 @@ class DaemonService:
             # Sleep to maintain frequency
             elapsed = time.time() - start_t
             sleep_time = max(0.01, (1.0 / self.frequency_hz) - elapsed)
-            
+
             # Sub-sleep periodically to allow rapid shutdown if stop() is called
             end_t = time.time() + sleep_time
             while time.time() < end_t and self._running:

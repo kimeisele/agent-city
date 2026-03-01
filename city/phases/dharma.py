@@ -55,24 +55,25 @@ def execute(ctx: PhaseContext) -> list[str]:
             candidates = _get_election_candidates(ctx)
             if candidates:
                 result = ctx.council.run_election(
-                    candidates, ctx.heartbeat_count,
+                    candidates,
+                    ctx.heartbeat_count,
                 )
                 if result["elected_mayor"]:
-                    actions.append(
-                        f"election:mayor={result['elected_mayor']}"
-                    )
-                actions.append(
-                    f"election:seats={len(result['council_seats'])}"
-                )
+                    actions.append(f"election:mayor={result['elected_mayor']}")
+                actions.append(f"election:seats={len(result['council_seats'])}")
 
     # Cognition: constraint checking via KnowledgeGraph
     if ctx.knowledge_graph is not None:
         from city.cognition import check_constraints
-        violations = check_constraints("governance_cycle", {
-            "heartbeat": ctx.heartbeat_count,
-            "dead_agents": len(dead),
-            "empty_zones": [z for z, c in zones.items() if c == 0],
-        })
+
+        violations = check_constraints(
+            "governance_cycle",
+            {
+                "heartbeat": ctx.heartbeat_count,
+                "dead_agents": len(dead),
+                "empty_zones": [z for z, c in zones.items() if c == 0],
+            },
+        )
         for v in violations:
             actions.append(f"constraint_violated:{v}")
             logger.warning("DHARMA: Constraint violated — %s", v)
@@ -110,6 +111,7 @@ def _get_election_candidates(ctx: PhaseContext) -> list[dict]:
     # Try to load Guna module for multi-dimensional ranking
     try:
         from vibe_core.mahamantra.substrate.core.guna import Guna, get_guna_by_position
+
         guna_available = True
     except Exception:
         guna_available = False
@@ -137,13 +139,15 @@ def _get_election_candidates(ctx: PhaseContext) -> list[dict]:
             else:
                 rank_score = prana_norm
 
-            candidates.append({
-                "name": c["name"],
-                "prana": cell.prana,
-                "guardian": c["classification"]["guardian"],
-                "position": position,
-                "rank_score": rank_score,
-            })
+            candidates.append(
+                {
+                    "name": c["name"],
+                    "prana": cell.prana,
+                    "guardian": c["classification"]["guardian"],
+                    "position": position,
+                    "rank_score": rank_score,
+                }
+            )
     return candidates
 
 

@@ -28,33 +28,44 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def main() -> None:
     parser = argparse.ArgumentParser(description="Agent City Heartbeat Runner")
     parser.add_argument(
-        "--cycles", type=int, default=4, help="Heartbeat cycles (default: 4)",
+        "--cycles",
+        type=int,
+        default=4,
+        help="Heartbeat cycles (default: 4)",
     )
     parser.add_argument(
-        "--offline", action="store_true", help="Offline mode (no Moltbook API)",
+        "--offline",
+        action="store_true",
+        help="Offline mode (no Moltbook API)",
     )
     from config import get_config
+
     _cfg = get_config()
     parser.add_argument(
-        "--db", type=str,
+        "--db",
+        type=str,
         default=_cfg.get("database", {}).get("default_path", "data/city.db"),
         help="Database path",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
     parser.add_argument(
-        "--governance", action="store_true",
+        "--governance",
+        action="store_true",
         help="Wire Layer 3+4 governance (contracts, executor, issues)",
     )
     parser.add_argument(
-        "--federation", action="store_true",
+        "--federation",
+        action="store_true",
         help="Enable federation with mothership (Layer 6)",
     )
     parser.add_argument(
-        "--federation-dry-run", action="store_true",
+        "--federation-dry-run",
+        action="store_true",
         help="Federation dry-run (log payloads, don't dispatch)",
     )
     parser.add_argument(
-        "--mothership", type=str,
+        "--mothership",
+        type=str,
         default=_cfg.get("federation", {}).get("mothership_repo", "kimeisele/steward-protocol"),
         help="Mothership repo (owner/name)",
     )
@@ -126,18 +137,21 @@ def main() -> None:
             from vibe_core.mahamantra.substrate.sankalpa.will import (
                 SankalpaOrchestrator,
             )
+
             registry.register(SVC_SANKALPA, SankalpaOrchestrator())
         except Exception as e:
             log.warning("Sankalpa init failed: %s", e)
 
         try:
             from vibe_core.protocols.reflection import BasicReflection
+
             registry.register(SVC_REFLECTION, BasicReflection())
         except Exception as e:
             log.warning("Reflection init failed: %s", e)
 
         try:
             from vibe_core.mahamantra.audit.kernel import AuditKernel
+
             registry.register(SVC_AUDIT, AuditKernel())
         except Exception as e:
             log.warning("Audit init failed: %s", e)
@@ -145,21 +159,27 @@ def main() -> None:
     # Layer 6 federation (optional)
     if args.federation or args.federation_dry_run:
         from city.federation import FederationRelay
-        registry.register(SVC_FEDERATION, FederationRelay(
-            _mothership_repo=args.mothership,
-            _dry_run=args.federation_dry_run or not args.federation,
-        ))
+
+        registry.register(
+            SVC_FEDERATION,
+            FederationRelay(
+                _mothership_repo=args.mothership,
+                _dry_run=args.federation_dry_run or not args.federation,
+            ),
+        )
 
     # Federation Nadi — file-based inter-repo message bridge
     try:
         from city.federation_nadi import FederationNadi
+
         fed_nadi_dir = db_path.parent / "federation"
         fed_nadi = FederationNadi(_federation_dir=fed_nadi_dir)
         registry.register(SVC_FEDERATION_NADI, fed_nadi)
         fed_stats = fed_nadi.stats()
         log.info(
             "FederationNadi wired (outbox=%d, inbox=%d)",
-            fed_stats["outbox_on_disk"], fed_stats["inbox_on_disk"],
+            fed_stats["outbox_on_disk"],
+            fed_stats["inbox_on_disk"],
         )
     except Exception as e:
         log.debug("FederationNadi unavailable: %s", e)
@@ -167,11 +187,13 @@ def main() -> None:
     # Hebbian learning (graceful fallback)
     try:
         from city.learning import CityLearning
+
         city_learning = CityLearning(_state_dir=db_path.parent / "synapses")
         if city_learning.available:
             registry.register(SVC_LEARNING, city_learning)
             log.info(
-                "CityLearning wired (%d synapses)", city_learning.stats().get("synapses", 0),
+                "CityLearning wired (%d synapses)",
+                city_learning.stats().get("synapses", 0),
             )
         else:
             log.info("CityLearning wired (null fallback)")
@@ -181,12 +203,14 @@ def main() -> None:
     # Immune system (graceful fallback)
     try:
         from city.immune import CityImmune
+
         _immune_learning = registry.get(SVC_LEARNING)
         city_immune = CityImmune(_learning=_immune_learning)
         if city_immune.available:
             registry.register(SVC_IMMUNE, city_immune)
             log.info(
-                "CityImmune wired (%d remedies)", len(city_immune.list_remedies()),
+                "CityImmune wired (%d remedies)",
+                len(city_immune.list_remedies()),
             )
     except Exception as e:
         log.debug("CityImmune unavailable: %s", e)
@@ -195,6 +219,7 @@ def main() -> None:
     try:
         from vibe_core.naga.services.prahlad.service import PrahladService
         from city.registry import SVC_PRAHLAD
+
         prahlad = PrahladService()
         if registry.has(SVC_COUNCIL):
             prahlad.set_ledger(registry.get(SVC_COUNCIL))
@@ -206,6 +231,7 @@ def main() -> None:
     # Agent Nadi (graceful fallback)
     try:
         from city.agent_nadi import AgentNadiManager
+
         agent_nadi = AgentNadiManager()
         if agent_nadi.available:
             registry.register(SVC_AGENT_NADI, agent_nadi)
@@ -216,6 +242,7 @@ def main() -> None:
     # Nadi messaging (graceful fallback)
     try:
         from city.nadi_hub import CityNadi
+
         city_nadi = CityNadi()
         registry.register(SVC_CITY_NADI, city_nadi)
         if city_nadi.available:
@@ -228,6 +255,7 @@ def main() -> None:
     # Cognition layer (graceful fallback)
     try:
         from city.cognition import get_city_bus, get_city_knowledge
+
         kg = get_city_knowledge()
         if kg is not None:
             registry.register(SVC_KNOWLEDGE_GRAPH, kg)
@@ -252,10 +280,12 @@ def main() -> None:
     # Wire MoltbookClient for DM pipeline (online mode only)
     if not args.offline:
         import os
+
         api_key = os.environ.get("MOLTBOOK_API_KEY", "")
         if api_key:
             try:
                 from vibe_core.mahamantra.adapters.moltbook import MoltbookClient
+
                 mayor._moltbook_client = MoltbookClient(api_key=api_key)
                 log.info("Moltbook DM pipeline wired")
             except Exception as e:
@@ -296,6 +326,7 @@ def main() -> None:
     # Persist bridge state
     if mayor._moltbook_bridge is not None:
         import json as _json
+
         _bridge_state_path = db_path.parent / "bridge_state.json"
         try:
             _bridge_state_path.write_text(

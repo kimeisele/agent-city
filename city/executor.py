@@ -57,12 +57,14 @@ def _extract_rule_id(detail: str) -> str | None:
 def _extract_file_path(detail: str) -> Path | None:
     """Try to extract a .py file path from an audit detail string."""
     import re
-    match = re.search(r'([\w/.]+\.py)', detail)
+
+    match = re.search(r"([\w/.]+\.py)", detail)
     if match:
         candidate = Path(match.group(1))
         if candidate.exists():
             return candidate
     return None
+
 
 # Git identity — sourced from config/city.yaml
 _exec_cfg = get_config().get("executor", {})
@@ -145,11 +147,17 @@ class IntentExecutor:
         try:
             subprocess.run(
                 [
-                    "python", "-m", "ruff", "check",
-                    "--fix", "--select", "F821,F811",
+                    "python",
+                    "-m",
+                    "ruff",
+                    "check",
+                    "--fix",
+                    "--select",
+                    "F821,F811",
                     str(self._cwd),
                 ],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=_exec_cfg.get("ruff_timeout_s", 60),
             )
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
@@ -164,11 +172,16 @@ class IntentExecutor:
         try:
             recheck = subprocess.run(
                 [
-                    "python", "-m", "ruff", "check",
-                    "--select", "F821,F811",
+                    "python",
+                    "-m",
+                    "ruff",
+                    "check",
+                    "--select",
+                    "F821,F811",
                     str(self._cwd),
                 ],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=_exec_cfg.get("ruff_timeout_s", 60),
             )
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
@@ -208,6 +221,7 @@ class IntentExecutor:
         if self._dry_run:
             try:
                 from vibe_core.mahamantra.dharma.kumaras.healing_intent import get_cellular_healer
+
                 healer = get_cellular_healer()
                 return FixResult(
                     contract_name="audit_clean",
@@ -221,6 +235,7 @@ class IntentExecutor:
 
         try:
             from vibe_core.mahamantra.dharma.kumaras.healing_intent import get_cellular_healer
+
             healer = get_cellular_healer()
         except Exception as e:
             logger.warning("CellularHealer unavailable: %s", e)
@@ -236,14 +251,19 @@ class IntentExecutor:
                 if file_path is not None:
                     try:
                         results = healer.heal_file(
-                            file_path, rule_id, dry_run=False,
+                            file_path,
+                            rule_id,
+                            dry_run=False,
                         )
                         for r in results:
                             if r.success:
                                 healed_files.append(str(file_path))
                     except Exception as e:
                         logger.warning(
-                            "Heal %s (%s) failed: %s", file_path, rule_id, e,
+                            "Heal %s (%s) failed: %s",
+                            file_path,
+                            rule_id,
+                            e,
                         )
 
         if healed_files:
@@ -263,7 +283,9 @@ class IntentExecutor:
         """Cannot auto-fix — log and return escalation."""
         detail_summary = "; ".join(details[:5]) if details else "no details"
         logger.warning(
-            "ESCALATE %s: cannot auto-fix (%s)", contract_name, detail_summary,
+            "ESCALATE %s: cannot auto-fix (%s)",
+            contract_name,
+            detail_summary,
         )
         return FixResult(
             contract_name=contract_name,
@@ -315,11 +337,17 @@ class IntentExecutor:
                 )
 
             # 4. Commit
-            commit_result = self._run_git([
-                "-c", f"user.name={GIT_AUTHOR_NAME}",
-                "-c", f"user.email={GIT_AUTHOR_EMAIL}",
-                "commit", "-m", commit_msg,
-            ])
+            commit_result = self._run_git(
+                [
+                    "-c",
+                    f"user.name={GIT_AUTHOR_NAME}",
+                    "-c",
+                    f"user.email={GIT_AUTHOR_EMAIL}",
+                    "commit",
+                    "-m",
+                    commit_msg,
+                ]
+            )
             # Extract commit hash
             commit_hash = ""
             if commit_result.stdout:
@@ -342,11 +370,16 @@ class IntentExecutor:
             )
             pr_result = subprocess.run(
                 [
-                    "gh", "pr", "create",
-                    "--title", commit_msg,
-                    "--body", pr_body,
+                    "gh",
+                    "pr",
+                    "create",
+                    "--title",
+                    commit_msg,
+                    "--body",
+                    pr_body,
                 ],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=_exec_cfg.get("subprocess_timeout_s", 30),
                 cwd=str(self._cwd),
             )

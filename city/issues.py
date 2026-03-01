@@ -32,6 +32,7 @@ LOW_PRANA_THRESHOLD: int = _issues_cfg.get("low_prana_threshold", 1000)
 # Ashrama lifecycle — graceful fallback if steward-protocol module unavailable
 try:
     from vibe_core.plugins.vedic_governance.ashrama import Ashrama
+
     _ASHRAMA_AVAILABLE = True
 except Exception:
     _ASHRAMA_AVAILABLE = False
@@ -81,7 +82,8 @@ def _gh_run(args: list[str]) -> str | None:
     try:
         result = subprocess.run(
             ["gh"] + args,
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
             timeout=get_config().get("issues", {}).get("gh_timeout_s", 30),
         )
         if result.returncode != 0:
@@ -145,7 +147,9 @@ class CityIssueManager:
 
         logger.info(
             "Created issue #%d (%s) with MahaCell (prana=%d)",
-            issue_number, issue_type.value, cell.prana,
+            issue_number,
+            issue_type.value,
+            cell.prana,
         )
         return {
             "number": issue_number,
@@ -182,11 +186,18 @@ class CityIssueManager:
         actions: list[str] = []
 
         # Get open issues
-        out = _gh_run([
-            "issue", "list", "--state", "open",
-            "--json", "number,title,updatedAt,comments",
-            "--limit", str(get_config().get("issues", {}).get("list_limit", 100)),
-        ])
+        out = _gh_run(
+            [
+                "issue",
+                "list",
+                "--state",
+                "open",
+                "--json",
+                "number,title,updatedAt,comments",
+                "--limit",
+                str(get_config().get("issues", {}).get("list_limit", 100)),
+            ]
+        )
         if not out:
             return actions
 
@@ -224,10 +235,15 @@ class CityIssueManager:
             if ashrama == "sannyasa":
                 # SANNYASA: dead cell → auto-close regardless of type
                 if issue_type == IssueType.EPHEMERAL:
-                    close_result = _gh_run([
-                        "issue", "close", str(number),
-                        "--comment", "Auto-closed: issue cell prana exhausted (no activity).",
-                    ])
+                    close_result = _gh_run(
+                        [
+                            "issue",
+                            "close",
+                            str(number),
+                            "--comment",
+                            "Auto-closed: issue cell prana exhausted (no activity).",
+                        ]
+                    )
                     if close_result is not None:
                         actions.append(f"closed:#{number}:prana_exhaustion")
                         logger.info("Auto-closed issue #%d (prana exhausted)", number)
@@ -253,10 +269,15 @@ class CityIssueManager:
                 # GRIHASTHA or no Ashrama: original type-based logic
                 if issue_type == IssueType.EPHEMERAL:
                     if not cell.is_alive:
-                        close_result = _gh_run([
-                            "issue", "close", str(number),
-                            "--comment", "Auto-closed: issue cell prana exhausted (no activity).",
-                        ])
+                        close_result = _gh_run(
+                            [
+                                "issue",
+                                "close",
+                                str(number),
+                                "--comment",
+                                "Auto-closed: issue cell prana exhausted (no activity).",
+                            ]
+                        )
                         if close_result is not None:
                             actions.append(f"closed:#{number}:prana_exhaustion")
                             logger.info("Auto-closed issue #%d (prana exhausted)", number)
