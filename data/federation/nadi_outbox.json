@@ -15,5 +15,22 @@
     "correlation_id": "",
     "timestamp": 1772383416.125055,
     "ttl_s": 900.0
+  },
+  {
+    "source": "moksha",
+    "target": "steward-protocol",
+    "operation": "city_report",
+    "payload": {
+      "heartbeat": 159,
+      "population": 0,
+      "alive": 0,
+      "chain_valid": true,
+      "pr_results": [],
+      "mission_results": []
+    },
+    "priority": 2,
+    "correlation_id": "",
+    "timestamp": 1772384177.5411196,
+    "ttl_s": 900.0
   }
 ]
