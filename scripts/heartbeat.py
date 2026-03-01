@@ -176,6 +176,18 @@ def main() -> None:
     except Exception as e:
         log.debug("CityImmune unavailable: %s", e)
 
+    # Hardening & Resilience (Layer 8)
+    try:
+        from vibe_core.naga.services.prahlad.service import PrahladService
+        from city.registry import SVC_PRAHLAD
+        prahlad = PrahladService()
+        if registry.has(SVC_COUNCIL):
+            prahlad.set_ledger(registry.get(SVC_COUNCIL))
+        registry.register(SVC_PRAHLAD, prahlad)
+        log.info("PrahladService wired (Resilience)")
+    except Exception as e:
+        log.debug("PrahladService unavailable: %s", e)
+
     # Agent Nadi (graceful fallback)
     try:
         from city.agent_nadi import AgentNadiManager

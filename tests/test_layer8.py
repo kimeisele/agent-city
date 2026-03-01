@@ -30,6 +30,14 @@ def test_prahlad_survives_hiranyakashipu():
     # The System
     registry = CityServiceRegistry()
     
+    # Layer 8 Boot (Simulating heartbeat.py wiring)
+    try:
+        from vibe_core.naga.services.prahlad.service import PrahladService
+        prahlad = PrahladService()
+        registry.register("prahlad", prahlad)
+    except ImportError:
+        pass
+    
     # Prahlad (The Defender) should be registered to absorb this
     assert registry.has("prahlad"), "Diamond Protocol RED: Prahlad is not protecting the system"
 
