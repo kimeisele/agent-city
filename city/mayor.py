@@ -26,15 +26,29 @@ from typing import TypedDict
 
 from vibe_core.mahamantra.protocols import QUARTERS
 
-from city.contracts import ContractRegistry
-from city.council import CityCouncil
-from city.executor import IntentExecutor
-from city.federation import FederationRelay
 from city.gateway import CityGateway
-from city.issues import CityIssueManager
 from city.network import CityNetwork
 from city.phases import PhaseContext
 from city.pokedex import Pokedex
+from city.registry import (
+    SVC_AGENT_NADI,
+    SVC_AUDIT,
+    SVC_CITY_NADI,
+    SVC_CONTRACTS,
+    SVC_COUNCIL,
+    SVC_EVENT_BUS,
+    SVC_EXECUTOR,
+    SVC_FEDERATION,
+    SVC_IMMUNE,
+    SVC_ISSUES,
+    SVC_KNOWLEDGE_GRAPH,
+    SVC_LEARNING,
+    SVC_MOLTBOOK_BRIDGE,
+    SVC_MOLTBOOK_CLIENT,
+    SVC_REFLECTION,
+    SVC_SANKALPA,
+    CityServiceRegistry,
+)
 from config import get_config
 
 logger = logging.getLogger("AGENT_CITY.MAYOR")
@@ -99,49 +113,53 @@ class Mayor:
     _active_agents: set[str] = field(default_factory=set)
     _gateway_queue: list[dict] = field(default_factory=list)
 
-    # Layer 3 governance wiring (all optional for backward compatibility)
-    _contracts: ContractRegistry | None = None
-    _issues: CityIssueManager | None = None
-    _sankalpa: object = None  # SankalpaOrchestrator (steward-protocol)
-    _audit: object = None  # AuditKernel (steward-protocol)
-    _reflection: object = None  # BasicReflection (steward-protocol)
+    # Service registry (preferred wiring path)
+    _registry: CityServiceRegistry = field(default_factory=CityServiceRegistry)
 
-    # Layer 4 action delegation (optional for backward compatibility)
-    _executor: IntentExecutor | None = None
-
-    # Layer 5 democratic governance (optional for backward compatibility)
-    _council: CityCouncil | None = None
-
-    # Layer 6 federation (optional for backward compatibility)
-    _federation: FederationRelay | None = None
-
-    # Layer 6 Moltbook bridge (m/agent-city submolt communication)
-    _moltbook_bridge: object = None  # MoltbookBridge (city.moltbook_bridge)
-
-    # Layer 7 Moltbook inbox (optional for backward compatibility)
-    _moltbook_client: object = None  # MoltbookClient (steward-protocol)
-
-    # Nadi messaging (replaces gateway_queue for structured messaging)
-    _city_nadi: object = None  # CityNadi (city.nadi_hub)
-
-    # Cognition layer (steward-protocol KnowledgeGraph + EventBus)
-    _knowledge_graph: object = None  # UnifiedKnowledgeGraph
-    _event_bus: object = None  # EventBus (Narada)
-
-    # Hebbian learning (cross-session memory)
-    _learning: object = None  # CityLearning (city.learning)
-
-    # Agent Nadi (inter-agent messaging)
-    _agent_nadi: object = None  # AgentNadiManager (city.agent_nadi)
-
-    # Immune system (ShuddhiEngine + Hebbian healing)
-    _immune: object = None  # CityImmune (city.immune)
+    # Legacy service fields (backward compat — prefer _registry)
+    _contracts: object = None
+    _issues: object = None
+    _sankalpa: object = None
+    _audit: object = None
+    _reflection: object = None
+    _executor: object = None
+    _council: object = None
+    _federation: object = None
+    _moltbook_bridge: object = None
+    _moltbook_client: object = None
+    _city_nadi: object = None
+    _knowledge_graph: object = None
+    _event_bus: object = None
+    _learning: object = None
+    _agent_nadi: object = None
+    _immune: object = None
 
     # Internal state
     _last_audit_time: float = field(default=0.0)
     _recent_events: list = field(default_factory=list)
 
+    # Legacy field → registry name mapping
+    _LEGACY_FIELD_MAP: dict[str, str] = field(default_factory=dict, repr=False, init=False)
+
     def __post_init__(self) -> None:
+        # Migrate legacy kwargs into registry (backward compat)
+        _field_to_svc = {
+            "_contracts": SVC_CONTRACTS, "_issues": SVC_ISSUES,
+            "_sankalpa": SVC_SANKALPA, "_audit": SVC_AUDIT,
+            "_reflection": SVC_REFLECTION, "_executor": SVC_EXECUTOR,
+            "_council": SVC_COUNCIL, "_federation": SVC_FEDERATION,
+            "_moltbook_bridge": SVC_MOLTBOOK_BRIDGE,
+            "_moltbook_client": SVC_MOLTBOOK_CLIENT,
+            "_city_nadi": SVC_CITY_NADI,
+            "_knowledge_graph": SVC_KNOWLEDGE_GRAPH,
+            "_event_bus": SVC_EVENT_BUS, "_learning": SVC_LEARNING,
+            "_agent_nadi": SVC_AGENT_NADI, "_immune": SVC_IMMUNE,
+        }
+        for field_name, svc_name in _field_to_svc.items():
+            val = getattr(self, field_name, None)
+            if val is not None and not self._registry.has(svc_name):
+                self._registry.register(svc_name, val)
+
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._load_state()
         self._wire_event_handlers()
@@ -150,6 +168,24 @@ class Mayor:
 
     def _build_ctx(self) -> PhaseContext:
         """Build PhaseContext from current Mayor state."""
+        # Sync any post-init field mutations into registry
+        _field_to_svc = {
+            "_contracts": SVC_CONTRACTS, "_issues": SVC_ISSUES,
+            "_sankalpa": SVC_SANKALPA, "_audit": SVC_AUDIT,
+            "_reflection": SVC_REFLECTION, "_executor": SVC_EXECUTOR,
+            "_council": SVC_COUNCIL, "_federation": SVC_FEDERATION,
+            "_moltbook_bridge": SVC_MOLTBOOK_BRIDGE,
+            "_moltbook_client": SVC_MOLTBOOK_CLIENT,
+            "_city_nadi": SVC_CITY_NADI,
+            "_knowledge_graph": SVC_KNOWLEDGE_GRAPH,
+            "_event_bus": SVC_EVENT_BUS, "_learning": SVC_LEARNING,
+            "_agent_nadi": SVC_AGENT_NADI, "_immune": SVC_IMMUNE,
+        }
+        for field_name, svc_name in _field_to_svc.items():
+            val = getattr(self, field_name, None)
+            if val is not None and not self._registry.has(svc_name):
+                self._registry.register(svc_name, val)
+
         return PhaseContext(
             pokedex=self._pokedex,
             gateway=self._gateway,
@@ -159,22 +195,7 @@ class Mayor:
             state_path=self._state_path,
             active_agents=self._active_agents,
             gateway_queue=self._gateway_queue,
-            contracts=self._contracts,
-            issues=self._issues,
-            sankalpa=self._sankalpa,
-            audit=self._audit,
-            reflection=self._reflection,
-            executor=self._executor,
-            council=self._council,
-            federation=self._federation,
-            moltbook_bridge=self._moltbook_bridge,
-            moltbook_client=self._moltbook_client,
-            city_nadi=self._city_nadi,
-            knowledge_graph=self._knowledge_graph,
-            event_bus=self._event_bus,
-            learning=self._learning,
-            agent_nadi=self._agent_nadi,
-            immune=self._immune,
+            registry=self._registry,
             last_audit_time=self._last_audit_time,
             recent_events=self._recent_events,
         )
@@ -221,7 +242,7 @@ class Mayor:
         ctx = self._build_ctx()
 
         # Cognition: emit phase transition event
-        if self._event_bus is not None:
+        if self._registry.get(SVC_EVENT_BUS) is not None:
             from city.cognition import emit_event
             emit_event(
                 "PHASE_TRANSITION", "mayor",
@@ -263,7 +284,8 @@ class Mayor:
 
     def _record_execution(self, department: str, duration_ms: float) -> None:
         """Record a heartbeat execution via Reflection protocol."""
-        if self._reflection is None:
+        reflection = self._registry.get(SVC_REFLECTION)
+        if reflection is None:
             return
 
         from vibe_core.protocols.reflection import ExecutionRecord
@@ -273,7 +295,7 @@ class Mayor:
             success=True,
             duration_ms=duration_ms,
         )
-        self._reflection.record_execution(record)
+        reflection.record_execution(record)
 
     # ── Event Handlers ────────────────────────────────────────────────
 

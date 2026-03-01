@@ -68,11 +68,30 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
+    log = logging.getLogger("HEARTBEAT")
+
     from vibe_core.cartridges.system.civic.tools.economy import CivicBank
 
     from city.gateway import CityGateway
     from city.network import CityNetwork
     from city.pokedex import Pokedex
+    from city.registry import (
+        SVC_AGENT_NADI,
+        SVC_AUDIT,
+        SVC_CITY_NADI,
+        SVC_CONTRACTS,
+        SVC_COUNCIL,
+        SVC_EVENT_BUS,
+        SVC_EXECUTOR,
+        SVC_FEDERATION,
+        SVC_IMMUNE,
+        SVC_ISSUES,
+        SVC_KNOWLEDGE_GRAPH,
+        SVC_LEARNING,
+        SVC_REFLECTION,
+        SVC_SANKALPA,
+        CityServiceRegistry,
+    )
 
     # Boot city infrastructure
     db_path = Path(args.db)
@@ -83,134 +102,124 @@ def main() -> None:
     gateway = CityGateway()
     network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
 
-    from city.mayor import Mayor
+    # ── Service Registry ──────────────────────────────────────────
+    registry = CityServiceRegistry()
 
-    # Layer 3+4 governance wiring (optional)
-    governance_kwargs: dict = {}
+    # Layer 3+4 governance (optional)
     if args.governance:
         from city.contracts import create_default_contracts
         from city.council import CityCouncil
         from city.executor import IntentExecutor
         from city.issues import CityIssueManager
 
-        governance_kwargs["_contracts"] = create_default_contracts()
-        governance_kwargs["_executor"] = IntentExecutor(_cwd=Path.cwd())
-        governance_kwargs["_issues"] = CityIssueManager()
+        registry.register(SVC_CONTRACTS, create_default_contracts())
+        registry.register(SVC_EXECUTOR, IntentExecutor(_cwd=Path.cwd()))
+        registry.register(SVC_ISSUES, CityIssueManager())
 
         # Council with persistence (survives restarts)
         council_state_path = db_path.parent / "council_state.json"
-        governance_kwargs["_council"] = CityCouncil(_state_path=council_state_path)
+        registry.register(SVC_COUNCIL, CityCouncil(_state_path=council_state_path))
 
         # Layer 3: Sankalpa + Reflection + Audit
         try:
             from vibe_core.mahamantra.substrate.sankalpa.will import (
                 SankalpaOrchestrator,
             )
-            governance_kwargs["_sankalpa"] = SankalpaOrchestrator()
+            registry.register(SVC_SANKALPA, SankalpaOrchestrator())
         except Exception as e:
-            logging.getLogger("HEARTBEAT").warning("Sankalpa init failed: %s", e)
+            log.warning("Sankalpa init failed: %s", e)
 
         try:
             from vibe_core.protocols.reflection import BasicReflection
-            governance_kwargs["_reflection"] = BasicReflection()
+            registry.register(SVC_REFLECTION, BasicReflection())
         except Exception as e:
-            logging.getLogger("HEARTBEAT").warning("Reflection init failed: %s", e)
+            log.warning("Reflection init failed: %s", e)
 
         try:
             from vibe_core.mahamantra.audit.kernel import AuditKernel
-            governance_kwargs["_audit"] = AuditKernel()
+            registry.register(SVC_AUDIT, AuditKernel())
         except Exception as e:
-            logging.getLogger("HEARTBEAT").warning("Audit init failed: %s", e)
+            log.warning("Audit init failed: %s", e)
 
-    # Layer 6 federation wiring (optional)
+    # Layer 6 federation (optional)
     if args.federation or args.federation_dry_run:
         from city.federation import FederationRelay
-        governance_kwargs["_federation"] = FederationRelay(
+        registry.register(SVC_FEDERATION, FederationRelay(
             _mothership_repo=args.mothership,
             _dry_run=args.federation_dry_run or not args.federation,
-        )
+        ))
 
-    # Hebbian learning: cross-session memory (graceful fallback)
-    learning_kwargs: dict = {}
+    # Hebbian learning (graceful fallback)
     try:
         from city.learning import CityLearning
         city_learning = CityLearning(_state_dir=db_path.parent / "synapses")
         if city_learning.available:
-            learning_kwargs["_learning"] = city_learning
-            logging.getLogger("HEARTBEAT").info(
+            registry.register(SVC_LEARNING, city_learning)
+            log.info(
                 "CityLearning wired (%d synapses)", city_learning.stats().get("synapses", 0),
             )
         else:
-            logging.getLogger("HEARTBEAT").info("CityLearning wired (null fallback)")
+            log.info("CityLearning wired (null fallback)")
     except Exception as e:
-        logging.getLogger("HEARTBEAT").debug("CityLearning unavailable: %s", e)
+        log.debug("CityLearning unavailable: %s", e)
 
-    # Immune system: ShuddhiEngine + Hebbian healing (graceful fallback)
-    immune_kwargs: dict = {}
+    # Immune system (graceful fallback)
     try:
         from city.immune import CityImmune
-        # Wire learning for Hebbian-informed healing if available
-        _immune_learning = learning_kwargs.get("_learning")
+        _immune_learning = registry.get(SVC_LEARNING)
         city_immune = CityImmune(_learning=_immune_learning)
         if city_immune.available:
-            immune_kwargs["_immune"] = city_immune
-            logging.getLogger("HEARTBEAT").info(
+            registry.register(SVC_IMMUNE, city_immune)
+            log.info(
                 "CityImmune wired (%d remedies)", len(city_immune.list_remedies()),
             )
     except Exception as e:
-        logging.getLogger("HEARTBEAT").debug("CityImmune unavailable: %s", e)
+        log.debug("CityImmune unavailable: %s", e)
 
-    # Agent Nadi: inter-agent messaging (graceful fallback)
-    agent_nadi_kwargs: dict = {}
+    # Agent Nadi (graceful fallback)
     try:
         from city.agent_nadi import AgentNadiManager
         agent_nadi = AgentNadiManager()
         if agent_nadi.available:
-            agent_nadi_kwargs["_agent_nadi"] = agent_nadi
-            logging.getLogger("HEARTBEAT").info("AgentNadiManager wired")
+            registry.register(SVC_AGENT_NADI, agent_nadi)
+            log.info("AgentNadiManager wired")
     except Exception as e:
-        logging.getLogger("HEARTBEAT").debug("AgentNadiManager unavailable: %s", e)
+        log.debug("AgentNadiManager unavailable: %s", e)
 
-    # Nadi messaging: structured gateway queue (graceful fallback)
-    nadi_kwargs: dict = {}
+    # Nadi messaging (graceful fallback)
     try:
         from city.nadi_hub import CityNadi
         city_nadi = CityNadi()
+        registry.register(SVC_CITY_NADI, city_nadi)
         if city_nadi.available:
-            nadi_kwargs["_city_nadi"] = city_nadi
-            logging.getLogger("HEARTBEAT").info("CityNadi wired (LocalNadi)")
+            log.info("CityNadi wired (LocalNadi)")
         else:
-            nadi_kwargs["_city_nadi"] = city_nadi
-            logging.getLogger("HEARTBEAT").info("CityNadi wired (NullNadi fallback)")
+            log.info("CityNadi wired (NullNadi fallback)")
     except Exception as e:
-        logging.getLogger("HEARTBEAT").debug("CityNadi unavailable: %s", e)
+        log.debug("CityNadi unavailable: %s", e)
 
-    # Cognition layer: KnowledgeGraph + EventBus (graceful fallback)
-    cognition_kwargs: dict = {}
+    # Cognition layer (graceful fallback)
     try:
         from city.cognition import get_city_bus, get_city_knowledge
         kg = get_city_knowledge()
         if kg is not None:
-            cognition_kwargs["_knowledge_graph"] = kg
-            logging.getLogger("HEARTBEAT").info("KnowledgeGraph wired")
+            registry.register(SVC_KNOWLEDGE_GRAPH, kg)
+            log.info("KnowledgeGraph wired")
         bus = get_city_bus()
         if bus is not None:
-            cognition_kwargs["_event_bus"] = bus
-            logging.getLogger("HEARTBEAT").info("EventBus wired")
+            registry.register(SVC_EVENT_BUS, bus)
+            log.info("EventBus wired")
     except Exception as e:
-        logging.getLogger("HEARTBEAT").debug("Cognition layer unavailable: %s", e)
+        log.debug("Cognition layer unavailable: %s", e)
+
+    from city.mayor import Mayor
 
     mayor = Mayor(
         _pokedex=pokedex,
         _gateway=gateway,
         _network=network,
+        _registry=registry,
         _offline_mode=args.offline,
-        **governance_kwargs,
-        **learning_kwargs,
-        **immune_kwargs,
-        **agent_nadi_kwargs,
-        **nadi_kwargs,
-        **cognition_kwargs,
     )
 
     # Wire MoltbookClient for DM pipeline (online mode only)
@@ -221,9 +230,9 @@ def main() -> None:
             try:
                 from vibe_core.mahamantra.adapters.moltbook import MoltbookClient
                 mayor._moltbook_client = MoltbookClient(api_key=api_key)
-                logging.getLogger("HEARTBEAT").info("Moltbook DM pipeline wired")
+                log.info("Moltbook DM pipeline wired")
             except Exception as e:
-                logging.getLogger("HEARTBEAT").warning("MoltbookClient init failed: %s", e)
+                log.warning("MoltbookClient init failed: %s", e)
 
     # Wire Moltbook bridge for m/agent-city communication
     if mayor._moltbook_client is not None:
@@ -245,13 +254,14 @@ def main() -> None:
                 except Exception:
                     pass
             mayor._moltbook_bridge = bridge
-            logging.getLogger("HEARTBEAT").info("Moltbook bridge wired for m/agent-city")
+            log.info("Moltbook bridge wired for m/agent-city")
         except Exception as e:
-            logging.getLogger("HEARTBEAT").warning("Moltbook bridge init failed: %s", e)
+            log.warning("Moltbook bridge init failed: %s", e)
 
     print(f"=== Agent City Heartbeat — {args.cycles} cycles ===")
     if args.offline:
         print("Mode: OFFLINE (no Moltbook API)")
+    print(f"Registry: {len(registry.names())} services wired")
     print()
 
     results = mayor.run_cycle(args.cycles)
@@ -265,7 +275,7 @@ def main() -> None:
                 _json.dumps(mayor._moltbook_bridge.snapshot(), indent=2),
             )
         except Exception as e:
-            logging.getLogger("HEARTBEAT").warning("Bridge state save failed: %s", e)
+            log.warning("Bridge state save failed: %s", e)
 
     for r in results:
         dept = r["department"]
