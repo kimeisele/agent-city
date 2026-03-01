@@ -4,7 +4,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 # Ensure imports work
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
@@ -18,8 +18,6 @@ def _make_ctx(tmp, **kwargs):
     from city.gateway import CityGateway
     from city.network import CityNetwork
     from city.pokedex import Pokedex
-    from city.registry import CityServiceRegistry
-
     bank = CivicBank(db_path=str(tmp / "economy.db"))
     pdx = Pokedex(db_path=str(tmp / "city.db"), bank=bank)
     gw = CityGateway()

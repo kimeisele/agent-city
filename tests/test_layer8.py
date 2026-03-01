@@ -1,4 +1,4 @@
-"""Layer 8 Tests — Autonomous System Verification & Chaos Engineering.
+"""Layer 8 Tests — The 8th Dimension (Steward-Protocol Arsenal & Chaos Engineering).
 
 Linked to GitHub Issue #15.
 """
@@ -63,5 +63,17 @@ def test_daemon_heartbeat_frequency():
         assert mayor._heartbeat_count >= 1
     finally:
         shutil.rmtree(tmp)
+
+
+def test_arsenal_gateway_integration():
+    """RED TEST: The city gateway must integrate with the Steward Protocol Arsenal."""
+    import pytest
+    pytest.fail("Diamond Protocol RED: Arsenal integration is not yet implemented.")
+
+
+def test_8th_dimension_telemetry():
+    """RED TEST: Cross-dimension telemetry between agent-city and steward routing."""
+    import pytest
+    pytest.fail("Diamond Protocol RED: 8th Dimension telemetry missing.")
 
 
