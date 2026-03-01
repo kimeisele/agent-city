@@ -188,6 +188,21 @@ class Pokedex:
             cur.execute("ALTER TABLE agents ADD COLUMN gpg_email TEXT")
             self._conn.commit()
 
+        # ToolOperator registry — CLI agents, bots, webhooks (no Jiva, no Cell)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS operators (
+                name TEXT PRIMARY KEY,
+                operator_type TEXT NOT NULL,
+                access_class TEXT NOT NULL DEFAULT 'observer'
+                    CHECK(access_class IN ('observer','operator','steward','sovereign')),
+                fingerprint TEXT NOT NULL,
+                registered_by TEXT NOT NULL,
+                registered_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        self._conn.commit()
+
     # ── Public API ────────────────────────────────────────────────────
 
     def discover(self, name: str, moltbook_profile: dict | None = None) -> dict:
@@ -521,6 +536,108 @@ class Pokedex:
                 )
         self._conn.commit()
         return dead
+
+    # ── ToolOperator API ─────────────────────────────────────────────
+
+    def register_operator(
+        self,
+        name: str,
+        operator_type: str,
+        access_class: str,
+        registered_by: str,
+    ) -> dict:
+        """Register a non-autonomous operator (CLI agent, bot, webhook).
+
+        No Jiva, no MahaCell, no ECDSA key. Fingerprint is trace-only.
+        Idempotent: returns existing record if name already registered.
+        """
+        existing = self.get_operator(name)
+        if existing:
+            return existing
+
+        now = datetime.now(timezone.utc).isoformat()
+        fingerprint = hashlib.sha256(
+            f"{name}|{operator_type}|{registered_by}|{now}".encode()
+        ).hexdigest()[:16]
+
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("""
+                INSERT INTO operators (
+                    name, operator_type, access_class, fingerprint,
+                    registered_by, registered_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (name, operator_type, access_class, fingerprint,
+                  registered_by, now, now))
+            self._record_event(
+                name, "register_operator", None, access_class,
+                json.dumps({"operator_type": operator_type, "registered_by": registered_by}),
+            )
+            self._conn.commit()
+
+        return self.get_operator(name)
+
+    def get_operator(self, name: str) -> dict | None:
+        """Look up an operator by name. O(1) via PRIMARY KEY."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT * FROM operators WHERE name = ?", (name,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+    def list_operators(self) -> list[dict]:
+        """List all registered operators."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT * FROM operators ORDER BY name")
+        return [dict(r) for r in cur.fetchall()]
+
+    def check_operator_access(self, name: str, action: str) -> bool:
+        """Check if an operator has access for a given action.
+
+        Actions: 'write', 'modify_protected'.
+        Returns False for unknown operators.
+        """
+        from city.access import AccessClass
+
+        op = self.get_operator(name)
+        if op is None:
+            return False
+
+        try:
+            ac = AccessClass(op["access_class"])
+        except ValueError:
+            return False
+
+        if action == "write":
+            return ac.can_write
+        if action == "modify_protected":
+            return ac.can_modify_protected
+        return False
+
+    def update_operator_access(
+        self, name: str, new_access_class: str, reason: str = "manual",
+    ) -> dict | None:
+        """Update an operator's access class. Records event in ledger."""
+        op = self.get_operator(name)
+        if op is None:
+            raise ValueError(f"Operator '{name}' not found")
+
+        old_class = op["access_class"]
+        now = datetime.now(timezone.utc).isoformat()
+
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "UPDATE operators SET access_class = ?, updated_at = ? WHERE name = ?",
+                (new_access_class, now, name),
+            )
+            self._record_event(
+                name, "access_change", old_class, new_access_class, reason,
+            )
+            self._conn.commit()
+
+        return self.get_operator(name)
 
     # ── Internal ──────────────────────────────────────────────────────
 
