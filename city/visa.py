@@ -11,7 +11,11 @@ Visa classes determine an agent's legal status and permissions in Agent City:
 
 Each visa records its sponsor's visa_id, forming a Parampara (lineage chain):
 - sponsor_visa_id: cryptographic link to the sponsor's visa document
-- lineage_depth: 0 = Mahajan (founding agent), N = N hops from root
+- lineage_depth: 0 = City Genesis (founding document), 1 = Mahajan, N = N hops
+
+The chain is never broken — there is always a personal source (not Mayavad).
+The ONLY document with sponsor_visa_id=None is the City Genesis visa.
+All Mahajans link to it. All agents link to their Mahajan. The seed stays.
 
 This lets Agent City trace agent lineage like epidemiological contact tracing —
 even when identity cannot be 100% verified, the chain of vouching is auditable.
@@ -129,7 +133,9 @@ class Visa:
     Forms a Parampara (lineage chain) via sponsor_visa_id:
       agent.visa → sponsor.visa → sponsor's sponsor.visa → ... → mahajan.visa
 
-    Mahajan = founding agent, lineage_depth=0, sponsor_visa_id=None.
+    City Genesis = depth=0, sponsor_visa_id=None (the one true root).
+    Mahajan = depth=1, linked to City Genesis.
+    All others = depth N, linked to their sponsor.
     """
 
     agent_name: str

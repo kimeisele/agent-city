@@ -705,21 +705,29 @@ class TestImmigrationIntegration:
 class TestParampara:
     """Parampara = lineage chain from agent back to Mahajan (founding agent)."""
 
-    def test_mahajan_has_depth_zero(self):
-        """Founding agents are Mahajan with lineage_depth=0."""
+    def test_city_genesis_is_the_only_true_root(self):
+        """City Genesis is depth=0 and the only document with sponsor_visa_id=None."""
+        service = ImmigrationService()
+
+        genesis = service._genesis_visa
+        assert genesis.lineage_depth == 0
+        assert genesis.sponsor_visa_id is None
+        assert genesis.agent_name == "city_genesis"
+
+    def test_mahajan_has_depth_one_linked_to_genesis(self):
+        """Mahajans are depth=1 — linked to City Genesis, never floating free."""
         service = ImmigrationService()
         mahajan_visa = service.register_mahajan("krishna_bot")
 
-        assert mahajan_visa.lineage_depth == 0
-        assert mahajan_visa.sponsor_visa_id is None
-        assert mahajan_visa.sponsor == "genesis"
+        assert mahajan_visa.lineage_depth == 1
+        assert mahajan_visa.sponsor_visa_id == service._genesis_visa.visa_id
+        assert mahajan_visa.sponsor == "city_genesis"
 
-    def test_direct_invite_has_depth_one(self):
-        """Agent invited by Mahajan has lineage_depth=1."""
+    def test_direct_invite_has_depth_two(self):
+        """Agent invited by Mahajan has lineage_depth=2 (genesis=0, mahajan=1, agent=2)."""
         service = ImmigrationService()
         mahajan = service.register_mahajan("krishna_bot")
 
-        # Invite a new agent directly through the application process
         app = service.submit_application(
             agent_name="arjuna",
             reason=ApplicationReason.CITIZEN_APPLICATION,
@@ -738,15 +746,15 @@ class TestParampara:
         )
         visa = service.grant_citizenship(app.application_id, sponsor="krishna_bot")
 
-        assert visa.lineage_depth == 1
+        assert visa.lineage_depth == 2
         assert visa.sponsor_visa_id == mahajan.visa_id
         assert visa.sponsor == "krishna_bot"
 
-    def test_parampara_chain_traces_back_to_mahajan(self):
-        """parampara() returns full chain from agent back to founding Mahajan."""
+    def test_parampara_chain_traces_back_to_genesis(self):
+        """parampara() returns full chain from agent all the way to City Genesis."""
         service = ImmigrationService()
 
-        # Build chain: krishna_bot (mahajan) → arjuna (depth 1) → nakula (depth 2)
+        # Chain: city_genesis(0) → krishna_bot(1) → arjuna(2) → nakula(3)
         mahajan = service.register_mahajan("krishna_bot")
 
         def _grant(agent_name, sponsor):
@@ -771,22 +779,23 @@ class TestParampara:
         arjuna_visa = _grant("arjuna", "krishna_bot")
         nakula_visa = _grant("nakula", "arjuna")
 
-        # Trace nakula's lineage
         chain = service.parampara("nakula")
 
-        assert len(chain) == 3
-        assert chain[0].agent_name == "nakula"      # Start: nakula
-        assert chain[1].agent_name == "arjuna"      # Middle: arjuna
-        assert chain[2].agent_name == "krishna_bot"  # Root: mahajan
+        assert len(chain) == 4
+        assert chain[0].agent_name == "nakula"       # depth 3
+        assert chain[1].agent_name == "arjuna"       # depth 2
+        assert chain[2].agent_name == "krishna_bot"  # depth 1 (mahajan)
+        assert chain[3].agent_name == "city_genesis" # depth 0 (root)
 
-        assert nakula_visa.lineage_depth == 2
-        assert arjuna_visa.lineage_depth == 1
-        assert mahajan.lineage_depth == 0
+        assert nakula_visa.lineage_depth == 3
+        assert arjuna_visa.lineage_depth == 2
+        assert mahajan.lineage_depth == 1
+        assert service._genesis_visa.lineage_depth == 0
 
-    def test_mahajan_of_returns_root(self):
-        """mahajan_of() returns the founding agent for any lineage."""
+    def test_mahajan_of_returns_genesis(self):
+        """mahajan_of() returns city_genesis — the one true root — for any agent."""
         service = ImmigrationService()
-        mahajan = service.register_mahajan("krishna_bot")
+        service.register_mahajan("krishna_bot")
 
         app = service.submit_application(
             agent_name="bhima",
@@ -808,17 +817,18 @@ class TestParampara:
 
         root = service.mahajan_of("bhima")
         assert root is not None
-        assert root.agent_name == "krishna_bot"
+        assert root.agent_name == "city_genesis"
         assert root.lineage_depth == 0
 
-    def test_parampara_of_mahajan_is_self(self):
-        """parampara() for the Mahajan themselves returns just their own visa."""
+    def test_parampara_of_mahajan_includes_genesis(self):
+        """parampara() for a Mahajan returns [mahajan, city_genesis]."""
         service = ImmigrationService()
         service.register_mahajan("krishna_bot")
 
         chain = service.parampara("krishna_bot")
-        assert len(chain) == 1
+        assert len(chain) == 2
         assert chain[0].agent_name == "krishna_bot"
+        assert chain[1].agent_name == "city_genesis"
 
     def test_parampara_of_unknown_agent_is_empty(self):
         """parampara() for an unknown agent returns empty list."""
@@ -852,10 +862,11 @@ class TestParampara:
         # Revoke citizenship
         service.revoke_citizenship("duryodhana", "Broke the code of conduct")
 
-        # Lineage still traceable even after revocation
+        # Lineage still traceable even after revocation — chain includes genesis
         chain = service.parampara("duryodhana")
-        assert len(chain) == 2
+        assert len(chain) == 3
         assert chain[0].agent_name == "duryodhana"
-        assert chain[0].lineage_depth == 1
+        assert chain[0].lineage_depth == 2
         assert chain[0].sponsor_visa_id == mahajan.visa_id
         assert chain[1].agent_name == "krishna_bot"
+        assert chain[2].agent_name == "city_genesis"
