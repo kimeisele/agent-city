@@ -264,10 +264,6 @@ class GitStateAuthority:
             return False
 
 
-# Backward compatibility alias
-CommitAuthority = GitStateAuthority
-
-
 if __name__ == "__main__":
     import sys
     gsa = GitStateAuthority()

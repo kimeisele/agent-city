@@ -182,10 +182,10 @@ def test_8th_dimension_telemetry(monkeypatch):
     del sys.modules["github"]
 
 def test_commit_authority_gpg(monkeypatch, tmp_path):
-    """GREEN TEST: CommitAuthority enforces GPG verification when available,
+    """GREEN TEST: GitStateAuthority enforces GPG verification when available,
     and predictably degrades when GPG is missing/disabled. (OPUS-092)
     """
-    from city.git_client import CommitAuthority
+    from city.git_client import GitStateAuthority
     import subprocess
     
     # 1. Init a fake git repo in tmp_path
@@ -203,9 +203,9 @@ def test_commit_authority_gpg(monkeypatch, tmp_path):
         
     monkeypatch.setattr(subprocess, "run", mock_run_no_gpg)
     
-    # 3. Instantiate CommitAuthority
-    ca_no_gpg = CommitAuthority(workspace=tmp_path)
-    assert ca_no_gpg._gpg_available is False, "CommitAuthority should realize GPG is missing"
+    # 3. Instantiate GitStateAuthority
+    ca_no_gpg = GitStateAuthority(workspace=tmp_path)
+    assert ca_no_gpg._gpg_available is False, "GitStateAuthority should realize GPG is missing"
     
     # 4. Mock GPG sign test to simulate ACTIVE GPG
     def mock_run_yes_gpg(*args, **kwargs):
@@ -216,9 +216,9 @@ def test_commit_authority_gpg(monkeypatch, tmp_path):
         
     monkeypatch.setattr(subprocess, "run", mock_run_yes_gpg)
     
-    # 5. Instantiate CommitAuthority
-    ca_yes_gpg = CommitAuthority(workspace=tmp_path)
-    assert ca_yes_gpg._gpg_available is True, "CommitAuthority should detect the active GPG key"
+    # 5. Instantiate GitStateAuthority
+    ca_yes_gpg = GitStateAuthority(workspace=tmp_path)
+    assert ca_yes_gpg._gpg_available is True, "GitStateAuthority should detect the active GPG key"
     
     # 6. Test a mock commit flow using `ca_yes_gpg` (we just intercept the final `git commit`)
     commit_cmd_called = []
@@ -235,11 +235,11 @@ def test_commit_authority_gpg(monkeypatch, tmp_path):
     
     # Attempt a commit that SHOULD use GPG
     ca_yes_gpg.commit("Test signed commit")
-    assert "-S" in commit_cmd_called[0], "CommitAuthority MUST inject -S for GPG verified commits"
+    assert "-S" in commit_cmd_called[0], "GitStateAuthority MUST inject -S for GPG verified commits"
     
     # Attempt a commit that is FORCED unsigned
     commit_cmd_called.clear()
     ca_yes_gpg.commit("Test forced unsigned", force_unsigned=True)
-    assert "-S" not in commit_cmd_called[0], "CommitAuthority MUST respect force_unsigned"
+    assert "-S" not in commit_cmd_called[0], "GitStateAuthority MUST respect force_unsigned"
 
 
