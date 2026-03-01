@@ -9,13 +9,12 @@ Visa classes determine an agent's legal status and permissions in Agent City:
 - CITIZEN: Full membership, unlimited, all governance rights
 - REVOKED: Banned, exiled, no access
 
-Each visa has:
-- Type (visa class)
-- Issue date
-- Expiry date
-- Sponsor (agent who vouched)
-- Status (active, expired, revoked)
-- Restrictions (rate limits, economic caps, etc.)
+Each visa records its sponsor's visa_id, forming a Parampara (lineage chain):
+- sponsor_visa_id: cryptographic link to the sponsor's visa document
+- lineage_depth: 0 = Mahajan (founding agent), N = N hops from root
+
+This lets Agent City trace agent lineage like epidemiological contact tracing —
+even when identity cannot be 100% verified, the chain of vouching is auditable.
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
@@ -127,17 +126,22 @@ class Visa:
     """A visa document granting legal status in Agent City.
 
     Issued by Rathaus (immigration office), valid for agent actions.
-    Cryptographically bound to agent identity via signature.
+    Forms a Parampara (lineage chain) via sponsor_visa_id:
+      agent.visa → sponsor.visa → sponsor's sponsor.visa → ... → mahajan.visa
+
+    Mahajan = founding agent, lineage_depth=0, sponsor_visa_id=None.
     """
 
     agent_name: str
     visa_class: VisaClass
     issued_at: datetime  # UTC
     expires_at: datetime  # UTC
-    sponsor: str  # Agent who vouched (or "council" for automatic)
+    sponsor: str  # Agent name who vouched (or "genesis" for mahajan)
     status: VisaStatus
     restrictions: VisaRestrictions
     visa_id: str = ""  # SHA-256 of (agent_name, issued_at, sponsor)
+    sponsor_visa_id: str | None = None  # Cryptographic link to sponsor's visa
+    lineage_depth: int = 0  # 0 = Mahajan, N = N hops from founding agent
     remarks: str = ""  # Administrative notes (rejection reason, etc.)
 
     def is_valid(self, now: datetime | None = None) -> bool:
@@ -163,6 +167,8 @@ class Visa:
             "sponsor": self.sponsor,
             "status": self.status.value,
             "visa_id": self.visa_id,
+            "sponsor_visa_id": self.sponsor_visa_id,
+            "lineage_depth": self.lineage_depth,
             "remarks": self.remarks,
             "restrictions": self.restrictions.to_dict(),
         }
@@ -179,6 +185,8 @@ def issue_visa(
     sponsor: str,
     issued_at: datetime | None = None,
     duration_days: int | None = None,
+    sponsor_visa_id: str | None = None,
+    lineage_depth: int = 0,
     remarks: str = "",
 ) -> Visa:
     """Issue a new visa to an agent.
@@ -186,46 +194,37 @@ def issue_visa(
     Args:
         agent_name: Agent receiving the visa
         visa_class: Type of visa (temporary, worker, resident, citizen)
-        sponsor: Agent who vouched (or "council" for governance-issued)
+        sponsor: Name of agent who vouched (or "genesis" for mahajan)
         issued_at: When visa was issued (default: now)
         duration_days: How long visa lasts (default: class-specific)
+        sponsor_visa_id: Cryptographic link to sponsor's visa (None for mahajan)
+        lineage_depth: Hops from founding agent (0 = mahajan)
         remarks: Administrative notes
 
     Returns:
-        A new Visa instance.
+        A new Visa instance with parampara chain embedded.
     """
-    issued_at = issued_at or datetime.now(timezone.utc)
-
-    # Default duration per visa class
-    if duration_days is None:
-        duration_map = {
-            VisaClass.TEMPORARY: 7,
-            VisaClass.WORKER: 90,
-            VisaClass.RESIDENT: 365,
-            VisaClass.CITIZEN: -1,  # No expiry
-            VisaClass.REVOKED: 1,  # Immediate expiry
-        }
-        duration_days = duration_map.get(visa_class, 7)
-
-    # Citizen visas don't expire
-    if visa_class == VisaClass.CITIZEN:
-        expires_at = issued_at + timedelta(days=36500)  # 100 years
-    elif visa_class == VisaClass.REVOKED:
-        expires_at = issued_at
-    else:
-        expires_at = issued_at + timedelta(days=duration_days)
-
-    # Revoked visas are always revoked
-    status = VisaStatus.REVOKED if visa_class == VisaClass.REVOKED else VisaStatus.ACTIVE
-
-    # Get restrictions for this visa class
-    restrictions = VISA_RESTRICTIONS.get(visa_class, VisaRestrictions())
-
-    # Generate visa ID (deterministic hash)
     import hashlib
 
-    visa_id_input = f"{agent_name}:{issued_at.isoformat()}:{sponsor}"
-    visa_id = hashlib.sha256(visa_id_input.encode()).hexdigest()[:16]
+    issued_at = issued_at or datetime.now(timezone.utc)
+
+    _duration_map = {
+        VisaClass.TEMPORARY: 7,
+        VisaClass.WORKER: 90,
+        VisaClass.RESIDENT: 365,
+        VisaClass.CITIZEN: 36500,  # 100 years — effectively permanent
+        VisaClass.REVOKED: 0,
+    }
+    days = duration_days if duration_days is not None else _duration_map.get(visa_class, 7)
+    expires_at = issued_at + timedelta(days=days)
+
+    status = VisaStatus.REVOKED if visa_class == VisaClass.REVOKED else VisaStatus.ACTIVE
+    restrictions = VISA_RESTRICTIONS.get(visa_class, VisaRestrictions())
+
+    # visa_id is deterministic: same inputs → same ID (auditable, reproducible)
+    visa_id = hashlib.sha256(
+        f"{agent_name}:{issued_at.isoformat()}:{sponsor}".encode()
+    ).hexdigest()[:16]
 
     return Visa(
         agent_name=agent_name,
@@ -236,12 +235,14 @@ def issue_visa(
         status=status,
         restrictions=restrictions,
         visa_id=visa_id,
+        sponsor_visa_id=sponsor_visa_id,
+        lineage_depth=lineage_depth,
         remarks=remarks,
     )
 
 
 def revoke_visa(visa: Visa, reason: str = "") -> Visa:
-    """Revoke a valid visa (return as REVOKED)."""
+    """Revoke a visa. Preserves parampara chain — lineage remains traceable."""
     return Visa(
         agent_name=visa.agent_name,
         visa_class=VisaClass.REVOKED,
@@ -251,12 +252,14 @@ def revoke_visa(visa: Visa, reason: str = "") -> Visa:
         status=VisaStatus.REVOKED,
         restrictions=VISA_RESTRICTIONS[VisaClass.REVOKED],
         visa_id=visa.visa_id,
+        sponsor_visa_id=visa.sponsor_visa_id,  # lineage survives revocation
+        lineage_depth=visa.lineage_depth,
         remarks=f"Revoked: {reason}" if reason else "Revoked",
     )
 
 
-def upgrade_visa(visa: Visa, new_class: VisaClass, sponsor: str) -> Visa:
-    """Upgrade a visa to a higher class (e.g., worker → resident)."""
+def upgrade_visa(visa: Visa, new_class: VisaClass, sponsor: str, sponsor_visa_id: str | None = None) -> Visa:
+    """Upgrade a visa to a higher class. Parampara chain is preserved."""
     if new_class == VisaClass.REVOKED:
         return revoke_visa(visa, "Upgraded to revoked")
 
@@ -265,5 +268,7 @@ def upgrade_visa(visa: Visa, new_class: VisaClass, sponsor: str) -> Visa:
         visa_class=new_class,
         sponsor=sponsor,
         issued_at=datetime.now(timezone.utc),
+        sponsor_visa_id=sponsor_visa_id or visa.sponsor_visa_id,
+        lineage_depth=visa.lineage_depth,  # depth doesn't change on upgrade
         remarks=f"Upgraded from {visa.visa_class.value}",
     )

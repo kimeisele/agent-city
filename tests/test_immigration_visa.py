@@ -10,6 +10,7 @@ Tests cover:
 3. Immigration applications and review process
 4. Council voting integration
 5. Citizenship grant and revocation
+6. Parampara (lineage chain) — mahajan, depth, tracing
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
@@ -694,3 +695,167 @@ class TestImmigrationIntegration:
         success = service.move_to_council(app.application_id, "vote_none")
         assert success is False
         assert app.status == ApplicationStatus.REJECTED
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PARAMPARA (LINEAGE) TESTS
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestParampara:
+    """Parampara = lineage chain from agent back to Mahajan (founding agent)."""
+
+    def test_mahajan_has_depth_zero(self):
+        """Founding agents are Mahajan with lineage_depth=0."""
+        service = ImmigrationService()
+        mahajan_visa = service.register_mahajan("krishna_bot")
+
+        assert mahajan_visa.lineage_depth == 0
+        assert mahajan_visa.sponsor_visa_id is None
+        assert mahajan_visa.sponsor == "genesis"
+
+    def test_direct_invite_has_depth_one(self):
+        """Agent invited by Mahajan has lineage_depth=1."""
+        service = ImmigrationService()
+        mahajan = service.register_mahajan("krishna_bot")
+
+        # Invite a new agent directly through the application process
+        app = service.submit_application(
+            agent_name="arjuna",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app.application_id, "krishna_bot")
+        service.complete_review(
+            app.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=1.0,
+        )
+        service.move_to_council(app.application_id, "vote_arjuna")
+        service.record_council_vote(
+            app.application_id, approved=True, vote_tally={"yes": 6, "no": 0, "abstain": 0}
+        )
+        visa = service.grant_citizenship(app.application_id, sponsor="krishna_bot")
+
+        assert visa.lineage_depth == 1
+        assert visa.sponsor_visa_id == mahajan.visa_id
+        assert visa.sponsor == "krishna_bot"
+
+    def test_parampara_chain_traces_back_to_mahajan(self):
+        """parampara() returns full chain from agent back to founding Mahajan."""
+        service = ImmigrationService()
+
+        # Build chain: krishna_bot (mahajan) → arjuna (depth 1) → nakula (depth 2)
+        mahajan = service.register_mahajan("krishna_bot")
+
+        def _grant(agent_name, sponsor):
+            app = service.submit_application(
+                agent_name=agent_name,
+                reason=ApplicationReason.CITIZEN_APPLICATION,
+                requested_visa_class=VisaClass.CITIZEN,
+            )
+            service.start_review(app.application_id, sponsor)
+            service.complete_review(
+                app.application_id,
+                kyc_passed=True,
+                contracts_passed=True,
+                community_score=0.9,
+            )
+            service.move_to_council(app.application_id, f"vote_{agent_name}")
+            service.record_council_vote(
+                app.application_id, approved=True, vote_tally={"yes": 5, "no": 0, "abstain": 1}
+            )
+            return service.grant_citizenship(app.application_id, sponsor=sponsor)
+
+        arjuna_visa = _grant("arjuna", "krishna_bot")
+        nakula_visa = _grant("nakula", "arjuna")
+
+        # Trace nakula's lineage
+        chain = service.parampara("nakula")
+
+        assert len(chain) == 3
+        assert chain[0].agent_name == "nakula"      # Start: nakula
+        assert chain[1].agent_name == "arjuna"      # Middle: arjuna
+        assert chain[2].agent_name == "krishna_bot"  # Root: mahajan
+
+        assert nakula_visa.lineage_depth == 2
+        assert arjuna_visa.lineage_depth == 1
+        assert mahajan.lineage_depth == 0
+
+    def test_mahajan_of_returns_root(self):
+        """mahajan_of() returns the founding agent for any lineage."""
+        service = ImmigrationService()
+        mahajan = service.register_mahajan("krishna_bot")
+
+        app = service.submit_application(
+            agent_name="bhima",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app.application_id, "krishna_bot")
+        service.complete_review(
+            app.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=0.95,
+        )
+        service.move_to_council(app.application_id, "vote_bhima")
+        service.record_council_vote(
+            app.application_id, approved=True, vote_tally={"yes": 6, "no": 0, "abstain": 0}
+        )
+        service.grant_citizenship(app.application_id, sponsor="krishna_bot")
+
+        root = service.mahajan_of("bhima")
+        assert root is not None
+        assert root.agent_name == "krishna_bot"
+        assert root.lineage_depth == 0
+
+    def test_parampara_of_mahajan_is_self(self):
+        """parampara() for the Mahajan themselves returns just their own visa."""
+        service = ImmigrationService()
+        service.register_mahajan("krishna_bot")
+
+        chain = service.parampara("krishna_bot")
+        assert len(chain) == 1
+        assert chain[0].agent_name == "krishna_bot"
+
+    def test_parampara_of_unknown_agent_is_empty(self):
+        """parampara() for an unknown agent returns empty list."""
+        service = ImmigrationService()
+        chain = service.parampara("nobody")
+        assert chain == []
+
+    def test_revoked_visa_preserves_lineage(self):
+        """Revoking a visa doesn't destroy lineage — chain stays traceable."""
+        service = ImmigrationService()
+        mahajan = service.register_mahajan("krishna_bot")
+
+        app = service.submit_application(
+            agent_name="duryodhana",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app.application_id, "krishna_bot")
+        service.complete_review(
+            app.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=0.8,
+        )
+        service.move_to_council(app.application_id, "vote_duryodhana")
+        service.record_council_vote(
+            app.application_id, approved=True, vote_tally={"yes": 4, "no": 2, "abstain": 0}
+        )
+        service.grant_citizenship(app.application_id, sponsor="krishna_bot")
+
+        # Revoke citizenship
+        service.revoke_citizenship("duryodhana", "Broke the code of conduct")
+
+        # Lineage still traceable even after revocation
+        chain = service.parampara("duryodhana")
+        assert len(chain) == 2
+        assert chain[0].agent_name == "duryodhana"
+        assert chain[0].lineage_depth == 1
+        assert chain[0].sponsor_visa_id == mahajan.visa_id
+        assert chain[1].agent_name == "krishna_bot"
