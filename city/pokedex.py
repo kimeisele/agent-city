@@ -567,6 +567,28 @@ class Pokedex:
             "updated_at": d["updated_at"],
         }
 
+    def verify_identity(self, name: str, payload: bytes, signature_b64: str) -> bool:
+        """Verify a signed payload against an agent's stored public key.
+
+        Uses the ECDSA public key stored at citizenship registration.
+        Returns False if agent not found or has no identity.
+        """
+        agent = self.get(name)
+        if not agent or not agent.get("identity"):
+            return False
+
+        public_key_pem = agent["identity"].get("public_key")
+        if not public_key_pem:
+            return False
+
+        try:
+            from city.identity import verify_ownership
+            passport = {"public_key": public_key_pem}
+            return verify_ownership(passport, payload, signature_b64)
+        except Exception as e:
+            logger.warning("Identity verification failed for %s: %s", name, e)
+            return False
+
     def get_cell(self, name: str) -> MahaCellUnified | None:
         """Retrieve the living MahaCellUnified for an agent."""
         cur = self._conn.cursor()

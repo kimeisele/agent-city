@@ -24,6 +24,7 @@ from city.registry import (
     SVC_EVENT_BUS,
     SVC_EXECUTOR,
     SVC_FEDERATION,
+    SVC_IDENTITY,
     SVC_IMMUNE,
     SVC_ISSUES,
     SVC_KNOWLEDGE_GRAPH,
@@ -97,6 +98,7 @@ class PhaseContext:
             "knowledge_graph": SVC_KNOWLEDGE_GRAPH,
             "event_bus": SVC_EVENT_BUS, "learning": SVC_LEARNING,
             "agent_nadi": SVC_AGENT_NADI, "immune": SVC_IMMUNE,
+            "identity": SVC_IDENTITY,
         }
         for kwarg_name, svc_name in _LEGACY_NAMES.items():
             val = kwargs.pop(kwarg_name, None)
@@ -171,3 +173,7 @@ class PhaseContext:
     @property
     def immune(self) -> object | None:
         return self.registry.get(SVC_IMMUNE)
+
+    @property
+    def identity(self) -> object | None:
+        return self.registry.get(SVC_IDENTITY)
