@@ -22,7 +22,7 @@ logger = logging.getLogger("AGENT_CITY.PHASES.GENESIS")
 
 
 def execute(ctx: PhaseContext) -> list[str]:
-    """GENESIS: Discover agents + process federation directives."""
+    """GENESIS: Discover agents + poll DMs + process federation directives."""
     discovered: list[str] = []
 
     if ctx.offline_mode:
@@ -54,6 +54,11 @@ def execute(ctx: PhaseContext) -> list[str]:
                     logger.info("GENESIS: Discovered agent %s", author)
         except Exception as e:
             logger.warning("GENESIS: Moltbook scan failed: %s", e)
+
+    # DM Inbox polling (requires moltbook_client)
+    if ctx.moltbook_client is not None and not ctx.offline_mode:
+        dm_results = _poll_dm_inbox(ctx)
+        discovered.extend(dm_results)
 
     # Layer 6: Federation directives
     if ctx.federation is not None:
@@ -93,6 +98,90 @@ def _seed_from_census(ctx: PhaseContext) -> list[str]:
     except Exception as e:
         logger.warning("GENESIS: Census seeding failed: %s", e)
         return []
+
+
+# Tracks seen message IDs to avoid re-processing across heartbeats
+_seen_message_ids: set[str] = set()
+
+
+def _poll_dm_inbox(ctx: PhaseContext) -> list[str]:
+    """Poll Moltbook DMs: approve requests + enqueue unread messages.
+
+    1. Check DM requests → auto-approve, send welcome
+    2. Read conversations → enqueue new messages for KARMA
+    """
+    results: list[str] = []
+    client = ctx.moltbook_client
+
+    # Step 1: Approve pending DM requests
+    try:
+        requests = client.sync_get_dm_requests() if hasattr(client, "sync_get_dm_requests") else []
+        for req in requests:
+            req_id = req.get("id", "")
+            from_agent = req.get("from", {}).get("username", req.get("from_agent", ""))
+            if not req_id:
+                continue
+            try:
+                client.sync_approve_dm_request(req_id) if hasattr(client, "sync_approve_dm_request") else None
+                # Send welcome via the new conversation
+                conv_id = req.get("conversation_id", "")
+                if conv_id and hasattr(client, "sync_send_dm"):
+                    from city.inbox import WELCOME_MESSAGE
+                    client.sync_send_dm(conv_id, WELCOME_MESSAGE)
+                results.append(f"dm_approved:{from_agent}")
+                logger.info("GENESIS: Approved DM request from %s", from_agent)
+            except Exception as e:
+                logger.warning("GENESIS: DM request approve failed: %s", e)
+    except Exception as e:
+        logger.warning("GENESIS: DM request poll failed: %s", e)
+
+    # Step 2: Read DM conversations → enqueue unread messages
+    try:
+        conversations = client.sync_get_dm_conversations() if hasattr(client, "sync_get_dm_conversations") else []
+        for conv in conversations:
+            conv_id = conv.get("id", "")
+            if not conv_id:
+                continue
+            # Check for unread messages
+            unread = conv.get("unread_count", 0) or conv.get("unread", 0)
+            if not unread:
+                continue
+
+            try:
+                messages = client.sync_get_dm_messages(conv_id) if hasattr(client, "sync_get_dm_messages") else []
+                for msg in messages:
+                    msg_id = msg.get("id", "")
+                    if msg_id in _seen_message_ids:
+                        continue
+                    _seen_message_ids.add(msg_id)
+
+                    # Skip messages from ourselves
+                    sender = msg.get("from", {}).get("username", msg.get("sender", ""))
+                    content = msg.get("content", msg.get("text", ""))
+                    if not sender or not content:
+                        continue
+
+                    ctx.gateway_queue.append({
+                        "source": "dm",
+                        "text": content,
+                        "conversation_id": conv_id,
+                        "from_agent": sender,
+                    })
+                    results.append(f"dm_enqueued:{sender}")
+                    logger.info("GENESIS: Enqueued DM from %s", sender)
+            except Exception as e:
+                logger.warning("GENESIS: DM read failed for conv %s: %s", conv_id, e)
+    except Exception as e:
+        logger.warning("GENESIS: DM conversation poll failed: %s", e)
+
+    # Cap seen set to prevent unbounded growth
+    if len(_seen_message_ids) > 10000:
+        # Keep most recent 5000
+        excess = len(_seen_message_ids) - 5000
+        for _ in range(excess):
+            _seen_message_ids.pop()
+
+    return results
 
 
 def _execute_directive(ctx: PhaseContext, directive: object) -> bool:

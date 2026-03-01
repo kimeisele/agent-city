@@ -138,6 +138,18 @@ def main() -> None:
         **governance_kwargs,
     )
 
+    # Wire MoltbookClient for DM pipeline (online mode only)
+    if not args.offline:
+        import os
+        api_key = os.environ.get("MOLTBOOK_API_KEY", "")
+        if api_key:
+            try:
+                from vibe_core.mahamantra.adapters.moltbook import MoltbookClient
+                mayor._moltbook_client = MoltbookClient(api_key=api_key)
+                logging.getLogger("HEARTBEAT").info("Moltbook DM pipeline wired")
+            except Exception as e:
+                logging.getLogger("HEARTBEAT").warning("MoltbookClient init failed: %s", e)
+
     print(f"=== Agent City Heartbeat — {args.cycles} cycles ===")
     if args.offline:
         print("Mode: OFFLINE (no Moltbook API)")

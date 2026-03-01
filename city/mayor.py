@@ -115,6 +115,9 @@ class Mayor:
     # Layer 6 federation (optional for backward compatibility)
     _federation: FederationRelay | None = None
 
+    # Layer 7 Moltbook inbox (optional for backward compatibility)
+    _moltbook_client: object = None  # MoltbookClient (steward-protocol)
+
     # Internal state
     _last_audit_time: float = field(default=0.0)
     _recent_events: list = field(default_factory=list)
@@ -145,6 +148,7 @@ class Mayor:
             executor=self._executor,
             council=self._council,
             federation=self._federation,
+            moltbook_client=self._moltbook_client,
             last_audit_time=self._last_audit_time,
             recent_events=self._recent_events,
         )
@@ -262,9 +266,24 @@ class Mayor:
 
     # ── External Interface ────────────────────────────────────────────
 
-    def enqueue(self, source: str, text: str) -> None:
-        """Add an item to the gateway queue for KARMA processing."""
-        self._gateway_queue.append({"source": source, "text": text})
+    def enqueue(
+        self, source: str, text: str,
+        *, conversation_id: str = "", from_agent: str = "",
+    ) -> None:
+        """Add an item to the gateway queue for KARMA processing.
+
+        Args:
+            source: Origin identifier (e.g. 'dm', 'feed', agent name).
+            text: Message content.
+            conversation_id: Moltbook DM conversation ID for response routing.
+            from_agent: Sender's Moltbook username.
+        """
+        self._gateway_queue.append({
+            "source": source,
+            "text": text,
+            "conversation_id": conversation_id,
+            "from_agent": from_agent,
+        })
 
     def mark_active(self, name: str) -> None:
         """Mark an agent as active for the current metabolism cycle."""

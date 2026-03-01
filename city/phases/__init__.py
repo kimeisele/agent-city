@@ -60,6 +60,9 @@ class PhaseContext:
     # Layer 6 federation
     federation: FederationRelay | None = None
 
+    # Layer 7 Moltbook inbox (DM pipeline)
+    moltbook_client: object = None  # MoltbookClient (steward-protocol)
+
     # Internal
     last_audit_time: float = 0.0
     recent_events: list = field(default_factory=list)
