@@ -20,6 +20,11 @@ permissions:
   contents: write
   issues: write
 
+# Issue #17 S1b: Single-writer — only one heartbeat at a time
+concurrency:
+  group: heartbeat
+  cancel-in-progress: false
+
 jobs:
   heartbeat:
     runs-on: ubuntu-latest

@@ -26,6 +26,7 @@ issues:
   comment_energy_multiplier: 5
   list_limit: 100
   gh_timeout_s: 30
+  lock_max_heartbeats: 20
 
 contracts:
   ruff_timeout_s: 60
@@ -53,6 +54,12 @@ federation:
 pr_lifecycle:
   stale_heartbeats: 40
   auto_merge: true
+  require_approval: true
+  min_approvals: 1
+
+gh_rate:
+  max_per_minute: 30
+  gajendra_check_interval: 10
 
 services:
   disabled: []
@@ -92,6 +99,38 @@ access_classes:
     level: 3
     can_write: true
     can_modify_protected: true
+
+# ============================================================================
+# AGENT CLASSES — Variable Prana Lifecycle (Issue #17: Scalable Metabolism)
+# ============================================================================
+# Each class defines biological parameters for agent lifespan:
+#   genesis_prana:   Starting energy (MAHA_QUANTUM × factor)
+#   metabolic_cost:  Energy consumed per heartbeat cycle
+#   max_age:         Maximum cycles before age-death (-1 = immortal)
+#
+# Default mapping via AccessClass:
+#   OBSERVER  → ephemeral   (short-lived, self-cleaning bots)
+#   OPERATOR  → standard    (normal agent lifespan)
+#   STEWARD   → resilient   (long-lived stewards)
+#   SOVEREIGN → immortal    (human root, never dies)
+# ============================================================================
+agent_classes:
+  ephemeral:
+    genesis_prana: 1370
+    metabolic_cost: 3
+    max_age: 108
+  standard:
+    genesis_prana: 13700
+    metabolic_cost: 3
+    max_age: 432
+  resilient:
+    genesis_prana: 137000
+    metabolic_cost: 3
+    max_age: 4320
+  immortal:
+    genesis_prana: -1
+    metabolic_cost: 0
+    max_age: -1
 
 # ============================================================================
 # GIT STATE AUTHORITY — Single Source of Truth for Repository Governance

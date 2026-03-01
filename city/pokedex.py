@@ -70,8 +70,17 @@ class Pokedex:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self._lock = threading.RLock()
         self._init_schema()
+
+        # Load agent_classes from config (variable prana classes — Issue #17)
+        self._agent_classes = get_config().get("agent_classes", {
+            "ephemeral": {"genesis_prana": 1370, "metabolic_cost": 3, "max_age": 108},
+            "standard": {"genesis_prana": 13700, "metabolic_cost": 3, "max_age": 432},
+            "resilient": {"genesis_prana": 137000, "metabolic_cost": 3, "max_age": 4320},
+            "immortal": {"genesis_prana": -1, "metabolic_cost": 0, "max_age": -1},
+        })
 
         # Wire to CivicBank from steward-protocol (shared DB or separate)
         self._bank = bank or CivicBank(db_path=str(self._db_path.parent / "economy.db"))
@@ -184,6 +193,36 @@ class Pokedex:
             cur.execute("ALTER TABLE agents ADD COLUMN gpg_email TEXT")
             self._conn.commit()
 
+        # Migration: claim_level + claim_verified_at (R1: graduated identity)
+        try:
+            cur.execute("SELECT claim_level FROM agents LIMIT 0")
+        except Exception:
+            cur.execute("ALTER TABLE agents ADD COLUMN claim_level INTEGER DEFAULT 0")
+            cur.execute("ALTER TABLE agents ADD COLUMN claim_verified_at TEXT")
+            self._conn.commit()
+
+        # Migration: Scalable Metabolism columns (Issue #17 — S1a)
+        # prana + cell_cycle + cell_active as SQL-native columns for O(1) metabolize
+        try:
+            cur.execute("SELECT prana FROM agents LIMIT 0")
+        except Exception:
+            cur.execute("ALTER TABLE agents ADD COLUMN prana INTEGER DEFAULT 13700")
+            cur.execute("ALTER TABLE agents ADD COLUMN cell_cycle INTEGER DEFAULT 0")
+            cur.execute("ALTER TABLE agents ADD COLUMN cell_active INTEGER DEFAULT 1")
+            cur.execute("ALTER TABLE agents ADD COLUMN prana_class TEXT DEFAULT 'standard'")
+            # Backfill: sync prana from existing cell_bytes BLOBs
+            cur.execute("SELECT name, cell_bytes FROM agents WHERE cell_bytes IS NOT NULL")
+            for row in cur.fetchall():
+                try:
+                    cell, _ = MahaCellUnified.from_bytes(row["cell_bytes"])
+                    cur.execute(
+                        "UPDATE agents SET prana = ?, cell_cycle = ?, cell_active = ? WHERE name = ?",
+                        (cell.prana, cell.age, 1 if cell.is_alive else 0, row["name"]),
+                    )
+                except Exception:
+                    pass  # Corrupt BLOB — leave defaults
+            self._conn.commit()
+
         # ToolOperator registry — CLI agents, bots, webhooks (no Jiva, no Cell)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS operators (
@@ -224,8 +263,9 @@ class Pokedex:
                     vm_chapter, vm_holy_name, vm_trinity_function, vm_chapter_significance,
                     vibration_seed, vibration_element, vibration_shruti, vibration_frequency,
                     zone, cell_bytes, discovered_at, updated_at,
-                    moltbook_karma, moltbook_followers
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    moltbook_karma, moltbook_followers,
+                    prana, cell_cycle, cell_active, prana_class
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     name,
@@ -249,6 +289,10 @@ class Pokedex:
                     now,
                     (moltbook_profile or {}).get("karma"),
                     (moltbook_profile or {}).get("follower_count"),
+                    jiva.cell.prana,
+                    jiva.cell.age,
+                    1 if jiva.cell.is_alive else 0,
+                    "standard",
                 ),
             )
 
@@ -272,8 +316,9 @@ class Pokedex:
                 vm_chapter, vm_holy_name, vm_trinity_function, vm_chapter_significance,
                 vibration_seed, vibration_element, vibration_shruti, vibration_frequency,
                 zone, cell_bytes, discovered_at, updated_at,
-                moltbook_karma, moltbook_followers
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                moltbook_karma, moltbook_followers,
+                prana, cell_cycle, cell_active, prana_class
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 name,
@@ -297,6 +342,10 @@ class Pokedex:
                 now,
                 (moltbook_profile or {}).get("karma"),
                 (moltbook_profile or {}).get("follower_count"),
+                jiva.cell.prana,
+                jiva.cell.age,
+                1 if jiva.cell.is_alive else 0,
+                "standard",
             ),
         )
         self._record_event(name, "discover", None, "discovered", json.dumps(moltbook_profile or {}))
@@ -539,33 +588,124 @@ class Pokedex:
         return self._row_to_dict(row)
 
     def metabolize_all(self, active_agents: set[str] | None = None) -> list[str]:
-        """Run one metabolic cycle on all living agents.
+        """Run one metabolic cycle on all living agents — SQL-native (Issue #17).
 
-        Active agents gain energy, inactive ones only lose METABOLIC_COST (3).
-        Returns list of agents that died (prana exhaustion → archived).
+        Uses pure SQL UPDATE statements instead of per-agent BLOB deserialization.
+        Active agents gain energy (+10), all living agents pay metabolic cost.
+        Variable costs per prana_class from config/city.yaml.
+        Returns list of agents that died (prana exhaustion or age limit → archived).
         """
         active_agents = active_agents or set()
         dead: list[str] = []
-        cur = self._conn.cursor()
-        cur.execute("SELECT name, cell_bytes FROM agents WHERE status IN ('citizen', 'active')")
-        for row in cur.fetchall():
-            name = row["name"]
-            if not row["cell_bytes"]:
-                continue
-            cell, _ = MahaCellUnified.from_bytes(row["cell_bytes"])
-            energy = 10 if name in active_agents else 0
-            cell.metabolize(energy)
-            if not cell.is_alive:
+
+        with self._lock:
+            cur = self._conn.cursor()
+
+            # Gather distinct prana classes and their costs
+            classes = self._agent_classes
+            default_cost = classes.get("standard", {}).get("metabolic_cost", 3)
+            default_max_age = classes.get("standard", {}).get("max_age", 432)
+
+            # 1. Metabolize per prana_class (variable cost)
+            # For each class, apply its specific metabolic_cost
+            cur.execute(
+                "SELECT DISTINCT prana_class FROM agents "
+                "WHERE status IN ('citizen', 'active') AND cell_active = 1"
+            )
+            seen_classes = [r["prana_class"] for r in cur.fetchall()]
+
+            for pc in seen_classes:
+                cls_cfg = classes.get(pc, {})
+                cost = cls_cfg.get("metabolic_cost", default_cost)
+                if cost == 0:
+                    # Immortal class: only increment cycle, no prana cost
+                    cur.execute(
+                        "UPDATE agents SET cell_cycle = cell_cycle + 1 "
+                        "WHERE status IN ('citizen', 'active') AND cell_active = 1 "
+                        "AND prana_class = ?",
+                        (pc,),
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE agents SET prana = prana - ?, cell_cycle = cell_cycle + 1 "
+                        "WHERE status IN ('citizen', 'active') AND cell_active = 1 "
+                        "AND prana_class = ?",
+                        (cost, pc),
+                    )
+
+            # 2. Add energy for active agents (TEMP TABLE pattern for scalability)
+            if active_agents:
+                cur.execute("CREATE TEMP TABLE IF NOT EXISTS _active_agents (name TEXT PRIMARY KEY)")
+                cur.execute("DELETE FROM _active_agents")
+                cur.executemany(
+                    "INSERT OR IGNORE INTO _active_agents (name) VALUES (?)",
+                    [(n,) for n in active_agents],
+                )
+                cur.execute(
+                    "UPDATE agents SET prana = prana + 10 "
+                    "WHERE name IN (SELECT name FROM _active_agents) "
+                    "AND status IN ('citizen', 'active') AND cell_active = 1"
+                )
+                cur.execute("DROP TABLE IF EXISTS _active_agents")
+
+            # 3. Find dead: prana exhaustion
+            cur.execute(
+                "SELECT name FROM agents "
+                "WHERE prana <= 0 AND status IN ('citizen', 'active') AND cell_active = 1"
+            )
+            prana_dead = [r["name"] for r in cur.fetchall()]
+
+            # 4. Find dead: age limit (per prana_class)
+            for pc in seen_classes:
+                cls_cfg = classes.get(pc, {})
+                max_age = cls_cfg.get("max_age", default_max_age)
+                if max_age < 0:
+                    continue  # Immortal class — no age limit
+                cur.execute(
+                    "SELECT name FROM agents "
+                    "WHERE cell_cycle >= ? AND status IN ('citizen', 'active') "
+                    "AND cell_active = 1 AND prana_class = ?",
+                    (max_age, pc),
+                )
+                prana_dead.extend(r["name"] for r in cur.fetchall())
+
+            self._conn.commit()
+
+        # 5. Archive dead agents (outside the batch — needs event ledger)
+        seen = set()
+        for name in prana_dead:
+            if name not in seen:
+                seen.add(name)
                 dead.append(name)
                 self.archive(name, "prana_exhaustion")
-            else:
-                cur2 = self._conn.cursor()
-                cur2.execute(
-                    "UPDATE agents SET cell_bytes = ? WHERE name = ?",
-                    (cell.to_bytes(), name),
-                )
-        self._conn.commit()
+
         return dead
+
+    def _sync_cell_prana(self, name: str) -> None:
+        """Sync SQL prana/cycle columns INTO the cell_bytes BLOB.
+
+        Called on-demand (before export, shutdown, or get_cell after metabolize).
+        Reads prana + cell_cycle from SQL, patches the BLOB, writes back.
+        """
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT cell_bytes, prana, cell_cycle, cell_active FROM agents WHERE name = ?",
+            (name,),
+        )
+        row = cur.fetchone()
+        if not row or not row["cell_bytes"]:
+            return
+
+        cell, _ = MahaCellUnified.from_bytes(row["cell_bytes"])
+        cell.lifecycle.prana = row["prana"]
+        cell.lifecycle.cycle = row["cell_cycle"]
+        cell.lifecycle.is_active = bool(row["cell_active"])
+
+        cur.execute(
+            "UPDATE agents SET cell_bytes = ? WHERE name = ?",
+            (cell.to_bytes(), name),
+        )
+        self._conn.commit()
 
     # ── ToolOperator API ─────────────────────────────────────────────
 
@@ -796,11 +936,45 @@ class Pokedex:
             }
             if d["moltbook_karma"] is not None
             else None,
+            "claim_level": d.get("claim_level", 0),
+            "claim_verified_at": d.get("claim_verified_at"),
             "civic_role": d.get("civic_role", "citizen"),
             "discovered_at": d["discovered_at"],
             "registered_at": d["registered_at"],
             "updated_at": d["updated_at"],
         }
+
+    def get_claim_level(self, name: str) -> int:
+        """Get the claim verification level for an agent (0-3)."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT claim_level FROM agents WHERE name = ?", (name,))
+        row = cur.fetchone()
+        if not row:
+            return 0
+        return row["claim_level"] or 0
+
+    def update_claim_level(self, name: str, level: int) -> None:
+        """Update the claim verification level for an agent.
+
+        Records an event in the chained ledger for audit trail.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        old_level = self.get_claim_level(name)
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "UPDATE agents SET claim_level = ?, claim_verified_at = ?, updated_at = ? WHERE name = ?",
+                (int(level), now, now, name),
+            )
+            self._record_event(
+                name,
+                "claim_level_change",
+                str(old_level),
+                str(int(level)),
+                f"claim_level {old_level} → {int(level)}",
+            )
+            self._conn.commit()
+        logger.info("Claim level updated: %s → %d", name, int(level))
 
     def verify_identity(self, name: str, payload: bytes, signature_b64: str) -> bool:
         """Verify a signed payload against an agent's stored public key.
@@ -826,11 +1000,25 @@ class Pokedex:
             return False
 
     def get_cell(self, name: str) -> MahaCellUnified | None:
-        """Retrieve the living MahaCellUnified for an agent."""
+        """Retrieve the living MahaCellUnified for an agent.
+
+        Patches prana/cycle/is_active from SQL columns (Issue #17)
+        so the returned cell always reflects the latest metabolize_all() state.
+        """
         cur = self._conn.cursor()
-        cur.execute("SELECT cell_bytes FROM agents WHERE name = ?", (name,))
+        cur.execute(
+            "SELECT cell_bytes, prana, cell_cycle, cell_active FROM agents WHERE name = ?",
+            (name,),
+        )
         row = cur.fetchone()
         if not row or not row["cell_bytes"]:
             return None
         cell, _ = MahaCellUnified.from_bytes(row["cell_bytes"])
+        # Patch from SQL columns (authoritative after SQL-native metabolize)
+        if row["prana"] is not None:
+            cell.lifecycle.prana = row["prana"]
+        if row["cell_cycle"] is not None:
+            cell.lifecycle.cycle = row["cell_cycle"]
+        if row["cell_active"] is not None:
+            cell.lifecycle.is_active = bool(row["cell_active"])
         return cell
