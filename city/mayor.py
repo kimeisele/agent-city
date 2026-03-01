@@ -128,6 +128,9 @@ class Mayor:
     _knowledge_graph: object = None  # UnifiedKnowledgeGraph
     _event_bus: object = None  # EventBus (Narada)
 
+    # Hebbian learning (cross-session memory)
+    _learning: object = None  # CityLearning (city.learning)
+
     # Internal state
     _last_audit_time: float = field(default=0.0)
     _recent_events: list = field(default_factory=list)
@@ -163,6 +166,7 @@ class Mayor:
             city_nadi=self._city_nadi,
             knowledge_graph=self._knowledge_graph,
             event_bus=self._event_bus,
+            learning=self._learning,
             last_audit_time=self._last_audit_time,
             recent_events=self._recent_events,
         )

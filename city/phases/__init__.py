@@ -73,6 +73,9 @@ class PhaseContext:
     knowledge_graph: object = None  # UnifiedKnowledgeGraph
     event_bus: object = None  # EventBus (Narada)
 
+    # Hebbian learning (cross-session memory)
+    learning: object = None  # CityLearning (city.learning)
+
     # Internal
     last_audit_time: float = 0.0
     recent_events: list = field(default_factory=list)

@@ -51,6 +51,13 @@ def execute(ctx: PhaseContext) -> dict:
         if recent_bus_events:
             reflection["event_bus_recent"] = len(recent_bus_events)
 
+    # Hebbian learning: flush weights + stats
+    if ctx.learning is not None:
+        ctx.learning.flush()
+        learning_stats = ctx.learning.stats()
+        if learning_stats:
+            reflection["learning_stats"] = learning_stats
+
     # Drain event buffer into reflection
     if ctx.recent_events:
         logger.info(
