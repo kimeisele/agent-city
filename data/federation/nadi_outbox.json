@@ -4,7 +4,7 @@
     "target": "steward-protocol",
     "operation": "city_report",
     "payload": {
-      "heartbeat": 159,
+      "heartbeat": 167,
       "population": 0,
       "alive": 0,
       "chain_valid": true,
@@ -13,24 +13,7 @@
     },
     "priority": 2,
     "correlation_id": "",
-    "timestamp": 1772384177.5411196,
-    "ttl_s": 900.0
-  },
-  {
-    "source": "moksha",
-    "target": "steward-protocol",
-    "operation": "city_report",
-    "payload": {
-      "heartbeat": 163,
-      "population": 0,
-      "alive": 0,
-      "chain_valid": true,
-      "pr_results": [],
-      "mission_results": []
-    },
-    "priority": 2,
-    "correlation_id": "",
-    "timestamp": 1772385014.9214997,
+    "timestamp": 1772385927.629929,
     "ttl_s": 900.0
   }
 ]
