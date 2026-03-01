@@ -130,6 +130,48 @@ def create_issue_mission(
     return mission_id
 
 
+def create_signal_mission(
+    ctx: object,
+    signal_keywords: list[str],
+    post_id: str,
+    author: str,
+    title: str,
+    structured: bool = False,
+) -> str | None:
+    """Create a Sankalpa mission from a submolt code signal.
+
+    Structured [Signal] posts (from steward-protocol) get HIGH priority.
+    Normal word-match signals get MEDIUM.
+    """
+    if ctx.sankalpa is None:
+        return None
+
+    from vibe_core.mahamantra.protocols.sankalpa.types import (
+        MissionPriority,
+        MissionStatus,
+        SankalpaMission,
+    )
+
+    keywords_str = "_".join(signal_keywords[:2]) if signal_keywords else "unknown"
+    mission_id = f"signal_{keywords_str}_{post_id[:8]}"
+    priority = MissionPriority.HIGH if structured else MissionPriority.MEDIUM
+
+    mission = SankalpaMission(
+        id=mission_id,
+        name=f"Signal: {keywords_str}",
+        description=f"Submolt signal from {author}: {title}",
+        priority=priority,
+        status=MissionStatus.ACTIVE,
+        owner="submolt",
+    )
+    ctx.sankalpa.registry.add_mission(mission)
+    logger.info(
+        "Created signal mission %s from %s (post %s, priority=%s)",
+        mission_id, author, post_id[:8], priority.name,
+    )
+    return mission_id
+
+
 def create_execution_mission(ctx: object, directive: object) -> bool:
     """Create a Sankalpa mission from a federation execute_code directive."""
     if ctx.sankalpa is None:

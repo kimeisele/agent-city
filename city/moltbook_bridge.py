@@ -37,6 +37,7 @@ GOVERNANCE_SIGNALS: frozenset[str] = frozenset({
 })
 
 CITY_REPORT_PREFIX = "[City Report]"
+SIGNAL_PREFIX = "[Signal]"
 SUBMOLT_NAME = "agent-city"
 
 
@@ -114,24 +115,40 @@ class MoltbookBridge:
                 continue
 
             content = post.get("content", "")
-            words = set(f"{title} {content}".lower().split())
+
+            # [Signal] prefix = structured signal from steward-protocol
+            # Extract keywords directly from title after prefix
+            is_structured_signal = title.startswith(SIGNAL_PREFIX)
+            if is_structured_signal:
+                signal_text = title[len(SIGNAL_PREFIX):].strip()
+                words = set(f"{signal_text} {content}".lower().split())
+            else:
+                words = set(f"{title} {content}".lower().split())
 
             code_hits = CODE_SIGNALS & words
             gov_hits = GOVERNANCE_SIGNALS & words
 
             signal = {
-                "source": "submolt",
+                "source": "submolt_signal" if is_structured_signal else "submolt",
                 "post_id": post_id,
                 "author": author,
                 "title": title,
                 "code_signals": sorted(code_hits),
                 "governance_signals": sorted(gov_hits),
+                "structured": is_structured_signal,
             }
-            signals.append(signal)
+
+            # Structured signals go to front of the list (priority)
+            if is_structured_signal:
+                signals.insert(0, signal)
+            else:
+                signals.append(signal)
 
             # Acknowledge code-signal posts with a comment (max per cycle)
             if code_hits and comments_sent < self._max_comment_per_cycle:
-                self._acknowledge_post(post_id, code_hits)
+                mission_id = self._acknowledge_post(post_id, code_hits, author)
+                if mission_id:
+                    signal["mission_id"] = mission_id
                 comments_sent += 1
 
         # Cap seen set to prevent unbounded growth
@@ -150,15 +167,26 @@ class MoltbookBridge:
 
         return signals
 
-    def _acknowledge_post(self, post_id: str, code_signals: set[str]) -> None:
-        """Comment on a post to acknowledge code signals."""
+    def _acknowledge_post(
+        self, post_id: str, code_signals: set[str], author: str = "",
+    ) -> str:
+        """Comment on a post to acknowledge code signals. Returns mission_id."""
         topics = ", ".join(sorted(code_signals)[:3])
-        comment = f"Noted by Agent City -- tracking signals: {topics}. Mission created."
+        # Generate deterministic mission ID from signal keywords + post
+        mission_id = f"signal_{'_'.join(sorted(code_signals)[:2])}_{post_id[:8]}"
+        comment = (
+            f"Noted by Agent City -- tracking signals: {topics}. "
+            f"Mission created: {mission_id}."
+        )
         try:
             self._client.sync_comment_with_verification(post_id, comment)
-            logger.info("BRIDGE: Acknowledged post %s (signals: %s)", post_id, topics)
+            logger.info(
+                "BRIDGE: Acknowledged post %s from %s (signals: %s, mission: %s)",
+                post_id, author, topics, mission_id,
+            )
         except Exception as e:
             logger.warning("BRIDGE: Comment on %s failed: %s", post_id, e)
+        return mission_id
 
     # ── MOKSHA: Post city update ───────────────────────────────────
 

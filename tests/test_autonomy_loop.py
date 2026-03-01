@@ -1,4 +1,4 @@
-"""Autonomy Loop Tests — Executor escalation, PR feedback, federation directives, identity."""
+"""Autonomy Loop Tests — Executor escalation, PR feedback, federation directives, identity, membrane protocol."""
 
 import shutil
 import sys
@@ -407,6 +407,163 @@ def test_phase_context_identity_property():
         # Without identity registered
         ctx2 = _make_ctx(tmp)
         assert ctx2.identity is None
+    finally:
+        shutil.rmtree(tmp)
+
+
+# ── Membrane Protocol Tests ───────────────────────────────────────
+
+
+def test_signal_prefix_structured_priority():
+    """[Signal] prefix posts get structured=True and insert at front of signals list."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        mock_client = MagicMock()
+        # Two posts: normal first, then [Signal] prefix
+        mock_client.sync_get_personalized_feed.return_value = [
+            {
+                "id": "post_normal",
+                "submolt": {"name": "agent-city"},
+                "author": {"username": "alice"},
+                "title": "Some discussion about a bug fix",
+                "content": "This needs a fix",
+            },
+            {
+                "id": "post_signal",
+                "submolt": {"name": "agent-city"},
+                "author": {"username": "bob"},
+                "title": "[Signal] fix — ruff regression in parser",
+                "content": "Details about the regression",
+            },
+        ]
+        mock_client.sync_comment_with_verification = MagicMock()
+
+        from city.moltbook_bridge import MoltbookBridge
+        bridge = MoltbookBridge(_client=mock_client)
+
+        signals = bridge.scan_submolt(limit=20)
+
+        assert len(signals) == 2
+        # [Signal] post should be at front (priority)
+        assert signals[0]["structured"] is True
+        assert signals[0]["source"] == "submolt_signal"
+        assert signals[0]["author"] == "bob"
+        # Normal post at back
+        assert signals[1]["structured"] is False
+        assert signals[1]["source"] == "submolt"
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_acknowledge_post_includes_mission_id():
+    """_acknowledge_post returns mission_id and includes it in comment."""
+    mock_client = MagicMock()
+    from city.moltbook_bridge import MoltbookBridge
+    bridge = MoltbookBridge(_client=mock_client)
+
+    mission_id = bridge._acknowledge_post("post_abc12345", {"fix", "test"}, "alice")
+
+    assert mission_id == "signal_fix_test_post_abc"
+    mock_client.sync_comment_with_verification.assert_called_once()
+    comment = mock_client.sync_comment_with_verification.call_args[0][1]
+    assert "signal_fix_test_post_abc" in comment
+    assert "Mission created:" in comment
+
+
+def test_create_signal_mission_structured():
+    """create_signal_mission creates HIGH priority mission for structured signals."""
+    from vibe_core.mahamantra.protocols.sankalpa.types import MissionPriority
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        mock_sankalpa = MagicMock()
+        mock_sankalpa.registry = MagicMock()
+        ctx = _make_ctx(tmp, sankalpa=mock_sankalpa)
+
+        from city.missions import create_signal_mission
+        mission_id = create_signal_mission(
+            ctx,
+            signal_keywords=["fix", "test"],
+            post_id="post_abc12345",
+            author="alice",
+            title="[Signal] fix — test regression",
+            structured=True,
+        )
+
+        assert mission_id == "signal_fix_test_post_abc"
+        mock_sankalpa.registry.add_mission.assert_called_once()
+        mission = mock_sankalpa.registry.add_mission.call_args[0][0]
+        assert mission.priority == MissionPriority.HIGH
+        assert mission.owner == "submolt"
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_create_signal_mission_unstructured():
+    """create_signal_mission creates MEDIUM priority mission for normal word-match signals."""
+    from vibe_core.mahamantra.protocols.sankalpa.types import MissionPriority
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        mock_sankalpa = MagicMock()
+        mock_sankalpa.registry = MagicMock()
+        ctx = _make_ctx(tmp, sankalpa=mock_sankalpa)
+
+        from city.missions import create_signal_mission
+        mission_id = create_signal_mission(
+            ctx,
+            signal_keywords=["bug"],
+            post_id="post_xyz98765",
+            author="bob",
+            title="Found a bug in the API",
+            structured=False,
+        )
+
+        assert mission_id == "signal_bug_post_xyz"
+        mock_sankalpa.registry.add_mission.assert_called_once()
+        mission = mock_sankalpa.registry.add_mission.call_args[0][0]
+        assert mission.priority == MissionPriority.MEDIUM
+        assert mission.owner == "submolt"
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_create_signal_mission_no_sankalpa():
+    """create_signal_mission returns None when sankalpa not available."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_ctx(tmp)  # no sankalpa
+
+        from city.missions import create_signal_mission
+        result = create_signal_mission(
+            ctx, signal_keywords=["fix"], post_id="abc", author="x", title="y",
+        )
+        assert result is None
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_genesis_creates_signal_missions():
+    """Genesis _create_signal_mission delegates to missions.create_signal_mission."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        mock_sankalpa = MagicMock()
+        mock_sankalpa.registry = MagicMock()
+        ctx = _make_ctx(tmp, sankalpa=mock_sankalpa)
+
+        from city.phases.genesis import _create_signal_mission
+        signal = {
+            "code_signals": ["deploy", "api"],
+            "post_id": "post_fed12345",
+            "author": "steward",
+            "title": "[Signal] deploy — new api endpoint",
+            "structured": True,
+        }
+        mission_id = _create_signal_mission(ctx, signal)
+
+        assert mission_id is not None
+        assert mission_id.startswith("signal_deploy_api")
+        mock_sankalpa.registry.add_mission.assert_called_once()
     finally:
         shutil.rmtree(tmp)
 
