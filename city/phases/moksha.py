@@ -132,6 +132,12 @@ def execute(ctx: PhaseContext) -> dict:
         if closed_count > 0:
             reflection["issues_closed"] = closed_count
 
+    # Mission hygiene: purge stale duplicates
+    if ctx.sankalpa is not None:
+        purged = _purge_stale_missions(ctx)
+        if purged > 0:
+            reflection["missions_purged"] = purged
+
     # Collect terminal missions (completed/failed) for [Mission Result] posts
     terminal_missions = _collect_terminal_missions(ctx)
     if terminal_missions:
@@ -286,6 +292,54 @@ def _close_resolved_issues(ctx: PhaseContext) -> int:
         ctx.sankalpa.registry.add_mission(mission)
 
     return closed
+
+
+def _purge_stale_missions(ctx: PhaseContext) -> int:
+    """Purge duplicate missions — keep only the latest per contract/source.
+
+    Prevents mission spiral: same failing contract creating new mission every heartbeat.
+    For each unique mission name, keep the one with highest heartbeat suffix, abandon rest.
+    """
+    try:
+        from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
+    except Exception:
+        return 0
+
+    try:
+        all_missions = ctx.sankalpa.registry.list_missions()
+    except Exception:
+        return 0
+
+    # Group active missions by name
+    by_name: dict[str, list] = {}
+    for m in all_missions:
+        if m.status != MissionStatus.ACTIVE:
+            continue
+        by_name.setdefault(m.name, []).append(m)
+
+    purged = 0
+    for name, missions in by_name.items():
+        if len(missions) <= 1:
+            continue
+
+        # Sort by ID suffix (heartbeat number) — keep highest
+        def _heartbeat_suffix(m):
+            parts = m.id.rsplit("_", 1)
+            try:
+                return int(parts[-1])
+            except (ValueError, IndexError):
+                return 0
+
+        missions.sort(key=_heartbeat_suffix, reverse=True)
+        # Keep first (newest), abandon rest
+        for m in missions[1:]:
+            m.status = MissionStatus.ABANDONED
+            ctx.sankalpa.registry.add_mission(m)
+            purged += 1
+
+    if purged:
+        logger.info("MOKSHA: Purged %d stale duplicate missions", purged)
+    return purged
 
 
 def _should_audit(ctx: PhaseContext) -> bool:
