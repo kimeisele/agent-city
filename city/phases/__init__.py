@@ -60,6 +60,9 @@ class PhaseContext:
     # Layer 6 federation
     federation: FederationRelay | None = None
 
+    # Layer 6 Moltbook bridge (m/agent-city submolt communication)
+    moltbook_bridge: object = None  # MoltbookBridge (city.moltbook_bridge)
+
     # Layer 7 Moltbook inbox (DM pipeline)
     moltbook_client: object = None  # MoltbookClient (steward-protocol)
 

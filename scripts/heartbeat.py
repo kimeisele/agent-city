@@ -150,12 +150,47 @@ def main() -> None:
             except Exception as e:
                 logging.getLogger("HEARTBEAT").warning("MoltbookClient init failed: %s", e)
 
+    # Wire Moltbook bridge for m/agent-city communication
+    if mayor._moltbook_client is not None:
+        try:
+            import json as _json
+
+            from city.moltbook_bridge import MoltbookBridge
+
+            _bridge_username = _cfg.get("moltbook_bridge", {}).get("own_username", "")
+            bridge = MoltbookBridge(
+                _client=mayor._moltbook_client,
+                _own_username=_bridge_username,
+            )
+            # Restore persisted state
+            _bridge_state_path = db_path.parent / "bridge_state.json"
+            if _bridge_state_path.exists():
+                try:
+                    bridge.restore(_json.loads(_bridge_state_path.read_text()))
+                except Exception:
+                    pass
+            mayor._moltbook_bridge = bridge
+            logging.getLogger("HEARTBEAT").info("Moltbook bridge wired for m/agent-city")
+        except Exception as e:
+            logging.getLogger("HEARTBEAT").warning("Moltbook bridge init failed: %s", e)
+
     print(f"=== Agent City Heartbeat — {args.cycles} cycles ===")
     if args.offline:
         print("Mode: OFFLINE (no Moltbook API)")
     print()
 
     results = mayor.run_cycle(args.cycles)
+
+    # Persist bridge state
+    if mayor._moltbook_bridge is not None:
+        import json as _json
+        _bridge_state_path = db_path.parent / "bridge_state.json"
+        try:
+            _bridge_state_path.write_text(
+                _json.dumps(mayor._moltbook_bridge.snapshot(), indent=2),
+            )
+        except Exception as e:
+            logging.getLogger("HEARTBEAT").warning("Bridge state save failed: %s", e)
 
     for r in results:
         dept = r["department"]

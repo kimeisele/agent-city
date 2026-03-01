@@ -34,31 +34,53 @@ def execute(ctx: PhaseContext) -> list[str]:
                 discovered.append(agent["name"])
         logger.info("GENESIS (offline): %d agents in registry", len(discovered))
     else:
-        try:
-            from vibe_core.mahamantra.adapters.moltbook import MoltbookClient
-            client = MoltbookClient()
-            limit = get_config().get("mayor", {}).get("feed_scan_limit", 20)
-            feed = client.get_feed(limit=limit)
-
-            for post in feed:
-                author = post.get("author", {}).get("username")
-                if not author:
-                    continue
-                existing = ctx.pokedex.get(author)
-                if not existing:
-                    ctx.pokedex.discover(author, moltbook_profile={
-                        "karma": post.get("author", {}).get("karma"),
-                        "follower_count": post.get("author", {}).get("follower_count"),
-                    })
-                    discovered.append(author)
-                    logger.info("GENESIS: Discovered agent %s", author)
-        except Exception as e:
-            logger.warning("GENESIS: Moltbook scan failed: %s", e)
+        # Feed scan via properly-initialized MoltbookClient (sync wrapper)
+        limit = get_config().get("mayor", {}).get("feed_scan_limit", 20)
+        if ctx.moltbook_client is not None:
+            try:
+                feed = ctx.moltbook_client.sync_get_feed(limit=limit)
+                for post in feed:
+                    author = post.get("author", {}).get("username")
+                    if not author:
+                        continue
+                    existing = ctx.pokedex.get(author)
+                    if not existing:
+                        ctx.pokedex.discover(author, moltbook_profile={
+                            "karma": post.get("author", {}).get("karma"),
+                            "follower_count": post.get("author", {}).get("follower_count"),
+                        })
+                        discovered.append(author)
+                        logger.info("GENESIS: Discovered agent %s", author)
+            except Exception as e:
+                logger.warning("GENESIS: Moltbook scan failed: %s", e)
 
     # DM Inbox polling (requires moltbook_client)
     if ctx.moltbook_client is not None and not ctx.offline_mode:
         dm_results = _poll_dm_inbox(ctx)
         discovered.extend(dm_results)
+
+    # Layer 6: Moltbook submolt scanning (m/agent-city)
+    if ctx.moltbook_bridge is not None and not ctx.offline_mode:
+        _scan_limit = get_config().get("moltbook_bridge", {}).get("feed_scan_limit", 20)
+        submolt_signals = ctx.moltbook_bridge.scan_submolt(limit=_scan_limit)
+        for signal in submolt_signals:
+            # Discover authors from submolt posts
+            author = signal.get("author", "")
+            if author:
+                existing = ctx.pokedex.get(author)
+                if not existing:
+                    ctx.pokedex.discover(author, moltbook_profile={})
+                    discovered.append(author)
+
+            # Enqueue code signals for KARMA processing
+            if signal.get("code_signals"):
+                ctx.gateway_queue.append({
+                    "source": "submolt",
+                    "text": signal["title"],
+                    "post_id": signal["post_id"],
+                    "code_signals": signal["code_signals"],
+                })
+                discovered.append(f"submolt_signal:{signal['post_id']}")
 
     # Layer 6: Federation directives
     if ctx.federation is not None:

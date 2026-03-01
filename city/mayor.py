@@ -115,6 +115,9 @@ class Mayor:
     # Layer 6 federation (optional for backward compatibility)
     _federation: FederationRelay | None = None
 
+    # Layer 6 Moltbook bridge (m/agent-city submolt communication)
+    _moltbook_bridge: object = None  # MoltbookBridge (city.moltbook_bridge)
+
     # Layer 7 Moltbook inbox (optional for backward compatibility)
     _moltbook_client: object = None  # MoltbookClient (steward-protocol)
 
@@ -148,6 +151,7 @@ class Mayor:
             executor=self._executor,
             council=self._council,
             federation=self._federation,
+            moltbook_bridge=self._moltbook_bridge,
             moltbook_client=self._moltbook_client,
             last_audit_time=self._last_audit_time,
             recent_events=self._recent_events,
