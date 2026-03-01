@@ -65,6 +65,12 @@ GENESIS_GRANT: int = MALA                                   # 108 (was 100 — n
 HIBERNATION_THRESHOLD: int = MALA * NAVA                    # 108 × 9 = 972
 PRANA_NORM_MAX: int = COSMIC_FRAME                          # 21600
 
+# ── Sanjivani (Resurrection) ──────────────────────────────────────────
+
+SANJIVANI_DOSE: int = MALA * TEN                            # 108 × 10 = 1080 (above HIBERNATION_THRESHOLD)
+SANJIVANI_COOLDOWN_CYCLES: int = MALA                       # 108 heartbeats between auto-revives per agent
+WORKER_VISA_STIPEND: int = MALA // TRINITY                  # 108 / 3 = 36 (survival prana for workers)
+
 # ── Prana Class Resolution ────────────────────────────────────────────
 
 # Ordered thresholds: if prana >= threshold → class

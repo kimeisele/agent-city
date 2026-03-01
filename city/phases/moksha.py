@@ -185,6 +185,11 @@ def execute(ctx: PhaseContext) -> dict:
     if terminal_missions:
         reflection["mission_results_terminal"] = terminal_missions
 
+    # Sanjivani Protocol: evaluate dormant agents for treasury-funded revival
+    sanjivani_results = _sanjivani_evaluate(ctx)
+    if sanjivani_results:
+        reflection["sanjivani"] = sanjivani_results
+
     # Layer 6: Federation Nadi — emit city state + flush outbox
     if ctx.federation_nadi is not None:
         nadi_payload = {
@@ -534,3 +539,71 @@ def _build_city_report(ctx: PhaseContext, reflection: dict) -> object:
         directive_acks=directive_acks,
         pr_results=reflection.get("pr_results", []),
     )
+
+
+def _sanjivani_evaluate(ctx: PhaseContext) -> dict | None:
+    """Sanjivani Protocol — evaluate dormant agents for treasury-funded revival.
+
+    Runs during MOKSHA (reflection phase).  Selects frozen agents who lived
+    long enough to have proven value (cell_cycle > threshold) and revives
+    them with a SANJIVANI_DOSE funded from the zone treasury.
+
+    Rate-limited: at most 1 revive per MOKSHA cycle to prevent treasury drain.
+    Cooldown tracked per agent via event ledger (SANJIVANI_COOLDOWN_CYCLES).
+    """
+    from city.seed_constants import SANJIVANI_COOLDOWN_CYCLES, SANJIVANI_DOSE
+
+    dormant = ctx.pokedex.list_dormant()
+    if not dormant:
+        return None
+
+    # Eligibility: agent must have lived at least SANJIVANI_COOLDOWN_CYCLES
+    # heartbeats before going dormant (proof of prior value)
+    eligible = [
+        d for d in dormant
+        if d["cell_cycle"] >= SANJIVANI_COOLDOWN_CYCLES
+        and d["prana_class"] != "immortal"
+    ]
+
+    if not eligible:
+        return {"dormant_count": len(dormant), "eligible": 0, "revived": []}
+
+    # Sort by cell_cycle descending — most experienced agents first
+    eligible.sort(key=lambda d: d["cell_cycle"], reverse=True)
+
+    # Revive at most 1 per MOKSHA cycle (treasury protection)
+    revived: list[str] = []
+    candidate = eligible[0]
+
+    # Determine which zone treasury funds the revival
+    agent_data = ctx.pokedex.get(candidate["name"])
+    zone = "discovery"  # fallback
+    if agent_data and agent_data.get("zone"):
+        zone = agent_data["zone"]
+
+    from city.pokedex import ZONE_TREASURIES
+    treasury_account = ZONE_TREASURIES.get(zone, "ZONE_DISCOVERY")
+
+    try:
+        ctx.pokedex.revive(
+            candidate["name"],
+            prana_dose=SANJIVANI_DOSE,
+            sponsor=treasury_account,
+            reason=f"sanjivani:moksha_auto:cycle_{ctx.heartbeat_count}",
+        )
+        revived.append(candidate["name"])
+        logger.info(
+            "SANJIVANI: Revived %s (cycle=%d, zone=%s, dose=%d)",
+            candidate["name"],
+            candidate["cell_cycle"],
+            zone,
+            SANJIVANI_DOSE,
+        )
+    except Exception as e:
+        logger.warning("SANJIVANI: Failed to revive %s: %s", candidate["name"], e)
+
+    return {
+        "dormant_count": len(dormant),
+        "eligible": len(eligible),
+        "revived": revived,
+    }
