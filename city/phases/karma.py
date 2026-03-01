@@ -26,9 +26,39 @@ def execute(ctx: PhaseContext) -> list[str]:
         item = ctx.gateway_queue.pop(0)
         source = item.get("source", "unknown")
         text = item.get("text", "")
+        conversation_id = item.get("conversation_id", "")
+        from_agent = item.get("from_agent", "")
+
         try:
             result = ctx.gateway.process(text, source)
-            operations.append(f"processed:{source}:seed={result['seed']}")
+
+            # DM messages: generate response and send back
+            if conversation_id and from_agent and ctx.moltbook_client is not None:
+                from city.inbox import InboxMessage, dispatch
+
+                msg = InboxMessage(
+                    from_agent=from_agent,
+                    text=text,
+                    conversation_id=conversation_id,
+                )
+                response = dispatch(msg, result, ctx.pokedex)
+
+                try:
+                    ctx.moltbook_client.sync_send_dm(
+                        response.conversation_id,
+                        response.text,
+                    )
+                    operations.append(
+                        f"dm_replied:{from_agent}:seed={result['seed']}"
+                    )
+                except Exception as e:
+                    operations.append(f"dm_reply_failed:{from_agent}:{e}")
+                    logger.warning(
+                        "KARMA: DM reply failed for %s: %s", from_agent, e,
+                    )
+            else:
+                operations.append(f"processed:{source}:seed={result['seed']}")
+
         except Exception as e:
             operations.append(f"error:{source}:{e}")
             logger.warning("KARMA: Gateway processing failed for %s: %s", source, e)
