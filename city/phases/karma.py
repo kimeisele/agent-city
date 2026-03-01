@@ -239,9 +239,9 @@ def _council_auto_vote(ctx: PhaseContext) -> None:
 
 
 def _process_issue_missions(ctx: PhaseContext, operations: list[str]) -> None:
-    """Process Sankalpa missions created from GitHub Issues.
+    """Process Sankalpa missions created from GitHub Issues and federation directives.
 
-    Issue missions have no strategies (fire-once), so they won't
+    Issue/exec missions have no strategies (fire-once), so they won't
     appear in sankalpa.think(). Process them directly in KARMA.
     """
     try:
@@ -255,6 +255,22 @@ def _process_issue_missions(ctx: PhaseContext, operations: list[str]) -> None:
         return
 
     for mission in active:
+        # Handle federation execute_code missions
+        if mission.id.startswith("exec_"):
+            success = _execute_code_mission(ctx, mission)
+            operations.append(
+                f"exec_mission:{mission.id}:{'success' if success else 'pending'}"
+            )
+            if success:
+                mission.status = MissionStatus.COMPLETED
+                ctx.sankalpa.registry.add_mission(mission)
+            _learn(ctx, mission.id, "exec_mission", success=success)
+            logger.info(
+                "KARMA: Exec mission %s — %s",
+                mission.id, "completed" if success else "pending",
+            )
+            continue
+
         # Only process issue-driven missions
         if not mission.id.startswith("issue_"):
             continue
@@ -305,7 +321,8 @@ def _execute_issue_audit(ctx: PhaseContext, issue_number: int) -> bool:
 
 
 def _execute_issue_heal(ctx: PhaseContext, issue_number: int) -> bool:
-    """Execute a heal-needed issue mission via immune system."""
+    """Execute a heal-needed issue mission via immune system → executor escalation."""
+    # Step 1: Try immune system (fast, no git involvement)
     if ctx.immune is not None:
         diagnosis = ctx.immune.diagnose(f"issue_low_prana:{issue_number}")
         if diagnosis.healable:
@@ -314,5 +331,67 @@ def _execute_issue_heal(ctx: PhaseContext, issue_number: int) -> bool:
                 logger.info("KARMA: Issue #%d healed by immune system", issue_number)
                 return True
 
-    # No immune system or no healable diagnosis — stay pending
+    # Step 2: Escalate to executor (ruff fix → PR creation)
+    if ctx.executor is not None:
+        fix = ctx.executor.execute_heal("ruff_clean", [f"issue_{issue_number}"])
+        if fix.success and fix.files_changed:
+            pr = ctx.executor.create_fix_pr(fix, ctx.heartbeat_count)
+            if pr is not None and pr.success:
+                _record_pr_event(ctx, issue_number, pr)
+                logger.info(
+                    "KARMA: Issue #%d → PR created: %s",
+                    issue_number, pr.pr_url,
+                )
+                return True
+            if fix.success:
+                # Fixed but no PR (dry run or no git changes)
+                logger.info("KARMA: Issue #%d fixed (no PR needed)", issue_number)
+                return True
+
+    # No immune, no executor, or nothing healable — stay pending
     return False
+
+
+def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
+    """Execute a federation code-execution mission via executor.
+
+    Mission description format: "Federation directive: {contract_name}"
+    """
+    if ctx.executor is None:
+        return False
+
+    # Extract contract name from mission name (format: "Execute: ruff_clean")
+    contract = "ruff_clean"  # default
+    if mission.name.startswith("Execute: "):
+        contract = mission.name[len("Execute: "):]
+
+    try:
+        fix = ctx.executor.execute_heal(contract, [f"mission_{mission.id}"])
+        if fix.success and fix.files_changed:
+            pr = ctx.executor.create_fix_pr(fix, ctx.heartbeat_count)
+            if pr is not None and pr.success:
+                _record_pr_event(ctx, 0, pr)
+                logger.info(
+                    "KARMA: Exec mission %s → PR created: %s",
+                    mission.id, pr.pr_url,
+                )
+                return True
+            if fix.success:
+                logger.info("KARMA: Exec mission %s fixed (no PR needed)", mission.id)
+                return True
+    except Exception as e:
+        logger.warning("KARMA: Exec mission %s failed: %s", mission.id, e)
+
+    return False
+
+
+def _record_pr_event(ctx: PhaseContext, issue_number: int, pr: object) -> None:
+    """Record a PR creation event for MOKSHA to pick up."""
+    ctx.recent_events.append({
+        "type": "pr_created",
+        "issue_number": issue_number,
+        "pr_url": pr.pr_url,
+        "branch": pr.branch,
+        "commit_hash": pr.commit_hash,
+        "heartbeat": ctx.heartbeat_count,
+    })

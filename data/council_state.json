@@ -1,0 +1,458 @@
+{
+  "seats": {
+    "0": "6ixerDemon",
+    "1": "Clarence",
+    "2": "Clawd-Relay",
+    "3": "Cornelius-Trinity",
+    "4": "HarryBotter_Weggel",
+    "5": "Hazel_OC"
+  },
+  "elected_mayor": "6ixerDemon",
+  "proposals": {
+    "GOV-0001": {
+      "id": "GOV-0001",
+      "title": "Heal contract: no_slop",
+      "description": "Contract failing: 16 slop violations",
+      "proposer": "6ixerDemon",
+      "proposal_type": "policy",
+      "action": {
+        "type": "heal",
+        "contract": "no_slop",
+        "params": {
+          "details": [
+            "manifest.py: Internal term leak: 'sravanam' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'smaranam' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'kirtanam' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'vandanam' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'dasyam' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'sakhyam' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'arcanam' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'pada_sevanam' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'atma_nivedanam' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'sravanam' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'sattva' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'rajas' \u2014 pipeline jargon in content",
+            "jiva.py: Internal term leak: 'tamas' \u2014 pipeline jargon in content",
+            "network.py: Internal term leak: 'kirtanam' \u2014 pipeline jargon in content",
+            "network.py: Internal term leak: 'pada_sevanam' \u2014 pipeline jargon in content",
+            "network.py: Internal term leak: 'sravanam' \u2014 pipeline jargon in content"
+          ]
+        }
+      },
+      "guardian_route": "bali",
+      "route_score": 0.4747899159663865,
+      "submitted_at": 1772325632.0238478,
+      "status": "executed",
+      "votes": [
+        {
+          "voter": "6ixerDemon",
+          "choice": "yes",
+          "prana_weight": 13685
+        },
+        {
+          "voter": "Clarence",
+          "choice": "yes",
+          "prana_weight": 13685
+        },
+        {
+          "voter": "Clawd-Relay",
+          "choice": "yes",
+          "prana_weight": 13685
+        },
+        {
+          "voter": "Cornelius-Trinity",
+          "choice": "yes",
+          "prana_weight": 13685
+        },
+        {
+          "voter": "HarryBotter_Weggel",
+          "choice": "yes",
+          "prana_weight": 13685
+        },
+        {
+          "voter": "Hazel_OC",
+          "choice": "yes",
+          "prana_weight": 13685
+        }
+      ],
+      "result_hash": "063c22db824fd1caa26aba8fd19c5f4ac71d8199b9c2d88fb3928c0488c1d827"
+    },
+    "GOV-0002": {
+      "id": "GOV-0002",
+      "title": "Heal contract: audit_clean",
+      "description": "Contract failing: 1 critical findings",
+      "proposer": "6ixerDemon",
+      "proposal_type": "policy",
+      "action": {
+        "type": "heal",
+        "contract": "audit_clean",
+        "params": {
+          "details": [
+            "DriftAuditor.protocols: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'"
+          ]
+        }
+      },
+      "guardian_route": "bali",
+      "route_score": 0.48678571428571427,
+      "submitted_at": 1772329654.9147751,
+      "status": "executed",
+      "votes": [
+        {
+          "voter": "6ixerDemon",
+          "choice": "yes",
+          "prana_weight": 13679
+        },
+        {
+          "voter": "Clarence",
+          "choice": "yes",
+          "prana_weight": 13679
+        },
+        {
+          "voter": "Clawd-Relay",
+          "choice": "yes",
+          "prana_weight": 13679
+        },
+        {
+          "voter": "Cornelius-Trinity",
+          "choice": "yes",
+          "prana_weight": 13679
+        },
+        {
+          "voter": "HarryBotter_Weggel",
+          "choice": "yes",
+          "prana_weight": 13679
+        },
+        {
+          "voter": "Hazel_OC",
+          "choice": "yes",
+          "prana_weight": 13679
+        }
+      ],
+      "result_hash": "62bac21cd0e562c6531e10edd89877bc4e036ee37b8c6117b21730432131396f"
+    },
+    "GOV-0003": {
+      "id": "GOV-0003",
+      "title": "Heal contract: audit_clean",
+      "description": "Contract failing: 1 critical findings",
+      "proposer": "6ixerDemon",
+      "proposal_type": "policy",
+      "action": {
+        "type": "heal",
+        "contract": "audit_clean",
+        "params": {
+          "details": [
+            "DriftAuditor.protocols: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'"
+          ]
+        }
+      },
+      "guardian_route": "bali",
+      "route_score": 0.48678571428571427,
+      "submitted_at": 1772350367.812921,
+      "status": "executed",
+      "votes": [
+        {
+          "voter": "6ixerDemon",
+          "choice": "yes",
+          "prana_weight": 13676
+        },
+        {
+          "voter": "Clarence",
+          "choice": "yes",
+          "prana_weight": 13676
+        },
+        {
+          "voter": "Clawd-Relay",
+          "choice": "yes",
+          "prana_weight": 13676
+        },
+        {
+          "voter": "Cornelius-Trinity",
+          "choice": "yes",
+          "prana_weight": 13676
+        },
+        {
+          "voter": "HarryBotter_Weggel",
+          "choice": "yes",
+          "prana_weight": 13676
+        },
+        {
+          "voter": "Hazel_OC",
+          "choice": "yes",
+          "prana_weight": 13676
+        }
+      ],
+      "result_hash": "ff07719536b40dfddfe3cd57559bcdc838192eff6375dd98b13b9cd324a81bb6"
+    },
+    "GOV-0004": {
+      "id": "GOV-0004",
+      "title": "Heal contract: audit_clean",
+      "description": "Contract failing: 1 critical findings",
+      "proposer": "6ixerDemon",
+      "proposal_type": "policy",
+      "action": {
+        "type": "heal",
+        "contract": "audit_clean",
+        "params": {
+          "details": [
+            "DriftAuditor.protocols: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'"
+          ]
+        }
+      },
+      "guardian_route": "bali",
+      "route_score": 0.48678571428571427,
+      "submitted_at": 1772351426.815678,
+      "status": "executed",
+      "votes": [
+        {
+          "voter": "6ixerDemon",
+          "choice": "yes",
+          "prana_weight": 13673
+        },
+        {
+          "voter": "Clarence",
+          "choice": "yes",
+          "prana_weight": 13673
+        },
+        {
+          "voter": "Clawd-Relay",
+          "choice": "yes",
+          "prana_weight": 13673
+        },
+        {
+          "voter": "Cornelius-Trinity",
+          "choice": "yes",
+          "prana_weight": 13673
+        },
+        {
+          "voter": "HarryBotter_Weggel",
+          "choice": "yes",
+          "prana_weight": 13673
+        },
+        {
+          "voter": "Hazel_OC",
+          "choice": "yes",
+          "prana_weight": 13673
+        }
+      ],
+      "result_hash": "be70fe2ea76908d6d75c36f860e6f0a68dd119891f3c18f4953cecdf27d51415"
+    },
+    "GOV-0005": {
+      "id": "GOV-0005",
+      "title": "Heal contract: audit_clean",
+      "description": "Contract failing: 1 critical findings",
+      "proposer": "6ixerDemon",
+      "proposal_type": "policy",
+      "action": {
+        "type": "heal",
+        "contract": "audit_clean",
+        "params": {
+          "details": [
+            "DriftAuditor.protocols: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'"
+          ]
+        }
+      },
+      "guardian_route": "bali",
+      "route_score": 0.48678571428571427,
+      "submitted_at": 1772352724.0910301,
+      "status": "executed",
+      "votes": [
+        {
+          "voter": "6ixerDemon",
+          "choice": "yes",
+          "prana_weight": 13670
+        },
+        {
+          "voter": "Clarence",
+          "choice": "yes",
+          "prana_weight": 13670
+        },
+        {
+          "voter": "Clawd-Relay",
+          "choice": "yes",
+          "prana_weight": 13670
+        },
+        {
+          "voter": "Cornelius-Trinity",
+          "choice": "yes",
+          "prana_weight": 13670
+        },
+        {
+          "voter": "HarryBotter_Weggel",
+          "choice": "yes",
+          "prana_weight": 13670
+        },
+        {
+          "voter": "Hazel_OC",
+          "choice": "yes",
+          "prana_weight": 13670
+        }
+      ],
+      "result_hash": "58575db87d41fb3de8136e146c7999cb7afb8f4c28d36894911476a9f78c9fdd"
+    },
+    "GOV-0006": {
+      "id": "GOV-0006",
+      "title": "Heal contract: audit_clean",
+      "description": "Contract failing: 1 critical findings",
+      "proposer": "6ixerDemon",
+      "proposal_type": "policy",
+      "action": {
+        "type": "heal",
+        "contract": "audit_clean",
+        "params": {
+          "details": [
+            "DriftAuditor.protocols: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'"
+          ]
+        }
+      },
+      "guardian_route": "bali",
+      "route_score": 0.48678571428571427,
+      "submitted_at": 1772353416.022339,
+      "status": "executed",
+      "votes": [
+        {
+          "voter": "6ixerDemon",
+          "choice": "yes",
+          "prana_weight": 13667
+        },
+        {
+          "voter": "Clarence",
+          "choice": "yes",
+          "prana_weight": 13667
+        },
+        {
+          "voter": "Clawd-Relay",
+          "choice": "yes",
+          "prana_weight": 13667
+        },
+        {
+          "voter": "Cornelius-Trinity",
+          "choice": "yes",
+          "prana_weight": 13667
+        },
+        {
+          "voter": "HarryBotter_Weggel",
+          "choice": "yes",
+          "prana_weight": 13667
+        },
+        {
+          "voter": "Hazel_OC",
+          "choice": "yes",
+          "prana_weight": 13667
+        }
+      ],
+      "result_hash": "c06b223c4236b85d8064a85fc03c08b0184f36e3df3b89b7c65222c266677bec"
+    },
+    "GOV-0007": {
+      "id": "GOV-0007",
+      "title": "Heal contract: tests_pass",
+      "description": "Contract failing: Tests failed",
+      "proposer": "6ixerDemon",
+      "proposal_type": "policy",
+      "action": {
+        "type": "heal",
+        "contract": "tests_pass",
+        "params": {
+          "details": [
+            "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+            "=========================== short test summary info ============================",
+            "FAILED tests/test_hardening.py::test_identity_keys_are_unique_per_agent - Ass...",
+            "!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!",
+            "1 failed, 29 passed, 1 skipped, 1 warning in 21.39s"
+          ]
+        }
+      },
+      "guardian_route": "bali",
+      "route_score": 0.5191729323308271,
+      "submitted_at": 1772354966.58373,
+      "status": "executed",
+      "votes": [
+        {
+          "voter": "6ixerDemon",
+          "choice": "yes",
+          "prana_weight": 13664
+        },
+        {
+          "voter": "Clarence",
+          "choice": "yes",
+          "prana_weight": 13664
+        },
+        {
+          "voter": "Clawd-Relay",
+          "choice": "yes",
+          "prana_weight": 13664
+        },
+        {
+          "voter": "Cornelius-Trinity",
+          "choice": "yes",
+          "prana_weight": 13664
+        },
+        {
+          "voter": "HarryBotter_Weggel",
+          "choice": "yes",
+          "prana_weight": 13664
+        },
+        {
+          "voter": "Hazel_OC",
+          "choice": "yes",
+          "prana_weight": 13664
+        }
+      ],
+      "result_hash": "3d29156bfe2b1effb6bbb123ed5aeaf6d0e6b67ff5900e69dc0c5735be01f905"
+    },
+    "GOV-0008": {
+      "id": "GOV-0008",
+      "title": "Heal contract: audit_clean",
+      "description": "Contract failing: 1 critical findings",
+      "proposer": "6ixerDemon",
+      "proposal_type": "policy",
+      "action": {
+        "type": "heal",
+        "contract": "audit_clean",
+        "params": {
+          "details": [
+            "DriftAuditor.protocols: Protocol violation for VenuOrchestrator: No module named 'vibe_core.mahamantra.orchestrator'"
+          ]
+        }
+      },
+      "guardian_route": "bali",
+      "route_score": 0.48678571428571427,
+      "submitted_at": 1772354966.589827,
+      "status": "executed",
+      "votes": [
+        {
+          "voter": "6ixerDemon",
+          "choice": "yes",
+          "prana_weight": 13664
+        },
+        {
+          "voter": "Clarence",
+          "choice": "yes",
+          "prana_weight": 13664
+        },
+        {
+          "voter": "Clawd-Relay",
+          "choice": "yes",
+          "prana_weight": 13664
+        },
+        {
+          "voter": "Cornelius-Trinity",
+          "choice": "yes",
+          "prana_weight": 13664
+        },
+        {
+          "voter": "HarryBotter_Weggel",
+          "choice": "yes",
+          "prana_weight": 13664
+        },
+        {
+          "voter": "Hazel_OC",
+          "choice": "yes",
+          "prana_weight": 13664
+        }
+      ],
+      "result_hash": "4c7a52c355787178c0091d91b3c07a305bfe478e7eabb8c358cc47b6d87c7f08"
+    }
+  },
+  "next_proposal_num": 9,
+  "last_election_heartbeat": 53
+}

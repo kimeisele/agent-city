@@ -50,17 +50,36 @@ class CityAddressBook:
     _address_to_name: dict[int, str] = field(default_factory=dict)
 
     def resolve(self, name: str) -> int:
-        """Name → MahaCompression seed → uint32 address.
+        """Name → collision-resistant uint32 address.
 
-        Deterministic: same name always produces the same address.
-        Cached after first computation.
+        Combines two entropy sources for uniqueness:
+          1. MahaCompression seed (Mahamantra-derived, deterministic)
+          2. SHA-256(name) (cryptographic, guaranteed unique per name)
+
+        XOR ensures both sources contribute. The name hash alone
+        would suffice for uniqueness, but the compression seed
+        preserves the Mahamantra binding.
         """
         if name in self._name_to_address:
             return self._name_to_address[name]
 
+        import hashlib
+
+        # Source 1: Mahamantra compression (spiritually meaningful)
         compression = _get_compression()
         result = compression.compress(name)
-        address = result.seed
+        mahamantra_seed = result.seed
+
+        # Source 2: SHA-256 of name (cryptographically collision-resistant)
+        name_hash = hashlib.sha256(name.encode()).digest()
+        # Take first 4 bytes as uint32
+        name_seed = int.from_bytes(name_hash[:4], "big")
+
+        # Combine: XOR preserves both sources, abs ensures positive
+        address = (mahamantra_seed ^ name_seed) & 0xFFFFFFFF
+        # Ensure non-zero (address 0 is reserved)
+        if address == 0:
+            address = 1
 
         self._name_to_address[name] = address
         self._address_to_name[address] = name

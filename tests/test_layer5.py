@@ -1,4 +1,6 @@
-"""Layer 5 Tests — Democratic Governance (Council + Elections + Proposals)."""
+"""Layer 5 Tests — Democratic Governance (Council + Elections + Proposals).
+Linked to GitHub Issue #12.
+"""
 
 import json
 import shutil

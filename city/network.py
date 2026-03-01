@@ -69,6 +69,7 @@ class CityNetwork:
     _message_log: list[MessageRecord] = field(default_factory=list)
     _registered_agents: set[str] = field(default_factory=set)
     _agent_nadi: object = None  # AgentNadiManager (city.agent_nadi)
+    _ouroboros: object = None
     _message_limit: int = field(
         default_factory=lambda: get_config().get("network", {}).get("message_log_limit", 1000)
     )
@@ -89,6 +90,11 @@ class CityNetwork:
         """
         # Create routing header
         header = self._address_book.route(from_name, to_name, operation=OP_MESSAGE)
+
+        # Ouroboros Chaos Engineering: Drop packet arbitrarily based on system entropy
+        if self._ouroboros is not None and getattr(self._ouroboros, "should_drop_message", lambda: False)():
+            logger.warning("[OUROBOROS] Dropped message from %s to %s", from_name, to_name)
+            return False
 
         # Verify signature if provided
         verified = False
@@ -137,6 +143,11 @@ class CityNetwork:
         Emits on AnantaShesha event bus. Returns number of recipients.
         """
         header = self._address_book.route(from_name, from_name, operation=OP_BROADCAST)
+
+        # Ouroboros Chaos Engineering: Drop broadcast arbitrarily
+        if self._ouroboros is not None and getattr(self._ouroboros, "should_drop_message", lambda: False)():
+            logger.warning("[OUROBOROS] Dropped broadcast from %s", from_name)
+            return 0
 
         # Emit event
         self._anchor.emit_event("AGENT_BROADCAST", {

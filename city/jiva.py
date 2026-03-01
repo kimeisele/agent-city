@@ -119,6 +119,7 @@ class Jiva:
     operations (conceive, metabolize, mitosis, apoptosis, homeostasis).
     """
     name: str
+    channel: str              # The origin frequency/channel (e.g., 'local', 'moltbook')
     address: int              # MahaCompression seed — deterministic uint32 city address
     seed: JivaSeed
     elements: JivaElements
@@ -133,6 +134,7 @@ class Jiva:
         """Serialize for JSON storage (Pokedex)."""
         return {
             "name": self.name,
+            "channel": self.channel,
             "address": self.address,
             "seed": {
                 "rama_coordinates": list(self.seed.rama_coordinates),
@@ -182,7 +184,7 @@ class Jiva:
 
 # ── Derivation ───────────────────────────────────────────────────────
 
-def derive_jiva(name: str) -> Jiva:
+def derive_jiva(name: str, channel: str = "local") -> Jiva:
     """Derive complete Jiva identity from a name via the real Mahamantra VM.
 
     Runs the full 9-step NavaBhakti pipeline:
@@ -239,18 +241,23 @@ def derive_jiva(name: str) -> Jiva:
     )
 
     # Create the living MahaCellUnified — the agent's biological substrate
-    # MahaCellUnified.from_content() computes the address from the name
+    # MahaCellUnified.from_content() computes the cell's sravanam from the name
     # via MahaCompression, then creates a cell with:
-    #   header.sravanam = address (from content)
+    #   header.sravanam = MahaCompression seed (for cell-level routing)
     #   header.pada_sevanam = position (0-15 in mahamantra)
     #   lifecycle.dna = name (the agent's genetic code)
     maha_cell = MahaCellUnified.from_content(name, register=False)
 
-    # The address IS the cell's sravanam — computed by MahaCompression inside from_content()
-    address = maha_cell.header.sravanam
+    # City-level address uses CityAddressBook.resolve() for collision resistance.
+    # The cell.header.sravanam is the raw MahaCompression seed (cell-level),
+    # while the city address combines compression + SHA-256 for uniqueness.
+    from city.addressing import CityAddressBook
+    _city_book = CityAddressBook()
+    address = _city_book.resolve(name)
 
     return Jiva(
         name=name,
+        channel=channel,
         address=address,
         seed=JivaSeed(
             rama_coordinates=tuple(coords),

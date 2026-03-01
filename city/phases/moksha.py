@@ -119,6 +119,11 @@ def execute(ctx: PhaseContext) -> dict:
         except Exception as e:
             logger.warning("MOKSHA: Reflection analysis failed: %s", e)
 
+    # PR results from KARMA issue/exec missions
+    pr_results = _collect_pr_results(ctx)
+    if pr_results:
+        reflection["pr_results"] = pr_results
+
     # Issue lifecycle: close resolved issue missions
     if ctx.issues is not None and ctx.sankalpa is not None:
         closed_count = _close_resolved_issues(ctx)
@@ -138,6 +143,20 @@ def execute(ctx: PhaseContext) -> dict:
         reflection["moltbook_update_posted"] = posted
 
     return reflection
+
+
+def _collect_pr_results(ctx: PhaseContext) -> list[dict]:
+    """Collect PR creation events from recent_events (set by KARMA)."""
+    results: list[dict] = []
+    for event in ctx.recent_events:
+        if isinstance(event, dict) and event.get("type") == "pr_created":
+            results.append({
+                "issue_number": event.get("issue_number", 0),
+                "pr_url": event.get("pr_url", ""),
+                "branch": event.get("branch", ""),
+                "heartbeat": event.get("heartbeat", 0),
+            })
+    return results
 
 
 def _close_resolved_issues(ctx: PhaseContext) -> int:
@@ -263,6 +282,7 @@ def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
         "contract_status": contract_status,
         "chain_valid": reflection.get("chain_valid", False),
         "mission_results": mission_results,
+        "pr_results": reflection.get("pr_results", []),
     }
 
 
@@ -325,4 +345,5 @@ def _build_city_report(ctx: PhaseContext, reflection: dict) -> object:
         contract_status=contract_status,
         mission_results=mission_results,
         directive_acks=directive_acks,
+        pr_results=reflection.get("pr_results", []),
     )

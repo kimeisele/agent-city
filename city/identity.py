@@ -25,6 +25,7 @@ from city.jiva import Jiva
 class AgentIdentity:
     """Cryptographic identity bound to a Jiva."""
     agent_name: str
+    channel: str           # The frequency channel this identity belongs to
     fingerprint: str       # SHA-256 of public key (first 16 hex chars)
     public_key_pem: str
     private_key_pem: str
@@ -56,6 +57,7 @@ class AgentIdentity:
         signature = self.sign(passport_data.encode())
         return {
             "agent_name": jiva.name,
+            "channel": jiva.channel,
             "fingerprint": self.fingerprint,
             "public_key": self.public_key_pem,
             "seed_hash": self.seed_hash,
@@ -67,6 +69,7 @@ class AgentIdentity:
         """Public-safe serialization (no private key)."""
         return {
             "agent_name": self.agent_name,
+            "channel": self.channel,
             "fingerprint": self.fingerprint,
             "public_key": self.public_key_pem,
             "seed_hash": self.seed_hash,
@@ -74,15 +77,34 @@ class AgentIdentity:
 
 
 def generate_identity(jiva: Jiva) -> AgentIdentity:
-    """Generate ECDSA identity from a Jiva's Mahamantra seed.
+    """Generate ECDSA identity from a Jiva's unique properties.
 
-    The seed signature is used as entropy source for deterministic
-    key generation. Same name → same seed → same keys. Always.
+    Entropy chain: name + address + rama_coordinates → SHA-256 → ECDSA key.
+
+    IMPORTANT: jiva.seed.signature is the Mahamantra sequence signature,
+    which is IDENTICAL for all agents. The actual per-agent uniqueness
+    comes from: name (always unique) + address (MahaCompression seed)
+    + rama_coordinates (derived per name).
     """
-    # Seed hash binds crypto identity to Mahamantra
-    seed_hash = hashlib.sha256(jiva.seed.signature.encode()).hexdigest()
+    # Build per-agent entropy string:
+    #   - name: the ONLY guaranteed-unique input across identities
+    #   - channel: abstract source frequency (prevents cross-channel spoofing)
+    #   - address: MahaCompression(name).seed — unique for most names
+    #   - coordinates: RAMA coordinate tuple — uniqueness varies
+    #   - signature: Mahamantra sequence (constant) — binds to protocol
+    entropy_parts = [
+        jiva.name,
+        jiva.channel,
+        str(jiva.address),
+        str(jiva.seed.rama_coordinates),
+        jiva.seed.signature,
+    ]
+    entropy_string = "|".join(entropy_parts)
 
-    # Deterministic key from seed (same name = same keys)
+    # Seed hash binds crypto identity to both name AND Mahamantra
+    seed_hash = hashlib.sha256(entropy_string.encode()).hexdigest()
+
+    # Deterministic key from seed (same name = same keys, always)
     seed_bytes = hashlib.sha256(seed_hash.encode()).digest()
     sk = SigningKey.from_string(seed_bytes, curve=NIST256p)
     vk = sk.get_verifying_key()
@@ -93,6 +115,7 @@ def generate_identity(jiva: Jiva) -> AgentIdentity:
 
     return AgentIdentity(
         agent_name=jiva.name,
+        channel=jiva.channel,
         fingerprint=fingerprint,
         public_key_pem=public_pem,
         private_key_pem=private_pem,

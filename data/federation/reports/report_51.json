@@ -1,0 +1,19 @@
+{
+  "heartbeat": 51,
+  "timestamp": 1772322826.954371,
+  "population": 20,
+  "alive": 0,
+  "dead": 20,
+  "elected_mayor": "6ixerDemon",
+  "council_seats": 6,
+  "open_proposals": 0,
+  "chain_valid": true,
+  "recent_actions": [],
+  "contract_status": {
+    "total": 3,
+    "passing": 2,
+    "failing": 1
+  },
+  "mission_results": [],
+  "directive_acks": []
+}
