@@ -288,7 +288,8 @@ class GitStateAuthority(VajraGuarded):
                 protected_in_paths = [p for p in paths if self.classify(p) == "protected"]
                 if protected_in_paths:
                     logger.error(
-                        "GitStateAuthority: BLOCKED — operator '%s' (access=%s) cannot modify protected: %s",
+                        "GitStateAuthority: BLOCKED — operator '%s' "
+                        "(access=%s) cannot modify protected: %s",
                         operator_id or "unknown",
                         access_class,
                         protected_in_paths,
