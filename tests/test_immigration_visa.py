@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 from city.visa import (
+    MAHAMANTRA_VISA_ID,
     Visa,
     VisaClass,
     VisaStatus,
@@ -705,13 +706,23 @@ class TestImmigrationIntegration:
 class TestParampara:
     """Parampara = lineage chain from agent back to Mahajan (founding agent)."""
 
-    def test_city_genesis_is_the_only_true_root(self):
-        """City Genesis is depth=0 and the only document with sponsor_visa_id=None."""
+    def test_mahamantra_visa_id_is_deterministic(self):
+        """MAHAMANTRA_VISA_ID is a constant — same hash every time."""
+        import hashlib
+        expected = hashlib.sha256(
+            "Hare Krishna Hare Krishna Krishna Krishna Hare Hare "
+            "Hare Rama Hare Rama Rama Rama Hare Hare".encode()
+        ).hexdigest()[:16]
+        assert MAHAMANTRA_VISA_ID == expected
+
+    def test_city_genesis_points_to_mahamantra(self):
+        """City Genesis is depth=0, sponsor_visa_id=MAHAMANTRA_VISA_ID — not None."""
         service = ImmigrationService()
 
         genesis = service._genesis_visa
         assert genesis.lineage_depth == 0
-        assert genesis.sponsor_visa_id is None
+        assert genesis.sponsor_visa_id == MAHAMANTRA_VISA_ID  # explicit source, not None
+        assert genesis.sponsor == "MAHAMANTRA"
         assert genesis.agent_name == "city_genesis"
 
     def test_mahajan_has_depth_one_linked_to_genesis(self):
