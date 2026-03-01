@@ -1,0 +1,9 @@
+{
+  "city/identity.py": "169cc627b77255ab5b4ffc5009d6c8483a34c315b6f5c8d4d5899a175b3221c0",
+  "city/pokedex.py": "f38d1b1c6a09c7fca89382f117228cc64edb0cd482da1b5eb67342c0b5c47008",
+  "city/git_client.py": "3f21b08b1d3d636c6f5e1c343a5bb803a112dd48b686b8f826d77e2321b9fa27",
+  "city/gateway.py": "7c543f759848f8472530f5e7344112cb390f2ba6b8c357548f1e5a0cc353914d",
+  "config/city.yaml": "3be56f91daa40f4232da392667273cbaa43f04bb308773c7a26600d08260a37b",
+  ".github/workflows/agent_city_heartbeat.yml": "26cb475aab645f11b5e528febf7df2f61f4b29d00d6d9378bb58a3a341052541",
+  ".github/workflows/ci.yml": "FILE_NOT_FOUND"
+}

@@ -56,3 +56,58 @@ network:
 database:
   default_path: "data/city.db"
   economy_path: "data/economy.db"
+
+# ============================================================================
+# GIT STATE AUTHORITY — Single Source of Truth for Repository Governance
+# ============================================================================
+# Three classes of files:
+#   runtime:   Ephemeral state that changes every tick. NEVER committed.
+#   protected: Immutable core files. Hash-verified. Changes auto-reverted.
+#   code:      Everything else. Normal git workflow.
+#
+# GitStateAuthority reads this to:
+#   1. Generate .gitignore (no manual maintenance)
+#   2. Block staging of runtime files
+#   3. Verify integrity of protected files before commit
+# ============================================================================
+git:
+  # Runtime state — auto-ignored, never committed
+  runtime_patterns:
+    - "data/*.db"
+    - "data/*.db-journal"
+    - "data/*.db-shm"
+    - "data/*.db-wal"
+    - "data/mayor_state.json"
+    - "data/council_state.json"
+    - ".vibe/state/"
+    - "broadcasts/"
+    - "**/__pycache__/"
+    - "*.py[codz]"
+    - "*.log"
+    - ".pytest_cache/"
+    - ".ruff_cache/"
+    - ".mypy_cache/"
+    - ".DS_Store"
+    - ".env"
+    - ".env.*"
+
+  # Security — patterns that must NEVER enter the repo
+  security_patterns:
+    - "**/*.pem"
+    - "**/*_private_key*"
+    - "*.key"
+    - "*.crt"
+    - "*.p12"
+    - "secrets/"
+    - "keys/"
+    - "data/security/"
+
+  # Protected core files — hash-verified, immutable without senior review
+  protected_files:
+    - "city/identity.py"
+    - "city/pokedex.py"
+    - "city/git_client.py"
+    - "city/gateway.py"
+    - "config/city.yaml"
+    - ".github/workflows/agent_city_heartbeat.yml"
+    - ".github/workflows/ci.yml"
