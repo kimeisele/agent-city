@@ -306,7 +306,43 @@
       "status": "active",
       "strategies": [],
       "owner": "mayor"
+    },
+    {
+      "id": "heal_ruff_clean_125",
+      "name": "Heal: ruff_clean",
+      "description": "Quality contract failing: 259 ruff violations",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "heal_tests_pass_125",
+      "name": "Heal: tests_pass",
+      "description": "Quality contract failing: Tests failed",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "heal_ruff_clean_129",
+      "name": "Heal: ruff_clean",
+      "description": "Quality contract failing: 259 ruff violations",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
+    },
+    {
+      "id": "heal_tests_pass_129",
+      "name": "Heal: tests_pass",
+      "description": "Quality contract failing: Tests failed",
+      "priority": "high",
+      "status": "active",
+      "strategies": [],
+      "owner": "mayor"
     }
   ],
-  "updated_at": "2026-03-01T14:41:48.403503+00:00"
+  "updated_at": "2026-03-01T15:07:40.947908+00:00"
 }

@@ -1,0 +1,266 @@
+{
+  "heartbeat": 131,
+  "timestamp": 1772377662.321588,
+  "population": 20,
+  "alive": 0,
+  "dead": 20,
+  "elected_mayor": "Cornelius-Trinity",
+  "council_seats": 6,
+  "open_proposals": 0,
+  "chain_valid": true,
+  "recent_actions": [],
+  "contract_status": {
+    "total": 4,
+    "passing": 2,
+    "failing": 2
+  },
+  "mission_results": [
+    {
+      "id": "mission_code_health",
+      "name": "Maintain Code Health",
+      "status": "active",
+      "owner": "dharma",
+      "priority": "HIGH"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_59",
+      "name": "Audit: DriftAuditor.protocols",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "CRITICAL"
+    },
+    {
+      "id": "heal_audit_clean_61",
+      "name": "Heal: audit_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_63",
+      "name": "Audit: DriftAuditor.protocols",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "CRITICAL"
+    },
+    {
+      "id": "heal_audit_clean_65",
+      "name": "Heal: audit_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_67",
+      "name": "Audit: DriftAuditor.protocols",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "CRITICAL"
+    },
+    {
+      "id": "heal_audit_clean_69",
+      "name": "Heal: audit_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_71",
+      "name": "Audit: DriftAuditor.protocols",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "CRITICAL"
+    },
+    {
+      "id": "heal_audit_clean_73",
+      "name": "Heal: audit_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_75",
+      "name": "Audit: DriftAuditor.protocols",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "CRITICAL"
+    },
+    {
+      "id": "heal_audit_clean_77",
+      "name": "Heal: audit_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_79",
+      "name": "Audit: DriftAuditor.protocols",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "CRITICAL"
+    },
+    {
+      "id": "heal_tests_pass_81",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_audit_clean_81",
+      "name": "Heal: audit_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "audit_DriftAuditor.protocols_83",
+      "name": "Audit: DriftAuditor.protocols",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "CRITICAL"
+    },
+    {
+      "id": "heal_ruff_clean_93",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_93",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_ruff_clean_97",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_97",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_ruff_clean_101",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_101",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_ruff_clean_105",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_105",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_ruff_clean_109",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_109",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_ruff_clean_113",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_113",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_ruff_clean_117",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_117",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_ruff_clean_121",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_121",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_ruff_clean_125",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_125",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_ruff_clean_129",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_129",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    }
+  ],
+  "directive_acks": [],
+  "pr_results": []
+}
