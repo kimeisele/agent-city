@@ -79,6 +79,9 @@ class PhaseContext:
     # Agent Nadi (inter-agent messaging)
     agent_nadi: object = None  # AgentNadiManager (city.agent_nadi)
 
+    # Immune system (ShuddhiEngine + Hebbian healing)
+    immune: object = None  # CityImmune (city.immune)
+
     # Internal
     last_audit_time: float = 0.0
     recent_events: list = field(default_factory=list)

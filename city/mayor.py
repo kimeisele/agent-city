@@ -134,6 +134,9 @@ class Mayor:
     # Agent Nadi (inter-agent messaging)
     _agent_nadi: object = None  # AgentNadiManager (city.agent_nadi)
 
+    # Immune system (ShuddhiEngine + Hebbian healing)
+    _immune: object = None  # CityImmune (city.immune)
+
     # Internal state
     _last_audit_time: float = field(default=0.0)
     _recent_events: list = field(default_factory=list)
@@ -171,6 +174,7 @@ class Mayor:
             event_bus=self._event_bus,
             learning=self._learning,
             agent_nadi=self._agent_nadi,
+            immune=self._immune,
             last_audit_time=self._last_audit_time,
             recent_events=self._recent_events,
         )

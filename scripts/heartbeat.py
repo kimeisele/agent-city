@@ -145,6 +145,21 @@ def main() -> None:
     except Exception as e:
         logging.getLogger("HEARTBEAT").debug("CityLearning unavailable: %s", e)
 
+    # Immune system: ShuddhiEngine + Hebbian healing (graceful fallback)
+    immune_kwargs: dict = {}
+    try:
+        from city.immune import CityImmune
+        # Wire learning for Hebbian-informed healing if available
+        _immune_learning = learning_kwargs.get("_learning")
+        city_immune = CityImmune(_learning=_immune_learning)
+        if city_immune.available:
+            immune_kwargs["_immune"] = city_immune
+            logging.getLogger("HEARTBEAT").info(
+                "CityImmune wired (%d remedies)", len(city_immune.list_remedies()),
+            )
+    except Exception as e:
+        logging.getLogger("HEARTBEAT").debug("CityImmune unavailable: %s", e)
+
     # Agent Nadi: inter-agent messaging (graceful fallback)
     agent_nadi_kwargs: dict = {}
     try:
@@ -192,6 +207,7 @@ def main() -> None:
         _offline_mode=args.offline,
         **governance_kwargs,
         **learning_kwargs,
+        **immune_kwargs,
         **agent_nadi_kwargs,
         **nadi_kwargs,
         **cognition_kwargs,

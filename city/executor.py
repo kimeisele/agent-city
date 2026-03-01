@@ -101,6 +101,7 @@ class IntentExecutor:
 
     _cwd: Path
     _dry_run: bool = False
+    _immune: object = None  # CityImmune (city.immune)
 
     def execute_heal(self, contract_name: str, details: list[str]) -> FixResult:
         """Attempt to fix a failing contract.
@@ -112,6 +113,18 @@ class IntentExecutor:
             return self._fix_ruff(details)
 
         if contract_name == "audit_clean":
+            # Prefer CityImmune (Hebbian-informed healing) over raw CellularHealer
+            if self._immune is not None and not self._dry_run:
+                immune_results = self._immune.scan_and_heal(details)
+                healed = [r for r in immune_results if r.success]
+                if healed:
+                    return FixResult(
+                        contract_name="audit_clean",
+                        success=True,
+                        action_taken="immune_heal",
+                        files_changed=[r.pattern for r in healed],
+                        message=f"CityImmune healed {len(healed)} issues",
+                    )
             return self._fix_audit(details)
 
         # tests_pass, unknown — escalate
