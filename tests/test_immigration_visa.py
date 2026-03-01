@@ -332,6 +332,7 @@ class TestImmigrationService:
 
         success = service.start_review(app.application_id, reviewer="council_chair")
         assert success is True
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.UNDER_REVIEW
         assert app.reviewer == "council_chair"
 
@@ -354,6 +355,7 @@ class TestImmigrationService:
         )
 
         assert success is True
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.APPROVED
         assert app.kyc_passed is True
         assert app.contracts_passed is True
@@ -378,6 +380,7 @@ class TestImmigrationService:
         )
 
         assert success is True
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.REJECTED
         assert app.kyc_passed is False
 
@@ -399,6 +402,7 @@ class TestImmigrationService:
 
         success = service.move_to_council(app.application_id, "vote_001")
         assert success is True
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.COUNCIL_PENDING
         assert app.council_vote_id == "vote_001"
 
@@ -424,6 +428,7 @@ class TestImmigrationService:
         )
 
         assert success is True
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.COUNCIL_APPROVED
         assert app.council_approved is True
         assert app.council_vote_count["yes"] == 4
@@ -450,6 +455,7 @@ class TestImmigrationService:
         )
 
         assert success is True
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.COUNCIL_REJECTED
         assert app.council_approved is False
 
@@ -479,8 +485,9 @@ class TestImmigrationService:
         assert visa.agent_name == "unity"
         assert visa.visa_class == VisaClass.CITIZEN
         assert visa.status == VisaStatus.ACTIVE
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.CITIZENSHIP_GRANTED
-        assert app.issued_visa == visa
+        assert app.issued_visa.visa_id == visa.visa_id
 
         # Check visa is retrievable
         assert service.get_visa("unity") == visa
@@ -602,6 +609,7 @@ class TestImmigrationIntegration:
 
         # 2. Reviewer reviews application
         service.start_review(app.application_id, "reviewer_bot")
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.UNDER_REVIEW
 
         service.complete_review(
@@ -611,10 +619,12 @@ class TestImmigrationIntegration:
             community_score=0.9,
             notes="Strong candidate",
         )
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.APPROVED
 
         # 3. Move to council
         service.move_to_council(app.application_id, "vote_council_001")
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.COUNCIL_PENDING
 
         # 4. Council votes
@@ -623,10 +633,12 @@ class TestImmigrationIntegration:
             approved=True,
             vote_tally={"yes": 5, "no": 0, "abstain": 1},
         )
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.COUNCIL_APPROVED
 
         # 5. Grant citizenship
         visa = service.grant_citizenship(app.application_id)
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.CITIZENSHIP_GRANTED
         assert visa.visa_class == VisaClass.CITIZEN
         assert visa.is_valid() is True
@@ -641,7 +653,7 @@ class TestImmigrationIntegration:
             visa_class=VisaClass.WORKER,
             sponsor="immigration",
         )
-        service._visas["upgrade_test_agent"] = worker_visa
+        service._save_visa(worker_visa)
 
         # Apply for resident upgrade
         app = service.submit_application(
@@ -689,12 +701,14 @@ class TestImmigrationIntegration:
             notes="KYC failed: high-risk profile",
         )
 
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.REJECTED
         assert app.can_proceed_to_council() is False
 
         # Cannot move to council
         success = service.move_to_council(app.application_id, "vote_none")
         assert success is False
+        app = service.get_application(app.application_id)
         assert app.status == ApplicationStatus.REJECTED
 
 
@@ -881,3 +895,97 @@ class TestParampara:
         assert chain[0].sponsor_visa_id == mahajan.visa_id
         assert chain[1].agent_name == "krishna_bot"
         assert chain[2].agent_name == "city_genesis"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PERSISTENCE TESTS (SQLite survives across service instances)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestImmigrationPersistence:
+    """Verify SQLite-backed state survives service restart."""
+
+    def test_visa_survives_restart(self, tmp_path):
+        """Visa issued by one service instance is visible to a fresh instance."""
+        db = str(tmp_path / "immigration.db")
+        svc1 = ImmigrationService(db_path=db)
+        mahajan = svc1.register_mahajan("krishna_bot")
+
+        # Fresh instance, same DB
+        svc2 = ImmigrationService(db_path=db)
+        loaded = svc2.get_visa("krishna_bot")
+        assert loaded is not None
+        assert loaded.visa_id == mahajan.visa_id
+        assert loaded.lineage_depth == 1
+
+    def test_application_survives_restart(self, tmp_path):
+        """Application state persists across service restarts."""
+        db = str(tmp_path / "immigration.db")
+        svc1 = ImmigrationService(db_path=db)
+        app = svc1.submit_application(
+            agent_name="persist_agent",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        svc1.start_review(app.application_id, "reviewer_bot")
+
+        # Fresh instance reads same state
+        svc2 = ImmigrationService(db_path=db)
+        loaded = svc2.get_application(app.application_id)
+        assert loaded is not None
+        assert loaded.status == ApplicationStatus.UNDER_REVIEW
+        assert loaded.reviewer == "reviewer_bot"
+
+    def test_genesis_visa_is_stable_across_restarts(self, tmp_path):
+        """City Genesis visa_id stays the same across restarts (not re-created)."""
+        db = str(tmp_path / "immigration.db")
+        svc1 = ImmigrationService(db_path=db)
+        genesis_id_1 = svc1._genesis_visa.visa_id
+
+        svc2 = ImmigrationService(db_path=db)
+        genesis_id_2 = svc2._genesis_visa.visa_id
+        assert genesis_id_1 == genesis_id_2
+
+    def test_parampara_survives_restart(self, tmp_path):
+        """Full lineage chain traceable after service restart."""
+        db = str(tmp_path / "immigration.db")
+        svc1 = ImmigrationService(db_path=db)
+        svc1.register_mahajan("krishna_bot")
+
+        app = svc1.submit_application(
+            agent_name="arjuna",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        svc1.start_review(app.application_id, "krishna_bot")
+        svc1.complete_review(
+            app.application_id, kyc_passed=True, contracts_passed=True, community_score=0.9,
+        )
+        svc1.move_to_council(app.application_id, "vote_arjuna")
+        svc1.record_council_vote(
+            app.application_id, approved=True, vote_tally={"yes": 5, "no": 0, "abstain": 0}
+        )
+        svc1.grant_citizenship(app.application_id, sponsor="krishna_bot")
+
+        # Fresh instance traces full chain
+        svc2 = ImmigrationService(db_path=db)
+        chain = svc2.parampara("arjuna")
+        assert len(chain) == 3
+        assert chain[0].agent_name == "arjuna"
+        assert chain[1].agent_name == "krishna_bot"
+        assert chain[2].agent_name == "city_genesis"
+
+    def test_stats_persistent(self, tmp_path):
+        """Stats reflect persistent data."""
+        db = str(tmp_path / "immigration.db")
+        svc1 = ImmigrationService(db_path=db)
+        svc1.submit_application(
+            agent_name="stats_agent",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+
+        svc2 = ImmigrationService(db_path=db)
+        stats = svc2.stats()
+        assert stats["total_applications"] == 1
+        assert stats["pending_applications"] == 1

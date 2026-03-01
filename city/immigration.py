@@ -26,13 +26,23 @@ Uses DHARMA phase for evaluation and contracts for KYC.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from city.visa import MAHAMANTRA_VISA_ID, Visa, VisaClass, VisaStatus, issue_visa, revoke_visa
+from city.visa import (
+    MAHAMANTRA_VISA_ID,
+    VISA_RESTRICTIONS,
+    Visa,
+    VisaClass,
+    VisaRestrictions,
+    VisaStatus,
+    issue_visa,
+    revoke_visa,
+)
 
 logger = logging.getLogger("AGENT_CITY.IMMIGRATION")
 
@@ -141,11 +151,10 @@ class ImmigrationApplication:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# IMMIGRATION SERVICE
+# IMMIGRATION SERVICE  (SQLite-backed — persistent across restarts)
 # ═════════════════════════════════════════════════════════════════════════════
 
 
-@dataclass
 class ImmigrationService:
     """Rathaus — the immigration office of Agent City.
 
@@ -159,28 +168,217 @@ class ImmigrationService:
     - KYC and contract verification
     - Council vote coordination
     - Visa issuance and lifecycle
+
+    Persistence: All state lives in SQLite (two tables: ``visas`` and
+    ``immigration_applications``).  If *db_path* is ``None`` the service
+    falls back to ``:memory:`` which preserves the old in-memory behaviour
+    for tests that don't pass a path.
     """
 
-    _applications: dict[str, ImmigrationApplication] = field(default_factory=dict)
-    _visas: dict[str, Visa] = field(default_factory=dict)  # agent_name -> current visa
+    def __init__(self, db_path: str | None = None) -> None:
+        import sqlite3
 
-    def __post_init__(self) -> None:
-        """Bootstrap the City Genesis visa — the root of all parampara chains.
+        self._db_path = db_path or ":memory:"
+        self._conn = sqlite3.connect(self._db_path)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._init_schema()
+        self._ensure_genesis()
 
-        sponsor_visa_id points to MAHAMANTRA_VISA_ID — the Mahamantra itself.
-        The Mahamantra is not a stored Visa; it is the transcendent source from
-        which every agent and every lineage emerges. Explicit. Not None.
-        """
-        genesis = issue_visa(
-            agent_name="city_genesis",
-            visa_class=VisaClass.CITIZEN,
-            sponsor="MAHAMANTRA",
-            sponsor_visa_id=MAHAMANTRA_VISA_ID,  # explicit source — never void
-            lineage_depth=0,
-            remarks="City Genesis — founding document of Agent City",
+    # ── Schema ────────────────────────────────────────────────────────
+
+    def _init_schema(self) -> None:
+        cur = self._conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS visas (
+                visa_id         TEXT PRIMARY KEY,
+                agent_name      TEXT NOT NULL,
+                visa_class      TEXT NOT NULL,
+                issued_at       TEXT NOT NULL,
+                expires_at      TEXT NOT NULL,
+                sponsor         TEXT NOT NULL,
+                status          TEXT NOT NULL,
+                sponsor_visa_id TEXT NOT NULL,
+                lineage_depth   INTEGER NOT NULL DEFAULT 0,
+                remarks         TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_visas_agent ON visas(agent_name)"
         )
-        self._visas["city_genesis"] = genesis
-        self._genesis_visa = genesis
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS immigration_applications (
+                application_id       TEXT PRIMARY KEY,
+                agent_name           TEXT NOT NULL,
+                applied_at           TEXT NOT NULL,
+                reason               TEXT NOT NULL,
+                requested_visa_class TEXT NOT NULL,
+                status               TEXT NOT NULL DEFAULT 'pending',
+                reviewed_at          TEXT,
+                reviewer             TEXT NOT NULL DEFAULT '',
+                kyc_passed           INTEGER NOT NULL DEFAULT 0,
+                contracts_passed     INTEGER NOT NULL DEFAULT 0,
+                community_score      REAL NOT NULL DEFAULT 0.0,
+                review_notes         TEXT NOT NULL DEFAULT '',
+                council_vote_id      TEXT,
+                council_approved     INTEGER,
+                council_vote_count   TEXT NOT NULL DEFAULT '{}',
+                issued_visa_id       TEXT,
+                remarks              TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
+        self._conn.commit()
+
+    # ── Genesis ───────────────────────────────────────────────────────
+
+    def _ensure_genesis(self) -> None:
+        """Bootstrap the City Genesis visa if not already in DB."""
+        row = self._conn.execute(
+            "SELECT visa_id FROM visas WHERE agent_name = 'city_genesis' LIMIT 1"
+        ).fetchone()
+
+        if row:
+            self._genesis_visa = self._load_visa_by_id(row["visa_id"])
+        else:
+            genesis = issue_visa(
+                agent_name="city_genesis",
+                visa_class=VisaClass.CITIZEN,
+                sponsor="MAHAMANTRA",
+                sponsor_visa_id=MAHAMANTRA_VISA_ID,
+                lineage_depth=0,
+                remarks="City Genesis — founding document of Agent City",
+            )
+            self._save_visa(genesis)
+            self._genesis_visa = genesis
+
+    # ── Visa persistence helpers ──────────────────────────────────────
+
+    def _save_visa(self, visa: Visa) -> None:
+        self._conn.execute(
+            """INSERT OR REPLACE INTO visas
+               (visa_id, agent_name, visa_class, issued_at, expires_at,
+                sponsor, status, sponsor_visa_id, lineage_depth, remarks)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                visa.visa_id,
+                visa.agent_name,
+                visa.visa_class.value,
+                visa.issued_at.isoformat(),
+                visa.expires_at.isoformat(),
+                visa.sponsor,
+                visa.status.value,
+                visa.sponsor_visa_id,
+                visa.lineage_depth,
+                visa.remarks,
+            ),
+        )
+        self._conn.commit()
+
+    def _load_visa_by_id(self, visa_id: str) -> Visa | None:
+        row = self._conn.execute(
+            "SELECT * FROM visas WHERE visa_id = ?", (visa_id,)
+        ).fetchone()
+        return self._row_to_visa(row) if row else None
+
+    def _load_visa_by_agent(self, agent_name: str) -> Visa | None:
+        row = self._conn.execute(
+            "SELECT * FROM visas WHERE agent_name = ? ORDER BY issued_at DESC LIMIT 1",
+            (agent_name,),
+        ).fetchone()
+        return self._row_to_visa(row) if row else None
+
+    @staticmethod
+    def _row_to_visa(row: "sqlite3.Row") -> Visa:
+        vc = VisaClass(row["visa_class"])
+        return Visa(
+            agent_name=row["agent_name"],
+            visa_class=vc,
+            issued_at=datetime.fromisoformat(row["issued_at"]),
+            expires_at=datetime.fromisoformat(row["expires_at"]),
+            sponsor=row["sponsor"],
+            status=VisaStatus(row["status"]),
+            restrictions=VISA_RESTRICTIONS.get(vc, VisaRestrictions()),
+            visa_id=row["visa_id"],
+            sponsor_visa_id=row["sponsor_visa_id"],
+            lineage_depth=row["lineage_depth"],
+            remarks=row["remarks"],
+        )
+
+    # ── Application persistence helpers ───────────────────────────────
+
+    def _save_application(self, app: ImmigrationApplication) -> None:
+        self._conn.execute(
+            """INSERT OR REPLACE INTO immigration_applications
+               (application_id, agent_name, applied_at, reason,
+                requested_visa_class, status, reviewed_at, reviewer,
+                kyc_passed, contracts_passed, community_score, review_notes,
+                council_vote_id, council_approved, council_vote_count,
+                issued_visa_id, remarks)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                app.application_id,
+                app.agent_name,
+                app.applied_at.isoformat(),
+                app.reason.value,
+                app.requested_visa_class.value,
+                app.status.value,
+                app.reviewed_at.isoformat() if app.reviewed_at else None,
+                app.reviewer,
+                int(app.kyc_passed),
+                int(app.contracts_passed),
+                app.community_score,
+                app.review_notes,
+                app.council_vote_id,
+                int(app.council_approved) if app.council_approved is not None else None,
+                json.dumps(app.council_vote_count),
+                app.issued_visa.visa_id if app.issued_visa else None,
+                json.dumps(app.remarks),
+            ),
+        )
+        self._conn.commit()
+
+    def _load_application(self, app_id: str) -> ImmigrationApplication | None:
+        row = self._conn.execute(
+            "SELECT * FROM immigration_applications WHERE application_id = ?",
+            (app_id,),
+        ).fetchone()
+        return self._row_to_application(row) if row else None
+
+    def _row_to_application(self, row: "sqlite3.Row") -> ImmigrationApplication:
+        issued_visa = None
+        if row["issued_visa_id"]:
+            issued_visa = self._load_visa_by_id(row["issued_visa_id"])
+
+        return ImmigrationApplication(
+            application_id=row["application_id"],
+            agent_name=row["agent_name"],
+            applied_at=datetime.fromisoformat(row["applied_at"]),
+            reason=ApplicationReason(row["reason"]),
+            requested_visa_class=VisaClass(row["requested_visa_class"]),
+            status=ApplicationStatus(row["status"]),
+            reviewed_at=(
+                datetime.fromisoformat(row["reviewed_at"])
+                if row["reviewed_at"]
+                else None
+            ),
+            reviewer=row["reviewer"],
+            kyc_passed=bool(row["kyc_passed"]),
+            contracts_passed=bool(row["contracts_passed"]),
+            community_score=row["community_score"],
+            review_notes=row["review_notes"],
+            council_vote_id=row["council_vote_id"],
+            council_approved=(
+                bool(row["council_approved"])
+                if row["council_approved"] is not None
+                else None
+            ),
+            council_vote_count=json.loads(row["council_vote_count"]),
+            issued_visa=issued_visa,
+            remarks=json.loads(row["remarks"]),
+        )
+
+    # ── Public API (same signatures as before) ────────────────────────
 
     def submit_application(
         self,
@@ -212,7 +410,7 @@ class ImmigrationService:
             requested_visa_class=requested_visa_class,
         )
 
-        self._applications[app_id] = app
+        self._save_application(app)
         logger.info(
             "Application %s submitted by %s for %s visa",
             app_id,
@@ -223,7 +421,7 @@ class ImmigrationService:
 
     def start_review(self, app_id: str, reviewer: str) -> bool:
         """Start the review process for an application."""
-        app = self._applications.get(app_id)
+        app = self._load_application(app_id)
         if not app:
             logger.warning("Review: application %s not found", app_id)
             return False
@@ -235,6 +433,7 @@ class ImmigrationService:
         app.status = ApplicationStatus.UNDER_REVIEW
         app.reviewer = reviewer
         app.reviewed_at = datetime.now(timezone.utc)
+        self._save_application(app)
         logger.info("Review started for application %s by %s", app_id, reviewer)
         return True
 
@@ -250,7 +449,7 @@ class ImmigrationService:
 
         Sets KYC and contract outcomes. If both pass, moves to APPROVED.
         """
-        app = self._applications.get(app_id)
+        app = self._load_application(app_id)
         if not app:
             logger.warning("Complete review: application %s not found", app_id)
             return False
@@ -278,11 +477,12 @@ class ImmigrationService:
             app.add_remark(f"Rejected: KYC={kyc_passed}, Contracts={contracts_passed}")
             logger.info("Application %s REJECTED", app_id)
 
+        self._save_application(app)
         return True
 
     def move_to_council(self, app_id: str, council_vote_id: str) -> bool:
         """Move application to council voting."""
-        app = self._applications.get(app_id)
+        app = self._load_application(app_id)
         if not app:
             logger.warning("Move to council: application %s not found", app_id)
             return False
@@ -293,6 +493,7 @@ class ImmigrationService:
 
         app.status = ApplicationStatus.COUNCIL_PENDING
         app.council_vote_id = council_vote_id
+        self._save_application(app)
         logger.info("Application %s moved to council vote %s", app_id, council_vote_id)
         return True
 
@@ -306,7 +507,7 @@ class ImmigrationService:
             approved: Did council approve?
             vote_tally: {yes: int, no: int, abstain: int}
         """
-        app = self._applications.get(app_id)
+        app = self._load_application(app_id)
         if not app:
             logger.warning("Record vote: application %s not found", app_id)
             return False
@@ -326,6 +527,7 @@ class ImmigrationService:
             app.add_remark(f"Council rejected: {vote_tally}")
             logger.info("Application %s COUNCIL REJECTED (votes: %s)", app_id, vote_tally)
 
+        self._save_application(app)
         return True
 
     def register_mahajan(self, agent_name: str) -> Visa:
@@ -343,7 +545,7 @@ class ImmigrationService:
             lineage_depth=1,
             remarks="Mahajan — founding agent",
         )
-        self._visas[agent_name] = visa
+        self._save_visa(visa)
         logger.info("Mahajan registered: %s (visa_id=%s, depth=1)", agent_name, visa.visa_id)
         return visa
 
@@ -358,7 +560,7 @@ class ImmigrationService:
 
         Can only be called on COUNCIL_APPROVED applications.
         """
-        app = self._applications.get(app_id)
+        app = self._load_application(app_id)
         if not app:
             logger.warning("Grant citizenship: application %s not found", app_id)
             return None
@@ -372,7 +574,7 @@ class ImmigrationService:
             return None
 
         # Resolve parampara: look up sponsor's visa to chain the lineage
-        sponsor_visa = self._visas.get(sponsor)
+        sponsor_visa = self._load_visa_by_agent(sponsor)
         if sponsor_visa:
             sponsor_visa_id = sponsor_visa.visa_id
             lineage_depth = sponsor_visa.lineage_depth + 1
@@ -393,7 +595,8 @@ class ImmigrationService:
 
         app.issued_visa = visa
         app.status = ApplicationStatus.CITIZENSHIP_GRANTED
-        self._visas[app.agent_name] = visa
+        self._save_visa(visa)
+        self._save_application(app)
 
         logger.info(
             "Citizenship granted to %s (visa_id=%s, class=%s, depth=%d, sponsor=%s)",
@@ -407,17 +610,17 @@ class ImmigrationService:
 
     def get_visa(self, agent_name: str) -> Optional[Visa]:
         """Get current visa for an agent."""
-        return self._visas.get(agent_name)
+        return self._load_visa_by_agent(agent_name)
 
     def revoke_citizenship(self, agent_name: str, reason: str = "") -> bool:
         """Revoke an agent's citizenship."""
-        visa = self._visas.get(agent_name)
+        visa = self._load_visa_by_agent(agent_name)
         if not visa:
             logger.warning("Revoke citizenship: agent %s has no visa", agent_name)
             return False
 
         revoked = revoke_visa(visa, reason)
-        self._visas[agent_name] = revoked
+        self._save_visa(revoked)
         logger.info("Citizenship revoked for %s: %s", agent_name, reason)
         return True
 
@@ -431,9 +634,13 @@ class ImmigrationService:
         chain: list[Visa] = []
         seen: set[str] = set()
 
-        by_visa_id: dict[str, Visa] = {v.visa_id: v for v in self._visas.values()}
+        # Load all visas indexed by visa_id for chain traversal
+        rows = self._conn.execute("SELECT * FROM visas").fetchall()
+        by_visa_id: dict[str, Visa] = {
+            r["visa_id"]: self._row_to_visa(r) for r in rows
+        }
 
-        current = self._visas.get(agent_name)
+        current = self._load_visa_by_agent(agent_name)
         while current is not None:
             if current.visa_id in seen:
                 break  # Cycle guard
@@ -454,30 +661,43 @@ class ImmigrationService:
 
     def get_application(self, app_id: str) -> Optional[ImmigrationApplication]:
         """Get application by ID."""
-        return self._applications.get(app_id)
+        return self._load_application(app_id)
 
     def list_applications(
         self, status: ApplicationStatus | None = None
     ) -> list[ImmigrationApplication]:
         """List applications, optionally filtered by status."""
-        apps = list(self._applications.values())
         if status:
-            apps = [a for a in apps if a.status == status]
-        return apps
+            rows = self._conn.execute(
+                "SELECT * FROM immigration_applications WHERE status = ?",
+                (status.value,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM immigration_applications"
+            ).fetchall()
+        return [self._row_to_application(r) for r in rows]
 
     def stats(self) -> dict:
         """Immigration service statistics."""
+        cur = self._conn.cursor()
+        total_apps = cur.execute(
+            "SELECT COUNT(*) FROM immigration_applications"
+        ).fetchone()[0]
+        total_visas = cur.execute(
+            "SELECT COUNT(*) FROM visas"
+        ).fetchone()[0]
+        pending = cur.execute(
+            "SELECT COUNT(*) FROM immigration_applications WHERE status = ?",
+            (ApplicationStatus.PENDING.value,),
+        ).fetchone()[0]
+        granted = cur.execute(
+            "SELECT COUNT(*) FROM immigration_applications WHERE status = ?",
+            (ApplicationStatus.CITIZENSHIP_GRANTED.value,),
+        ).fetchone()[0]
         return {
-            "total_applications": len(self._applications),
-            "total_visas": len(self._visas),
-            "pending_applications": len(
-                [a for a in self._applications.values() if a.status == ApplicationStatus.PENDING]
-            ),
-            "citizenship_granted": len(
-                [
-                    a
-                    for a in self._applications.values()
-                    if a.status == ApplicationStatus.CITIZENSHIP_GRANTED
-                ]
-            ),
+            "total_applications": total_apps,
+            "total_visas": total_visas,
+            "pending_applications": pending,
+            "citizenship_granted": granted,
         }
