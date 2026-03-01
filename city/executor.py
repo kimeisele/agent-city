@@ -6,10 +6,10 @@ Maps contract failure names to concrete fix actions.
 Successful fixes produce git branches + commits + PRs via subprocess.
 
 Fix strategies:
-- ruff_clean: run `ruff check --fix`, re-check. Escalate if still failing.
-- no_slop:    Escalate (slop in source code needs human review).
-- tests_pass: Escalate (cannot auto-fix test failures).
-- unknown:    Escalate.
+- ruff_clean:   run `ruff check --fix`, re-check. Escalate if still failing.
+- audit_clean:  CellularHealer structural CST remedies. Escalate if no remedy matches.
+- tests_pass:   Escalate (cannot auto-fix test failures).
+- unknown:      Escalate.
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
@@ -25,6 +25,44 @@ from pathlib import Path
 from config import get_config
 
 logger = logging.getLogger("AGENT_CITY.EXECUTOR")
+
+# Map audit finding keywords to CellularHealer remedy rule_ids.
+# Keys are lowercase substrings matched against audit detail text.
+_AUDIT_TO_REMEDY: dict[str, str] = {
+    "any_type": "any_type_usage",
+    ": any": "any_type_usage",
+    "hardcoded": "hardcoded_constants",
+    "magic number": "hardcoded_constants",
+    "subprocess": "subprocess_timeout",
+    "f811": "f811_redefinition",
+    "redefinition": "f811_redefinition",
+    "mahajana": "missing_mahajana",
+    "unsafe io": "unsafe_io_write",
+    "unsafe_io": "unsafe_io_write",
+    "get_instance": "get_instance",
+    "null signature": "null_signature",
+    "null_signature": "null_signature",
+}
+
+
+def _extract_rule_id(detail: str) -> str | None:
+    """Try to map an audit finding detail to a CellularHealer remedy rule_id."""
+    detail_lower = detail.lower()
+    for keyword, rule_id in _AUDIT_TO_REMEDY.items():
+        if keyword in detail_lower:
+            return rule_id
+    return None
+
+
+def _extract_file_path(detail: str) -> Path | None:
+    """Try to extract a .py file path from an audit detail string."""
+    import re
+    match = re.search(r'([\w/.]+\.py)', detail)
+    if match:
+        candidate = Path(match.group(1))
+        if candidate.exists():
+            return candidate
+    return None
 
 # Git identity — sourced from config/city.yaml
 _exec_cfg = get_config().get("executor", {})
@@ -73,7 +111,10 @@ class IntentExecutor:
         if contract_name == "ruff_clean":
             return self._fix_ruff(details)
 
-        # no_slop, tests_pass, unknown — all escalate
+        if contract_name == "audit_clean":
+            return self._fix_audit(details)
+
+        # tests_pass, unknown — escalate
         return self._escalate(contract_name, details)
 
     def _fix_ruff(self, details: list[str]) -> FixResult:
@@ -144,6 +185,66 @@ class IntentExecutor:
             action_taken="escalate",
             message=f"ruff --fix ran but {len(remaining)} violations remain",
         )
+
+    def _fix_audit(self, details: list[str]) -> FixResult:
+        """Attempt structural code healing via CellularHealer.
+
+        Matches audit finding details to available CST remedies.
+        Falls back to escalation if healer unavailable or no remedies match.
+        """
+        if self._dry_run:
+            try:
+                from vibe_core.mahamantra.dharma.kumaras.healing_intent import get_cellular_healer
+                healer = get_cellular_healer()
+                return FixResult(
+                    contract_name="audit_clean",
+                    success=True,
+                    action_taken="cellular_heal",
+                    files_changed=["(dry_run)"],
+                    message=f"dry_run: {len(healer.list_remedies())} remedies available",
+                )
+            except Exception:
+                return self._escalate("audit_clean", details)
+
+        try:
+            from vibe_core.mahamantra.dharma.kumaras.healing_intent import get_cellular_healer
+            healer = get_cellular_healer()
+        except Exception as e:
+            logger.warning("CellularHealer unavailable: %s", e)
+            return self._escalate("audit_clean", details)
+
+        available = set(healer.list_remedies())
+        healed_files: list[str] = []
+
+        for detail in details:
+            rule_id = _extract_rule_id(detail)
+            if rule_id and rule_id in available:
+                file_path = _extract_file_path(detail)
+                if file_path is not None:
+                    try:
+                        results = healer.heal_file(
+                            file_path, rule_id, dry_run=False,
+                        )
+                        for r in results:
+                            if r.success:
+                                healed_files.append(str(file_path))
+                    except Exception as e:
+                        logger.warning(
+                            "Heal %s (%s) failed: %s", file_path, rule_id, e,
+                        )
+
+        if healed_files:
+            unique = list(set(healed_files))
+            return FixResult(
+                contract_name="audit_clean",
+                success=True,
+                action_taken="cellular_heal",
+                files_changed=unique,
+                message=f"CellularHealer fixed {len(unique)} files",
+            )
+
+        # No healable findings — escalate
+        return self._escalate("audit_clean", details)
 
     def _escalate(self, contract_name: str, details: list[str]) -> FixResult:
         """Cannot auto-fix — log and return escalation."""

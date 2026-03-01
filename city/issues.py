@@ -29,6 +29,39 @@ logger = logging.getLogger("AGENT_CITY.ISSUES")
 _issues_cfg = get_config().get("issues", {})
 LOW_PRANA_THRESHOLD: int = _issues_cfg.get("low_prana_threshold", 1000)
 
+# Ashrama lifecycle — graceful fallback if steward-protocol module unavailable
+try:
+    from vibe_core.plugins.vedic_governance.ashrama import Ashrama
+    _ASHRAMA_AVAILABLE = True
+except Exception:
+    _ASHRAMA_AVAILABLE = False
+
+
+def _classify_ashrama(cell: "MahaCellUnified") -> str:
+    """Map cell state to Ashrama lifecycle stage.
+
+    BRAHMACHARI: Young cell (low cycle count) — learning, gets energy bonus.
+    GRIHASTHA:   Active cell, healthy prana — normal metabolism.
+    VANAPRASTHA: Active but low prana — winding down, generates intents.
+    SANNYASA:    Dead cell — auto-close.
+
+    Returns Ashrama value string or "" if unavailable.
+    """
+    if not _ASHRAMA_AVAILABLE:
+        return ""
+
+    if not cell.is_alive:
+        return Ashrama.SANNYASA.value
+
+    cycle = getattr(cell, "age", 0)
+    if cycle < 10:
+        return Ashrama.BRAHMACHARI.value
+
+    if cell.prana > LOW_PRANA_THRESHOLD:
+        return Ashrama.GRIHASTHA.value
+
+    return Ashrama.VANAPRASTHA.value
+
 
 class IssueType(str, Enum):
     """Issue lifecycle types.
@@ -132,12 +165,19 @@ class CityIssueManager:
         return self._issue_types.get(issue_number, IssueType.EPHEMERAL)
 
     def metabolize_issues(self) -> list[str]:
-        """DHARMA phase: prana decay, activity check, type-aware lifecycle.
+        """DHARMA phase: prana decay, activity check, Ashrama lifecycle.
+
+        Ashrama stages modify behavior:
+        - BRAHMACHARI: energy += 2 (grace period for young issues)
+        - GRIHASTHA:   normal metabolism
+        - VANAPRASTHA: generate intent_needed (winding down)
+        - SANNYASA:    auto-close (dead cell)
 
         Returns list of actions taken:
-        - "closed:#42:prana_exhaustion" — ephemeral issue auto-closed
-        - "intent_needed:#42:low_prana" — iterative issue needs attention
+        - "closed:#42:prana_exhaustion" — dead issue auto-closed
+        - "intent_needed:#42:low_prana" — issue needs attention
         - "contract_check:#42:audit_needed" — contract issue needs audit
+        - "ashrama:#42:brahmachari" — lifecycle stage logged
         """
         actions: list[str] = []
 
@@ -171,11 +211,19 @@ class CityIssueManager:
             _mult = get_config().get("issues", {}).get("comment_energy_multiplier", 5)
             energy = len(comments) * _mult if isinstance(comments, list) else 0
 
+            # Ashrama lifecycle modulation
+            ashrama = _classify_ashrama(cell)
+            if ashrama == "brahmachari":
+                energy += 2  # Grace period — bonus energy for young issues
+                actions.append(f"ashrama:#{number}:brahmachari")
+
             # All types decay prana (signals urgency)
             cell.metabolize(energy)
 
-            if issue_type == IssueType.EPHEMERAL:
-                if not cell.is_alive:
+            # Ashrama-driven lifecycle (overrides type-only logic when available)
+            if ashrama == "sannyasa":
+                # SANNYASA: dead cell → auto-close regardless of type
+                if issue_type == IssueType.EPHEMERAL:
                     close_result = _gh_run([
                         "issue", "close", str(number),
                         "--comment", "Auto-closed: issue cell prana exhausted (no activity).",
@@ -185,18 +233,45 @@ class CityIssueManager:
                         logger.info("Auto-closed issue #%d (prana exhausted)", number)
                     del self._issue_cells[number]
                     self._issue_types.pop(number, None)
-
-            elif issue_type == IssueType.ITERATIVE:
-                # Never auto-close. Signal when prana is low.
-                if cell.prana < LOW_PRANA_THRESHOLD:
+                elif issue_type == IssueType.ITERATIVE:
                     actions.append(f"intent_needed:#{number}:low_prana")
                     logger.info("Iterative issue #%d low prana (%d)", number, cell.prana)
-
-            elif issue_type == IssueType.CONTRACT:
-                # Never auto-close. Signal audit needed when prana is low.
-                if cell.prana < LOW_PRANA_THRESHOLD:
+                elif issue_type == IssueType.CONTRACT:
                     actions.append(f"contract_check:#{number}:audit_needed")
                     logger.info("Contract issue #%d needs audit (prana=%d)", number, cell.prana)
+
+            elif ashrama == "vanaprastha":
+                # VANAPRASTHA: winding down → signal intent needed
+                if issue_type == IssueType.ITERATIVE:
+                    actions.append(f"intent_needed:#{number}:low_prana")
+                    logger.info("Iterative issue #%d low prana (%d)", number, cell.prana)
+                elif issue_type == IssueType.CONTRACT:
+                    actions.append(f"contract_check:#{number}:audit_needed")
+                    logger.info("Contract issue #%d needs audit (prana=%d)", number, cell.prana)
+
+            else:
+                # GRIHASTHA or no Ashrama: original type-based logic
+                if issue_type == IssueType.EPHEMERAL:
+                    if not cell.is_alive:
+                        close_result = _gh_run([
+                            "issue", "close", str(number),
+                            "--comment", "Auto-closed: issue cell prana exhausted (no activity).",
+                        ])
+                        if close_result is not None:
+                            actions.append(f"closed:#{number}:prana_exhaustion")
+                            logger.info("Auto-closed issue #%d (prana exhausted)", number)
+                        del self._issue_cells[number]
+                        self._issue_types.pop(number, None)
+
+                elif issue_type == IssueType.ITERATIVE:
+                    if cell.prana < LOW_PRANA_THRESHOLD:
+                        actions.append(f"intent_needed:#{number}:low_prana")
+                        logger.info("Iterative issue #%d low prana (%d)", number, cell.prana)
+
+                elif issue_type == IssueType.CONTRACT:
+                    if cell.prana < LOW_PRANA_THRESHOLD:
+                        actions.append(f"contract_check:#{number}:audit_needed")
+                        logger.info("Contract issue #%d needs audit (prana=%d)", number, cell.prana)
 
         return actions
 
