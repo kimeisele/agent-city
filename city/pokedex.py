@@ -1407,7 +1407,9 @@ class Pokedex:
             "Starter pack granted: %s (%d tokens%s)",
             name,
             tokens_to_grant,
-            f" + {EARLY_CITIZEN_BONUS} early bonus" if citizen_count <= EARLY_CITIZEN_THRESHOLD else "",
+            f" + {EARLY_CITIZEN_BONUS} early bonus"
+            if citizen_count <= EARLY_CITIZEN_THRESHOLD
+            else "",
         )
 
     def _count_citizens(self) -> int:

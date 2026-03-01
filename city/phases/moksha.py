@@ -241,7 +241,8 @@ def execute(ctx: PhaseContext) -> dict:
     # GitHub Discussions: post city report + cross-post mission results
     if ctx.discussions is not None and not ctx.offline_mode:
         report_posted = ctx.discussions.post_city_report(
-            ctx.heartbeat_count, reflection,
+            ctx.heartbeat_count,
+            reflection,
         )
         reflection["discussions_report_posted"] = report_posted
 
@@ -579,9 +580,9 @@ def _evaluate_dormant_revival(ctx: PhaseContext) -> dict | None:
     # Eligibility: agent must have lived at least REVIVE_COOLDOWN_CYCLES
     # heartbeats before going dormant (proof of prior value)
     eligible = [
-        d for d in dormant
-        if d["cell_cycle"] >= REVIVE_COOLDOWN_CYCLES
-        and d["prana_class"] != "immortal"
+        d
+        for d in dormant
+        if d["cell_cycle"] >= REVIVE_COOLDOWN_CYCLES and d["prana_class"] != "immortal"
     ]
 
     if not eligible:
@@ -601,6 +602,7 @@ def _evaluate_dormant_revival(ctx: PhaseContext) -> dict | None:
         zone = agent_data["zone"]
 
     from city.pokedex import ZONE_TREASURIES
+
     treasury_account = ZONE_TREASURIES.get(zone, "ZONE_DISCOVERY")
 
     try:
@@ -628,9 +630,7 @@ def _evaluate_dormant_revival(ctx: PhaseContext) -> dict | None:
     }
 
 
-def _mint_mission_rewards(
-    ctx: PhaseContext, terminal_missions: list[dict]
-) -> list[dict]:
+def _mint_mission_rewards(ctx: PhaseContext, terminal_missions: list[dict]) -> list[dict]:
     """Mint semantic assets as rewards for completed missions.
 
     Each completed mission → MISSION_REWARD_TOKENS (1) capability_token
@@ -674,9 +674,7 @@ def _mint_mission_rewards(
                 quantity=MISSION_REWARD_TOKENS,
                 source="mission_reward",
             )
-            minted.append(
-                {"agent": owner, "asset": reward_cap, "mission": mission_id}
-            )
+            minted.append({"agent": owner, "asset": reward_cap, "mission": mission_id})
             logger.info(
                 "MOKSHA: Minted %s token for %s (mission %s)",
                 reward_cap,

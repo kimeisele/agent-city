@@ -35,7 +35,6 @@ from vibe_core.mahamantra.protocols import (
     MAHA_QUANTUM,
     MALA,
     NAVA,
-    QUARTERS,
     TEN,
     TRINITY,
 )
@@ -46,37 +45,37 @@ from vibe_core.mahamantra.protocols._seed import (
 
 # ── Biology: Agent Classes ────────────────────────────────────────────
 
-GENESIS_PRANA_EPHEMERAL: int = MAHA_QUANTUM * TEN          # 137 × 10   = 1370
-GENESIS_PRANA_STANDARD: int  = MAHA_QUANTUM * TEN ** 2     # 137 × 100  = 13700
-GENESIS_PRANA_RESILIENT: int = MAHA_QUANTUM * TEN ** 3     # 137 × 1000 = 137000
+GENESIS_PRANA_EPHEMERAL: int = MAHA_QUANTUM * TEN  # 137 × 10   = 1370
+GENESIS_PRANA_STANDARD: int = MAHA_QUANTUM * TEN**2  # 137 × 100  = 13700
+GENESIS_PRANA_RESILIENT: int = MAHA_QUANTUM * TEN**3  # 137 × 1000 = 137000
 
-METABOLIC_COST: int = TRINITY                               # 3
+METABOLIC_COST: int = TRINITY  # 3
 
-MAX_AGE_EPHEMERAL: int = MALA                               # 108
-MAX_AGE_STANDARD: int  = JIVA_CYCLE                         # 432
-MAX_AGE_RESILIENT: int = JIVA_CYCLE * TEN                   # 4320
+MAX_AGE_EPHEMERAL: int = MALA  # 108
+MAX_AGE_STANDARD: int = JIVA_CYCLE  # 432
+MAX_AGE_RESILIENT: int = JIVA_CYCLE * TEN  # 4320
 
 # ── Economy ───────────────────────────────────────────────────────────
 
-GENESIS_GRANT: int = MALA                                   # 108 (was 100 — now Mahamantra-derived)
+GENESIS_GRANT: int = MALA  # 108 (was 100 — now Mahamantra-derived)
 
 # ── Thresholds ────────────────────────────────────────────────────────
 
-HIBERNATION_THRESHOLD: int = MALA * NAVA                    # 108 × 9 = 972
-PRANA_NORM_MAX: int = COSMIC_FRAME                          # 21600
+HIBERNATION_THRESHOLD: int = MALA * NAVA  # 108 × 9 = 972
+PRANA_NORM_MAX: int = COSMIC_FRAME  # 21600
 
 # ── Revival & Stipends ───────────────────────────────────────────────
 
-REVIVE_DOSE: int = MALA * TEN                               # 108 × 10 = 1080 (above HIBERNATION_THRESHOLD)
-REVIVE_COOLDOWN_CYCLES: int = MALA                          # 108 heartbeats between auto-revives per agent
-WORKER_VISA_STIPEND: int = MALA // TRINITY                  # 108 / 3 = 36 (survival prana for workers)
+REVIVE_DOSE: int = MALA * TEN  # 108 × 10 = 1080 (above HIBERNATION_THRESHOLD)
+REVIVE_COOLDOWN_CYCLES: int = MALA  # 108 heartbeats between auto-revives per agent
+WORKER_VISA_STIPEND: int = MALA // TRINITY  # 108 / 3 = 36 (survival prana for workers)
 
 # ── Minting: Semantic Assets ───────────────────────────────────────
 
-STARTER_PACK_TOKENS: int = TRINITY                           # 3 capability tokens per new citizen
-MISSION_REWARD_TOKENS: int = 1                               # 1 token per completed mission
-EARLY_CITIZEN_BONUS: int = NAVA                              # 9 bonus word_tokens for early citizens
-EARLY_CITIZEN_THRESHOLD: int = MALA                          # first 108 citizens get the bonus
+STARTER_PACK_TOKENS: int = TRINITY  # 3 capability tokens per new citizen
+MISSION_REWARD_TOKENS: int = 1  # 1 token per completed mission
+EARLY_CITIZEN_BONUS: int = NAVA  # 9 bonus word_tokens for early citizens
+EARLY_CITIZEN_THRESHOLD: int = MALA  # first 108 citizens get the bonus
 
 # ── Prana Class Resolution ────────────────────────────────────────────
 
@@ -84,11 +83,11 @@ EARLY_CITIZEN_THRESHOLD: int = MALA                          # first 108 citizen
 # Resilient boundary = midpoint between standard and resilient genesis
 # Ephemeral boundary = midpoint between ephemeral and standard genesis
 _PRANA_CLASS_THRESHOLDS: list[tuple[int, str]] = [
-    (GENESIS_PRANA_RESILIENT, "resilient"),                              # >= 137000
+    (GENESIS_PRANA_RESILIENT, "resilient"),  # >= 137000
     ((GENESIS_PRANA_STANDARD + GENESIS_PRANA_RESILIENT) // 2, "resilient"),  # >= 75350
-    (GENESIS_PRANA_STANDARD, "standard"),                                # >= 13700
-    ((GENESIS_PRANA_EPHEMERAL + GENESIS_PRANA_STANDARD) // 2, "standard"),   # >= 7535
-    (GENESIS_PRANA_EPHEMERAL, "ephemeral"),                              # >= 1370
+    (GENESIS_PRANA_STANDARD, "standard"),  # >= 13700
+    ((GENESIS_PRANA_EPHEMERAL + GENESIS_PRANA_STANDARD) // 2, "standard"),  # >= 7535
+    (GENESIS_PRANA_EPHEMERAL, "ephemeral"),  # >= 1370
 ]
 
 
@@ -109,16 +108,16 @@ def classify_prana_class(prana: int) -> str:
 
 # ── Verification (fail-fast at import time) ───────────────────────────
 
-assert GENESIS_PRANA_EPHEMERAL == 1370,  f"ephemeral prana {GENESIS_PRANA_EPHEMERAL} != 1370"
-assert GENESIS_PRANA_STANDARD  == 13700, f"standard prana {GENESIS_PRANA_STANDARD} != 13700"
+assert GENESIS_PRANA_EPHEMERAL == 1370, f"ephemeral prana {GENESIS_PRANA_EPHEMERAL} != 1370"
+assert GENESIS_PRANA_STANDARD == 13700, f"standard prana {GENESIS_PRANA_STANDARD} != 13700"
 assert GENESIS_PRANA_RESILIENT == 137000, f"resilient prana {GENESIS_PRANA_RESILIENT} != 137000"
-assert METABOLIC_COST          == 3,     f"metabolic cost {METABOLIC_COST} != 3"
-assert MAX_AGE_EPHEMERAL       == 108,   f"ephemeral max_age {MAX_AGE_EPHEMERAL} != 108"
-assert MAX_AGE_STANDARD        == 432,   f"standard max_age {MAX_AGE_STANDARD} != 432"
-assert MAX_AGE_RESILIENT       == 4320,  f"resilient max_age {MAX_AGE_RESILIENT} != 4320"
-assert GENESIS_GRANT           == 108,   f"genesis grant {GENESIS_GRANT} != 108"
-assert HIBERNATION_THRESHOLD   == 972,   f"hibernation threshold {HIBERNATION_THRESHOLD} != 972"
-assert PRANA_NORM_MAX          == 21600, f"prana norm max {PRANA_NORM_MAX} != 21600"
-assert STARTER_PACK_TOKENS     == 3,     f"starter pack {STARTER_PACK_TOKENS} != 3"
-assert EARLY_CITIZEN_BONUS     == 9,     f"early bonus {EARLY_CITIZEN_BONUS} != 9"
-assert EARLY_CITIZEN_THRESHOLD == 108,   f"early threshold {EARLY_CITIZEN_THRESHOLD} != 108"
+assert METABOLIC_COST == 3, f"metabolic cost {METABOLIC_COST} != 3"
+assert MAX_AGE_EPHEMERAL == 108, f"ephemeral max_age {MAX_AGE_EPHEMERAL} != 108"
+assert MAX_AGE_STANDARD == 432, f"standard max_age {MAX_AGE_STANDARD} != 432"
+assert MAX_AGE_RESILIENT == 4320, f"resilient max_age {MAX_AGE_RESILIENT} != 4320"
+assert GENESIS_GRANT == 108, f"genesis grant {GENESIS_GRANT} != 108"
+assert HIBERNATION_THRESHOLD == 972, f"hibernation threshold {HIBERNATION_THRESHOLD} != 972"
+assert PRANA_NORM_MAX == 21600, f"prana norm max {PRANA_NORM_MAX} != 21600"
+assert STARTER_PACK_TOKENS == 3, f"starter pack {STARTER_PACK_TOKENS} != 3"
+assert EARLY_CITIZEN_BONUS == 9, f"early bonus {EARLY_CITIZEN_BONUS} != 9"
+assert EARLY_CITIZEN_THRESHOLD == 108, f"early threshold {EARLY_CITIZEN_THRESHOLD} != 108"
