@@ -3,13 +3,12 @@
 Linked to GitHub Issue #15.
 """
 
-import os
 import shutil
 import tempfile
 import time
 from pathlib import Path
 
-from city.daemon import DaemonService, SADHANA
+from city.daemon import DaemonService
 from city.gateway import CityGateway
 from city.mayor import Mayor
 from city.network import CityNetwork
@@ -194,11 +193,13 @@ def test_commit_authority_gpg(monkeypatch, tmp_path):
     subprocess.run(["git", "config", "user.name", "Test Agent"], cwd=str(tmp_path), check=True)
     subprocess.run(["git", "config", "user.email", "test@agent.city"], cwd=str(tmp_path), check=True)
     
-    # 2. Mock `gpg --list-secret-keys` to simulate NO GPG
+    # 2. Mock GPG sign test to simulate NO GPG available
+    original_run = subprocess.run
     def mock_run_no_gpg(*args, **kwargs):
-        if args[0] == ["gpg", "--list-secret-keys"]:
-            return subprocess.CompletedProcess(args[0], 1, stdout="gpg: no default secret key found\n", stderr="")
-        return subprocess.run(*args, **kwargs)
+        cmd = args[0] if args else kwargs.get("args", [])
+        if isinstance(cmd, list) and "--sign" in cmd and "gpg" in cmd[0]:
+            return subprocess.CompletedProcess(cmd, 2, stdout=b"", stderr=b"no key")
+        return original_run(*args, **kwargs)
         
     monkeypatch.setattr(subprocess, "run", mock_run_no_gpg)
     
@@ -206,11 +207,12 @@ def test_commit_authority_gpg(monkeypatch, tmp_path):
     ca_no_gpg = CommitAuthority(workspace=tmp_path)
     assert ca_no_gpg._gpg_available is False, "CommitAuthority should realize GPG is missing"
     
-    # 4. Mock `gpg --list-secret-keys` to simulate ACTIVE GPG
+    # 4. Mock GPG sign test to simulate ACTIVE GPG
     def mock_run_yes_gpg(*args, **kwargs):
-        if args[0] == ["gpg", "--list-secret-keys"]:
-            return subprocess.CompletedProcess(args[0], 0, stdout="/root/.gnupg/pubring.kbx\n-----------------------\nsec   rsa4096 2024-01-01 [SC]\n", stderr="")
-        return subprocess.run(*args, **kwargs)
+        cmd = args[0] if args else kwargs.get("args", [])
+        if isinstance(cmd, list) and "--sign" in cmd and "gpg" in cmd[0]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        return original_run(*args, **kwargs)
         
     monkeypatch.setattr(subprocess, "run", mock_run_yes_gpg)
     
