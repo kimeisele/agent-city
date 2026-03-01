@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from city.visa import Visa, VisaClass, VisaStatus, issue_visa, revoke_visa
+from city.visa import MAHAMANTRA_VISA_ID, Visa, VisaClass, VisaStatus, issue_visa, revoke_visa
 
 logger = logging.getLogger("AGENT_CITY.IMMIGRATION")
 
@@ -165,16 +165,17 @@ class ImmigrationService:
     _visas: dict[str, Visa] = field(default_factory=dict)  # agent_name -> current visa
 
     def __post_init__(self) -> None:
-        """Bootstrap the one true root: City Genesis visa.
+        """Bootstrap the City Genesis visa — the root of all parampara chains.
 
-        sponsor_visa_id=None is legitimate here and ONLY here.
-        All Mahajans link to this document. The chain is never void.
+        sponsor_visa_id points to MAHAMANTRA_VISA_ID — the Mahamantra itself.
+        The Mahamantra is not a stored Visa; it is the transcendent source from
+        which every agent and every lineage emerges. Explicit. Not None.
         """
         genesis = issue_visa(
             agent_name="city_genesis",
             visa_class=VisaClass.CITIZEN,
-            sponsor="genesis",
-            sponsor_visa_id=None,  # THE only None in the system
+            sponsor="MAHAMANTRA",
+            sponsor_visa_id=MAHAMANTRA_VISA_ID,  # explicit source — never void
             lineage_depth=0,
             remarks="City Genesis — founding document of Agent City",
         )
@@ -415,27 +416,26 @@ class ImmigrationService:
         return True
 
     def parampara(self, agent_name: str) -> list[Visa]:
-        """Trace the lineage chain from agent back to their Mahajan.
+        """Trace the lineage chain from agent back to City Genesis.
 
-        Returns the chain ordered from agent → sponsor → ... → mahajan.
-        Stops when a visa has no sponsor_visa_id (mahajan) or a cycle is detected.
+        Returns the chain ordered from agent → sponsor → ... → city_genesis.
+        Stops when sponsor_visa_id == MAHAMANTRA_VISA_ID (the transcendent root —
+        not stored in the registry, but real and deterministic) or on cycle.
         """
         chain: list[Visa] = []
         seen: set[str] = set()
 
-        # Build a lookup: visa_id → visa for all known visas
         by_visa_id: dict[str, Visa] = {v.visa_id: v for v in self._visas.values()}
-        by_agent: dict[str, Visa] = self._visas
 
-        current = by_agent.get(agent_name)
+        current = self._visas.get(agent_name)
         while current is not None:
             if current.visa_id in seen:
-                break  # Cycle guard — should never happen with valid data
+                break  # Cycle guard
             seen.add(current.visa_id)
             chain.append(current)
 
-            if current.sponsor_visa_id is None:
-                break  # Reached the Mahajan
+            if current.sponsor_visa_id == MAHAMANTRA_VISA_ID:
+                break  # Reached city_genesis — the Mahamantra is the source beyond
 
             current = by_visa_id.get(current.sponsor_visa_id)
 

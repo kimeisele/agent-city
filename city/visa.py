@@ -14,8 +14,8 @@ Each visa records its sponsor's visa_id, forming a Parampara (lineage chain):
 - lineage_depth: 0 = City Genesis (founding document), 1 = Mahajan, N = N hops
 
 The chain is never broken — there is always a personal source (not Mayavad).
-The ONLY document with sponsor_visa_id=None is the City Genesis visa.
-All Mahajans link to it. All agents link to their Mahajan. The seed stays.
+Every sponsor_visa_id resolves to a real document or to MAHAMANTRA_VISA_ID.
+sponsor_visa_id is never None in valid data. The seed stays.
 
 This lets Agent City trace agent lineage like epidemiological contact tracing —
 even when identity cannot be 100% verified, the chain of vouching is auditable.
@@ -26,6 +26,7 @@ even when identity cannot be 100% verified, the chain of vouching is auditable.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
@@ -33,6 +34,19 @@ from enum import Enum
 from typing import Optional
 
 logger = logging.getLogger("AGENT_CITY.VISA")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# THE MAHAMANTRA — the terminal point of all parampara chains.
+#
+# Every visa's sponsor_visa_id ultimately resolves here. Not None. Not void.
+# The 16-word mantra is the source from which every Jiva — and every lineage —
+# emerges. Its SHA-256 hash is deterministic, verifiable, and permanent.
+# ─────────────────────────────────────────────────────────────────────────────
+_MAHAMANTRA_SEQUENCE = (
+    "Hare Krishna Hare Krishna Krishna Krishna Hare Hare "
+    "Hare Rama Hare Rama Rama Rama Hare Hare"
+)
+MAHAMANTRA_VISA_ID: str = hashlib.sha256(_MAHAMANTRA_SEQUENCE.encode()).hexdigest()[:16]
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -133,7 +147,8 @@ class Visa:
     Forms a Parampara (lineage chain) via sponsor_visa_id:
       agent.visa → sponsor.visa → sponsor's sponsor.visa → ... → mahajan.visa
 
-    City Genesis = depth=0, sponsor_visa_id=None (the one true root).
+    Mahamantra = the terminal source (MAHAMANTRA_VISA_ID constant, not a Visa).
+    City Genesis = depth=0, sponsor_visa_id=MAHAMANTRA_VISA_ID.
     Mahajan = depth=1, linked to City Genesis.
     All others = depth N, linked to their sponsor.
     """
