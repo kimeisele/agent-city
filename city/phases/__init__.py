@@ -26,6 +26,7 @@ from city.registry import (
     SVC_FEDERATION,
     SVC_FEDERATION_NADI,
     SVC_IDENTITY,
+    SVC_IMMIGRATION,
     SVC_IMMUNE,
     SVC_ISSUES,
     SVC_KNOWLEDGE_GRAPH,
@@ -200,6 +201,10 @@ class PhaseContext:
     @property
     def identity(self) -> object | None:
         return self.registry.get(SVC_IDENTITY)
+
+    @property
+    def immigration(self) -> object | None:
+        return self.registry.get(SVC_IMMIGRATION)
 
     @property
     def moltbook_assistant(self) -> object | None:
