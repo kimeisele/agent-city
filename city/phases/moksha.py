@@ -135,6 +135,26 @@ def execute(ctx: PhaseContext) -> dict:
     if terminal_missions:
         reflection["mission_results_terminal"] = terminal_missions
 
+    # Layer 6: Federation Nadi — emit city state + flush outbox
+    if ctx.federation_nadi is not None:
+        nadi_payload = {
+            "heartbeat": ctx.heartbeat_count,
+            "population": stats.get("total", 0),
+            "alive": stats.get("alive", 0),
+            "chain_valid": chain_valid,
+            "pr_results": reflection.get("pr_results", []),
+            "mission_results": reflection.get("mission_results_terminal", []),
+        }
+        ctx.federation_nadi.emit(
+            source="moksha",
+            operation="city_report",
+            payload=nadi_payload,
+            priority=2,  # SATTVA
+        )
+        flushed = ctx.federation_nadi.flush()
+        if flushed:
+            reflection["federation_nadi_flushed"] = flushed
+
     # Layer 6: Federation report
     if ctx.federation is not None:
         report = _build_city_report(ctx, reflection)
