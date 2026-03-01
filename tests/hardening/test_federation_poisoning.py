@@ -1,12 +1,6 @@
 import json
-import sys
-import tempfile
-import threading
 import time
-from dataclasses import dataclass
-from pathlib import Path
 
-import pytest
 
 
 def test_oversized_directive_rejected(tmp_dir):
@@ -50,7 +44,6 @@ def test_unknown_directive_type_ignored(tmp_dir):
     Attack vector: Send directive with type="drop_all_tables".
     Impact: Arbitrary command execution.
     """
-    import logging
     from city.federation import FederationRelay
 
     relay = FederationRelay(

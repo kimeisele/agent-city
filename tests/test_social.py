@@ -1,5 +1,4 @@
 import pytest
-import os
 from datetime import datetime, timezone
 from city.social import SocialBroadcaster, MAX_MESSAGE_LENGTH
 from city.pokedex import Pokedex

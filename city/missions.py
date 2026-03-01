@@ -39,7 +39,10 @@ def create_healing_mission(ctx: object, contract_result: object) -> None:
 
 
 def create_audit_mission(ctx: object, finding: object) -> None:
-    """Create a Sankalpa mission from a critical audit finding."""
+    """Create a Sankalpa mission from a critical audit finding.
+
+    Deduplicates: skips if an active mission for the same finding.source exists.
+    """
     if ctx.sankalpa is None:
         return
 
@@ -48,6 +51,16 @@ def create_audit_mission(ctx: object, finding: object) -> None:
         MissionStatus,
         SankalpaMission,
     )
+
+    # Dedup: skip if active mission for same finding source already exists
+    prefix = f"audit_{finding.source}_"
+    for existing in ctx.sankalpa.registry.get_active_missions():
+        if existing.id.startswith(prefix) or (
+            existing.name == f"Audit: {finding.source}"
+            and existing.status == MissionStatus.ACTIVE
+        ):
+            logger.debug("Audit mission for %s already exists (%s), skipping", finding.source, existing.id)
+            return
 
     mission_id = f"audit_{finding.source}_{ctx.heartbeat_count}"
     mission = SankalpaMission(

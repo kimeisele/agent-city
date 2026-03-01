@@ -6,7 +6,6 @@ Validates the "Radio Frequency" identity abstraction.
 Agents are not just their name, but the channel/frequency they originate from.
 """
 
-import pytest
 
 def test_identical_names_on_different_channels_have_different_identities():
     """Agents with same name but different channels MUST have different cryptographic identities.
