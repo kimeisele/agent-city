@@ -11,6 +11,13 @@ The Rathaus (immigration office) manages:
 The complete migration flow:
   External Agent → Application → Review → Council Vote → Citizenship → Welcome
 
+Parampara (lineage) is built into every visa grant:
+  new_visa.sponsor_visa_id = sponsor_visa.visa_id
+  new_visa.lineage_depth   = sponsor_visa.lineage_depth + 1
+
+Founding agents are Mahajan (lineage_depth=0, no sponsor_visa_id).
+Any agent's lineage can be traced back to their Mahajan via parampara().
+
 Uses DHARMA phase for evaluation and contracts for KYC.
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
@@ -298,10 +305,32 @@ class ImmigrationService:
 
         return True
 
+    def register_mahajan(self, agent_name: str) -> Visa:
+        """Register a founding agent (Mahajan) with no sponsor chain.
+
+        Mahajan are the root of all parampara lineages — lineage_depth=0.
+        Only called for founding agents; all others go through apply → council.
+        """
+        visa = issue_visa(
+            agent_name=agent_name,
+            visa_class=VisaClass.CITIZEN,
+            sponsor="genesis",
+            sponsor_visa_id=None,
+            lineage_depth=0,
+            remarks="Mahajan — founding agent",
+        )
+        self._visas[agent_name] = visa
+        logger.info("Mahajan registered: %s (visa_id=%s)", agent_name, visa.visa_id)
+        return visa
+
     def grant_citizenship(
         self, app_id: str, sponsor: str = "council"
     ) -> Optional[Visa]:
         """Grant citizenship visa and finalize application.
+
+        Resolves the sponsor's visa to build the parampara chain:
+          new_visa.sponsor_visa_id = sponsor_visa.visa_id
+          new_visa.lineage_depth   = sponsor_visa.lineage_depth + 1
 
         Can only be called on COUNCIL_APPROVED applications.
         """
@@ -318,11 +347,17 @@ class ImmigrationService:
             )
             return None
 
-        # Issue visa
+        # Resolve parampara: look up sponsor's visa to chain the lineage
+        sponsor_visa = self._visas.get(sponsor)
+        sponsor_visa_id = sponsor_visa.visa_id if sponsor_visa else None
+        lineage_depth = (sponsor_visa.lineage_depth + 1) if sponsor_visa else 1
+
         visa = issue_visa(
             agent_name=app.agent_name,
             visa_class=app.requested_visa_class,
             sponsor=sponsor,
+            sponsor_visa_id=sponsor_visa_id,
+            lineage_depth=lineage_depth,
             remarks=f"Immigration application {app_id}",
         )
 
@@ -331,10 +366,12 @@ class ImmigrationService:
         self._visas[app.agent_name] = visa
 
         logger.info(
-            "Citizenship granted to %s (visa_id=%s, class=%s)",
+            "Citizenship granted to %s (visa_id=%s, class=%s, depth=%d, sponsor=%s)",
             app.agent_name,
             visa.visa_id,
             app.requested_visa_class.value,
+            lineage_depth,
+            sponsor,
         )
         return visa
 
@@ -353,6 +390,38 @@ class ImmigrationService:
         self._visas[agent_name] = revoked
         logger.info("Citizenship revoked for %s: %s", agent_name, reason)
         return True
+
+    def parampara(self, agent_name: str) -> list[Visa]:
+        """Trace the lineage chain from agent back to their Mahajan.
+
+        Returns the chain ordered from agent → sponsor → ... → mahajan.
+        Stops when a visa has no sponsor_visa_id (mahajan) or a cycle is detected.
+        """
+        chain: list[Visa] = []
+        seen: set[str] = set()
+
+        # Build a lookup: visa_id → visa for all known visas
+        by_visa_id: dict[str, Visa] = {v.visa_id: v for v in self._visas.values()}
+        by_agent: dict[str, Visa] = self._visas
+
+        current = by_agent.get(agent_name)
+        while current is not None:
+            if current.visa_id in seen:
+                break  # Cycle guard — should never happen with valid data
+            seen.add(current.visa_id)
+            chain.append(current)
+
+            if current.sponsor_visa_id is None:
+                break  # Reached the Mahajan
+
+            current = by_visa_id.get(current.sponsor_visa_id)
+
+        return chain
+
+    def mahajan_of(self, agent_name: str) -> Optional[Visa]:
+        """Return the founding Mahajan visa for an agent's lineage."""
+        chain = self.parampara(agent_name)
+        return chain[-1] if chain else None
 
     def get_application(self, app_id: str) -> Optional[ImmigrationApplication]:
         """Get application by ID."""
