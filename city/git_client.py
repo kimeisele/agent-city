@@ -27,26 +27,37 @@ class CommitAuthority:
         self._gpg_available = self._check_gpg_key_available()
         
     def _check_gpg_key_available(self) -> bool:
-        """Verify if a GPG key is loaded and available for signing."""
+        """Verify if GPG signing actually works (not just that keys exist).
+        
+        A key can exist but signing may hang (no pinentry, locked agent, 
+        socket issues). We do a real non-interactive sign test with a tight
+        timeout to guarantee graceful degradation.
+        """
         try:
-            # Check if gpg is installed and has secret keys
             result = subprocess.run(
-                ["gpg", "--list-secret-keys"],
+                ["gpg", "--batch", "--pinentry-mode", "error",
+                 "--sign", "--default-key", "", "-o", "/dev/null"],
+                input=b"test",
                 cwd=str(self._workspace),
                 capture_output=True,
-                text=True,
-                check=False
+                timeout=5,
             )
-            if result.returncode == 0 and "sec " in result.stdout:
-                logger.info("CommitAuthority: GPG Secret Key found. Commits WILL be verified.")
+            if result.returncode == 0:
+                logger.info("CommitAuthority: GPG signing operational. Commits WILL be verified.")
                 return True
-                
+
             logger.warning(
-                "CommitAuthority: No GPG Secret Key found. "
+                "CommitAuthority: GPG signing not available (key missing or locked). "
                 "Commits will NOT be verified. (OPUS-092 Graceful Degradation)"
             )
             return False
-            
+
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "CommitAuthority: GPG signing timed out (agent/pinentry issue). "
+                "Commits will NOT be verified. (OPUS-092 Graceful Degradation)"
+            )
+            return False
         except FileNotFoundError:
             logger.warning(
                 "CommitAuthority: GPG is not installed on this system. "
