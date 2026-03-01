@@ -79,17 +79,23 @@ class CityNadi:
         from_agent: str = "",
         post_id: str = "",
         code_signals: list | None = None,
+        discussion_number: int = 0,
+        discussion_title: str = "",
+        direct_agent: str = "",
     ) -> bool:
         """Enqueue a message for KARMA processing.
 
         Args:
-            source: Origin identifier (dm, feed, submolt, gateway).
+            source: Origin identifier (dm, feed, submolt, gateway, discussion).
             text: Message content.
             priority: NadiPriority value (0-3). Auto-derived from guna if None.
             conversation_id: Moltbook DM conversation ID for response routing.
             from_agent: Sender's username.
             post_id: Moltbook post ID (for submolt signals).
             code_signals: Detected code signals from submolt scanning.
+            discussion_number: GitHub Discussion number (for discussion routing).
+            discussion_title: Discussion thread title.
+            direct_agent: @mentioned agent name for direct routing.
 
         Returns True if enqueued, False if Nadi unavailable.
         """
@@ -125,6 +131,12 @@ class CityNadi:
                 payload["post_id"] = post_id
             if code_signals:
                 payload["code_signals"] = code_signals
+            if discussion_number:
+                payload["discussion_number"] = discussion_number
+            if discussion_title:
+                payload["discussion_title"] = discussion_title
+            if direct_agent:
+                payload["direct_agent"] = direct_agent
 
             msg = NadiMessage(
                 source=source,
@@ -178,6 +190,12 @@ class CityNadi:
                     item["post_id"] = msg.payload["post_id"]
                 if msg.payload.get("code_signals"):
                     item["code_signals"] = msg.payload["code_signals"]
+                if msg.payload.get("discussion_number"):
+                    item["discussion_number"] = msg.payload["discussion_number"]
+                if msg.payload.get("discussion_title"):
+                    item["discussion_title"] = msg.payload["discussion_title"]
+                if msg.payload.get("direct_agent"):
+                    item["direct_agent"] = msg.payload["direct_agent"]
                 result.append(item)
             return result
 

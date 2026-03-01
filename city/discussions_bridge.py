@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import time
 from dataclasses import dataclass, field
 
 from config import get_config
@@ -33,6 +34,9 @@ _cfg = get_config().get("discussions", {})
 _GH_TIMEOUT_S = _cfg.get("gh_timeout_s", 30)
 _SCAN_LIMIT = _cfg.get("scan_limit", 10)
 _REPORT_EVERY_N = _cfg.get("report_every_n_moksha", 4)
+_RESPONSE_COOLDOWN_S = _cfg.get("response_cooldown_s", 600)
+_MAX_COMMENTS_PER_CYCLE = _cfg.get("max_agent_comments_per_cycle", 3)
+_SKIP_OWN_USERNAME = _cfg.get("skip_own_username", "github-actions[bot]")
 
 # ── GraphQL Queries ─────────────────────────────────────────────────
 
@@ -138,6 +142,10 @@ class DiscussionsBridge:
         "scans": 0, "posts": 0, "comments": 0,
     })
 
+    # Agent response rate limiting
+    _responded_discussions: dict[int, float] = field(default_factory=dict)
+    _comments_this_cycle: int = 0
+
     # ── GAD-000: Discoverable ───────────────────────────────────────
 
     @staticmethod
@@ -149,6 +157,32 @@ class DiscussionsBridge:
             {"op": "post_city_report", "phase": "MOKSHA", "idempotent": True},
             {"op": "cross_post", "phase": "MOKSHA", "idempotent": True},
         ]
+
+    # ── Agent Response Rate Limiting ─────────────────────────────────
+
+    def can_respond(self, discussion_number: int) -> bool:
+        """Check if an agent response is allowed for this discussion.
+
+        Two gates: per-thread cooldown + per-cycle max.
+        """
+        if self._comments_this_cycle >= _MAX_COMMENTS_PER_CYCLE:
+            return False
+        last = self._responded_discussions.get(discussion_number, 0.0)
+        return (time.time() - last) >= _RESPONSE_COOLDOWN_S
+
+    def record_response(self, discussion_number: int) -> None:
+        """Record that an agent responded to this discussion."""
+        self._responded_discussions[discussion_number] = time.time()
+        self._comments_this_cycle += 1
+
+    def reset_cycle(self) -> None:
+        """Reset per-cycle counters. Call at the start of each KARMA cycle."""
+        self._comments_this_cycle = 0
+
+    @staticmethod
+    def is_own_comment(author: str) -> bool:
+        """Check if a comment author is our own bot (skip self-replies)."""
+        return author == _SKIP_OWN_USERNAME
 
     # ── Phase Handlers ──────────────────────────────────────────────
 
@@ -381,6 +415,10 @@ class DiscussionsBridge:
             "seen_comment_ids": sorted(self._seen_comment_ids)[-500:],
             "last_report_hb": self._last_report_hb,
             "ops": dict(self._ops),
+            "responded_discussions": {
+                str(k): v
+                for k, v in self._responded_discussions.items()
+            },
         }
 
     def restore(self, data: dict) -> None:
@@ -393,6 +431,10 @@ class DiscussionsBridge:
             "scans": ops.get("scans", 0),
             "posts": ops.get("posts", 0),
             "comments": ops.get("comments", 0),
+        }
+        self._responded_discussions = {
+            int(k): v
+            for k, v in data.get("responded_discussions", {}).items()
         }
         logger.info(
             "RESTORED: %d discussions seen, %d comments seen, %d ops",

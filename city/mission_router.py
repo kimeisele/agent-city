@@ -81,6 +81,11 @@ MISSION_REQUIREMENTS: dict[str, MissionRequirement] = {
         "preferred": ["communicate", "connect"],
         "min_tier": "contributor",
     },
+    "disc_": {
+        "required": ["observe"],
+        "preferred": ["report", "communicate"],
+        "min_tier": "contributor",
+    },
 }
 
 DEFAULT_REQUIREMENT: MissionRequirement = {
@@ -106,6 +111,7 @@ _PREFIX_DOMAIN: dict[str, str] = {
     "exec_": "ENGINEERING",
     "signal_": "DISCOVERY",
     "fed_": "DISCOVERY",
+    "disc_": "DISCOVERY",
 }
 
 # Mission prefix → preferred capability protocol (for scoring)
@@ -117,6 +123,7 @@ _PREFIX_PROTOCOL: dict[str, str] = {
     "exec_": "infer",
     "signal_": "parse",
     "fed_": "route",
+    "disc_": "parse",
 }
 
 

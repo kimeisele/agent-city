@@ -35,6 +35,7 @@ from vibe_core.mahamantra.protocols import (
     MAHA_QUANTUM,
     MALA,
     NAVA,
+    SHARANAGATI,
     TEN,
     TRINITY,
 )
@@ -76,6 +77,11 @@ STARTER_PACK_TOKENS: int = TRINITY  # 3 capability tokens per new citizen
 MISSION_REWARD_TOKENS: int = 1  # 1 token per completed mission
 EARLY_CITIZEN_BONUS: int = NAVA  # 9 bonus word_tokens for early citizens
 EARLY_CITIZEN_THRESHOLD: int = MALA  # first 108 citizens get the bonus
+
+# ── Marketplace ──────────────────────────────────────────────────────
+
+TRADE_COMMISSION_PERCENT: int = SHARANAGATI  # 6% of trade price → zone treasury
+ORDER_EXPIRY_HEARTBEATS: int = MALA  # 108 heartbeats before order auto-expires
 
 # ── Prana Class Resolution ────────────────────────────────────────────
 
@@ -121,3 +127,5 @@ assert PRANA_NORM_MAX == 21600, f"prana norm max {PRANA_NORM_MAX} != 21600"
 assert STARTER_PACK_TOKENS == 3, f"starter pack {STARTER_PACK_TOKENS} != 3"
 assert EARLY_CITIZEN_BONUS == 9, f"early bonus {EARLY_CITIZEN_BONUS} != 9"
 assert EARLY_CITIZEN_THRESHOLD == 108, f"early threshold {EARLY_CITIZEN_THRESHOLD} != 108"
+assert TRADE_COMMISSION_PERCENT == 6, f"trade commission {TRADE_COMMISSION_PERCENT} != 6"
+assert ORDER_EXPIRY_HEARTBEATS == 108, f"order expiry {ORDER_EXPIRY_HEARTBEATS} != 108"

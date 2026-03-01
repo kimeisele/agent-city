@@ -190,6 +190,11 @@ def execute(ctx: PhaseContext) -> dict:
         if mint_results:
             reflection["assets_minted"] = mint_results
 
+    # Marketplace stats (Phase 7)
+    mkt_stats = ctx.pokedex.marketplace_stats()
+    if mkt_stats.get("active_orders", 0) > 0 or mkt_stats.get("total_filled", 0) > 0:
+        reflection["marketplace"] = mkt_stats
+
     # Evaluate dormant agents for treasury-funded revival
     revival_results = _evaluate_dormant_revival(ctx)
     if revival_results:
