@@ -43,6 +43,7 @@ SVC_CLAIMS = "claims"
 SVC_SPAWNER = "spawner"
 SVC_ATTENTION = "attention"
 SVC_REACTOR = "reactor"
+SVC_IMMIGRATION = "immigration"
 SVC_MOLTBOOK_ASSISTANT = "moltbook_assistant"
 
 
