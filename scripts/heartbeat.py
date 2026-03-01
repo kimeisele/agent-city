@@ -16,13 +16,35 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import logging
+import os
 import sys
 from pathlib import Path
 
 # Ensure imports work from repo root
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Heartbeat file-lock path (Issue #17 S1b — prevents concurrent overlap)
+_LOCK_PATH = Path("data/.heartbeat.lock")
+
+
+def _acquire_heartbeat_lock() -> object:
+    """Acquire exclusive file-lock. Exits if another heartbeat is running."""
+    _LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    fd = open(_LOCK_PATH, "w")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fd.write(str(os.getpid()))
+        fd.flush()
+        return fd
+    except BlockingIOError:
+        print(
+            "FATAL: Another heartbeat is already running (lock held). Exiting.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
 
 
 def main() -> None:
@@ -86,6 +108,10 @@ def main() -> None:
 
     log = logging.getLogger("HEARTBEAT")
 
+    # Acquire exclusive heartbeat lock (Issue #17 S1b — single-writer daemon)
+    _lock_fd = _acquire_heartbeat_lock()  # noqa: F841 — held for process lifetime
+    log.info("Heartbeat lock acquired (pid=%d)", os.getpid())
+
     from vibe_core.cartridges.system.civic.tools.economy import CivicBank
 
     from city.factory import BuildContext, CityServiceFactory, default_definitions
@@ -111,6 +137,8 @@ def main() -> None:
         offline=args.offline,
         args=args,
         config=_cfg,
+        pokedex=pokedex,
+        network=network,
     )
 
     definitions = default_definitions(
@@ -168,6 +196,15 @@ def main() -> None:
             log.info("Moltbook bridge wired for m/agent-city")
         except Exception as e:
             log.warning("Moltbook bridge init failed: %s", e)
+
+    # Spawn system agents from cartridge registry
+    from city.registry import SVC_SPAWNER
+
+    spawner = registry.get(SVC_SPAWNER)
+    if spawner is not None:
+        sys_agents = spawner.spawn_system_agents()
+        if sys_agents:
+            log.info("Spawned %d system agents: %s", len(sys_agents), sys_agents)
 
     factory_stats = factory.stats()
     print(f"=== Agent City Heartbeat — {args.cycles} cycles ===")
