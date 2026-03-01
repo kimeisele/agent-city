@@ -12,14 +12,28 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from city.contracts import ContractRegistry
-from city.council import CityCouncil
-from city.executor import IntentExecutor
-from city.federation import FederationRelay
 from city.gateway import CityGateway
-from city.issues import CityIssueManager
 from city.network import CityNetwork
 from city.pokedex import Pokedex
+from city.registry import (
+    SVC_AGENT_NADI,
+    SVC_AUDIT,
+    SVC_CITY_NADI,
+    SVC_CONTRACTS,
+    SVC_COUNCIL,
+    SVC_EVENT_BUS,
+    SVC_EXECUTOR,
+    SVC_FEDERATION,
+    SVC_IMMUNE,
+    SVC_ISSUES,
+    SVC_KNOWLEDGE_GRAPH,
+    SVC_LEARNING,
+    SVC_MOLTBOOK_BRIDGE,
+    SVC_MOLTBOOK_CLIENT,
+    SVC_REFLECTION,
+    SVC_SANKALPA,
+    CityServiceRegistry,
+)
 
 logger = logging.getLogger("AGENT_CITY.PHASES")
 
@@ -31,8 +45,8 @@ class PhaseContext:
     Core infrastructure (required):
     - pokedex, gateway, network
 
-    Optional governance wiring (Layer 3-6):
-    - contracts, issues, sankalpa, audit, reflection, executor, council, federation
+    Optional services via registry (Layer 3-7):
+    - Access via properties: ctx.contracts, ctx.sankalpa, ctx.immune, etc.
     """
 
     pokedex: Pokedex
@@ -44,44 +58,116 @@ class PhaseContext:
     active_agents: set[str] = field(default_factory=set)
     gateway_queue: list[dict] = field(default_factory=list)
 
-    # Layer 3 governance (all optional)
-    contracts: ContractRegistry | None = None
-    issues: CityIssueManager | None = None
-    sankalpa: object = None  # SankalpaOrchestrator (steward-protocol)
-    audit: object = None  # AuditKernel (steward-protocol)
-    reflection: object = None  # BasicReflection (steward-protocol)
+    # Service registry (replaces 15 optional fields)
+    registry: CityServiceRegistry = field(default_factory=CityServiceRegistry)
 
-    # Layer 4 action delegation
-    executor: IntentExecutor | None = None
+    # Legacy kwargs (accepted for backward compat, migrated to registry)
+    _legacy_services: dict = field(default_factory=dict, repr=False)
 
-    # Layer 5 democratic governance
-    council: CityCouncil | None = None
-
-    # Layer 6 federation
-    federation: FederationRelay | None = None
-
-    # Layer 6 Moltbook bridge (m/agent-city submolt communication)
-    moltbook_bridge: object = None  # MoltbookBridge (city.moltbook_bridge)
-
-    # Layer 7 Moltbook inbox (DM pipeline)
-    moltbook_client: object = None  # MoltbookClient (steward-protocol)
-
-    # Nadi messaging (replaces gateway_queue for structured messaging)
-    city_nadi: object = None  # CityNadi (city.nadi_hub)
-
-    # Cognition layer (steward-protocol KnowledgeGraph + EventBus)
-    knowledge_graph: object = None  # UnifiedKnowledgeGraph
-    event_bus: object = None  # EventBus (Narada)
-
-    # Hebbian learning (cross-session memory)
-    learning: object = None  # CityLearning (city.learning)
-
-    # Agent Nadi (inter-agent messaging)
-    agent_nadi: object = None  # AgentNadiManager (city.agent_nadi)
-
-    # Immune system (ShuddhiEngine + Hebbian healing)
-    immune: object = None  # CityImmune (city.immune)
-
-    # Internal
+    # Internal state (not services)
     last_audit_time: float = 0.0
     recent_events: list = field(default_factory=list)
+
+    def __init__(self, pokedex, gateway, network, heartbeat_count, offline_mode,
+                 state_path, active_agents=None, gateway_queue=None,
+                 registry=None, last_audit_time=0.0, recent_events=None,
+                 **kwargs):
+        self.pokedex = pokedex
+        self.gateway = gateway
+        self.network = network
+        self.heartbeat_count = heartbeat_count
+        self.offline_mode = offline_mode
+        self.state_path = state_path
+        self.active_agents = active_agents if active_agents is not None else set()
+        self.gateway_queue = gateway_queue if gateway_queue is not None else []
+        self.registry = registry if registry is not None else CityServiceRegistry()
+        self._legacy_services = {}
+        self.last_audit_time = last_audit_time
+        self.recent_events = recent_events if recent_events is not None else []
+
+        # Migrate legacy kwargs into registry
+        _LEGACY_NAMES = {
+            "contracts": SVC_CONTRACTS, "issues": SVC_ISSUES,
+            "sankalpa": SVC_SANKALPA, "audit": SVC_AUDIT,
+            "reflection": SVC_REFLECTION, "executor": SVC_EXECUTOR,
+            "council": SVC_COUNCIL, "federation": SVC_FEDERATION,
+            "moltbook_bridge": SVC_MOLTBOOK_BRIDGE,
+            "moltbook_client": SVC_MOLTBOOK_CLIENT,
+            "city_nadi": SVC_CITY_NADI,
+            "knowledge_graph": SVC_KNOWLEDGE_GRAPH,
+            "event_bus": SVC_EVENT_BUS, "learning": SVC_LEARNING,
+            "agent_nadi": SVC_AGENT_NADI, "immune": SVC_IMMUNE,
+        }
+        for kwarg_name, svc_name in _LEGACY_NAMES.items():
+            val = kwargs.pop(kwarg_name, None)
+            if val is not None and not self.registry.has(svc_name):
+                self.registry.register(svc_name, val)
+
+        if kwargs:
+            logger.warning("PhaseContext: unknown kwargs ignored: %s", list(kwargs.keys()))
+
+    # ── Service Properties (backward-compatible accessors) ─────────
+
+    @property
+    def contracts(self) -> object | None:
+        return self.registry.get(SVC_CONTRACTS)
+
+    @property
+    def issues(self) -> object | None:
+        return self.registry.get(SVC_ISSUES)
+
+    @property
+    def sankalpa(self) -> object | None:
+        return self.registry.get(SVC_SANKALPA)
+
+    @property
+    def audit(self) -> object | None:
+        return self.registry.get(SVC_AUDIT)
+
+    @property
+    def reflection(self) -> object | None:
+        return self.registry.get(SVC_REFLECTION)
+
+    @property
+    def executor(self) -> object | None:
+        return self.registry.get(SVC_EXECUTOR)
+
+    @property
+    def council(self) -> object | None:
+        return self.registry.get(SVC_COUNCIL)
+
+    @property
+    def federation(self) -> object | None:
+        return self.registry.get(SVC_FEDERATION)
+
+    @property
+    def moltbook_bridge(self) -> object | None:
+        return self.registry.get(SVC_MOLTBOOK_BRIDGE)
+
+    @property
+    def moltbook_client(self) -> object | None:
+        return self.registry.get(SVC_MOLTBOOK_CLIENT)
+
+    @property
+    def city_nadi(self) -> object | None:
+        return self.registry.get(SVC_CITY_NADI)
+
+    @property
+    def knowledge_graph(self) -> object | None:
+        return self.registry.get(SVC_KNOWLEDGE_GRAPH)
+
+    @property
+    def event_bus(self) -> object | None:
+        return self.registry.get(SVC_EVENT_BUS)
+
+    @property
+    def learning(self) -> object | None:
+        return self.registry.get(SVC_LEARNING)
+
+    @property
+    def agent_nadi(self) -> object | None:
+        return self.registry.get(SVC_AGENT_NADI)
+
+    @property
+    def immune(self) -> object | None:
+        return self.registry.get(SVC_IMMUNE)

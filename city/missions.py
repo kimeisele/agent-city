@@ -86,6 +86,50 @@ def create_improvement_mission(ctx: object, proposal: object) -> None:
     logger.info("Created improvement mission %s", mission_id)
 
 
+def create_issue_mission(
+    ctx: object, issue_number: int, title: str, action_type: str,
+) -> str | None:
+    """Create a Sankalpa mission from an issue lifecycle action.
+
+    Args:
+        ctx: PhaseContext
+        issue_number: GitHub Issue number
+        title: Issue title (for mission name)
+        action_type: "intent_needed" or "audit_needed"
+
+    Returns:
+        Mission ID if created, None if sankalpa unavailable.
+    """
+    if ctx.sankalpa is None:
+        return None
+
+    from vibe_core.mahamantra.protocols.sankalpa.types import (
+        MissionPriority,
+        MissionStatus,
+        SankalpaMission,
+    )
+
+    if action_type == "audit_needed":
+        priority = MissionPriority.HIGH
+        prefix = "IssueAudit"
+    else:
+        priority = MissionPriority.MEDIUM
+        prefix = "IssueHeal"
+
+    mission_id = f"issue_{issue_number}_{ctx.heartbeat_count}"
+    mission = SankalpaMission(
+        id=mission_id,
+        name=f"{prefix}: #{issue_number}",
+        description=f"GitHub Issue #{issue_number} ({title}) needs attention: {action_type}",
+        priority=priority,
+        status=MissionStatus.ACTIVE,
+        owner="mayor",
+    )
+    ctx.sankalpa.registry.add_mission(mission)
+    logger.info("Created issue mission %s from #%d (%s)", mission_id, issue_number, action_type)
+    return mission_id
+
+
 def create_federation_mission(ctx: object, directive: object) -> bool:
     """Create a Sankalpa mission from a federation directive."""
     from vibe_core.mahamantra.protocols.sankalpa.types import (

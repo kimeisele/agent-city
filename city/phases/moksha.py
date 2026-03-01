@@ -119,6 +119,12 @@ def execute(ctx: PhaseContext) -> dict:
         except Exception as e:
             logger.warning("MOKSHA: Reflection analysis failed: %s", e)
 
+    # Issue lifecycle: close resolved issue missions
+    if ctx.issues is not None and ctx.sankalpa is not None:
+        closed_count = _close_resolved_issues(ctx)
+        if closed_count > 0:
+            reflection["issues_closed"] = closed_count
+
     # Layer 6: Federation report
     if ctx.federation is not None:
         report = _build_city_report(ctx, reflection)
@@ -132,6 +138,55 @@ def execute(ctx: PhaseContext) -> dict:
         reflection["moltbook_update_posted"] = posted
 
     return reflection
+
+
+def _close_resolved_issues(ctx: PhaseContext) -> int:
+    """Close GitHub Issues whose Sankalpa missions completed successfully.
+
+    Only auto-closes EPHEMERAL issues. Returns count of issues closed.
+    """
+    try:
+        from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
+    except Exception:
+        return 0
+
+    try:
+        all_missions = ctx.sankalpa.registry.list_missions()
+    except Exception:
+        return 0
+
+    closed = 0
+    for mission in all_missions:
+        if not mission.id.startswith("issue_"):
+            continue
+        if mission.status != MissionStatus.COMPLETED:
+            continue
+
+        # Extract issue number
+        parts = mission.id.split("_")
+        if len(parts) < 2:
+            continue
+        try:
+            issue_number = int(parts[1])
+        except ValueError:
+            continue
+
+        # Only auto-close EPHEMERAL issues
+        from city.issues import IssueType, _gh_run
+        issue_type = ctx.issues.get_issue_type(issue_number)
+        if issue_type == IssueType.EPHEMERAL:
+            _gh_run([
+                "issue", "close", str(issue_number),
+                "--comment", f"Auto-resolved: Mission {mission.id} completed.",
+            ])
+            closed += 1
+            logger.info("MOKSHA: Closed issue #%d (mission %s completed)", issue_number, mission.id)
+
+        # Mark mission as processed to prevent re-processing
+        mission.status = MissionStatus.ABANDONED
+        ctx.sankalpa.registry.add_mission(mission)
+
+    return closed
 
 
 def _should_audit(ctx: PhaseContext) -> bool:

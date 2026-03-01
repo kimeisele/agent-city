@@ -105,6 +105,10 @@ def execute(ctx: PhaseContext) -> list[str]:
             operations.append(f"sankalpa_intent:{intent.title}")
             logger.info("KARMA: Sankalpa intent — %s", intent.title)
 
+    # Issue-driven missions: process strategyless missions from DHARMA
+    if ctx.sankalpa is not None:
+        _process_issue_missions(ctx, operations)
+
     # Layer 4: Execute HEAL intents on failing contracts
     if ctx.executor is not None and ctx.contracts is not None:
         for contract in ctx.contracts.failing():
@@ -232,3 +236,83 @@ def _council_auto_vote(ctx: PhaseContext) -> None:
                     proposal.id, member_name, choice, prana,
                 )
         ctx.council.tally(proposal.id)
+
+
+def _process_issue_missions(ctx: PhaseContext, operations: list[str]) -> None:
+    """Process Sankalpa missions created from GitHub Issues.
+
+    Issue missions have no strategies (fire-once), so they won't
+    appear in sankalpa.think(). Process them directly in KARMA.
+    """
+    try:
+        from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
+    except Exception:
+        return
+
+    try:
+        active = ctx.sankalpa.registry.get_active_missions()
+    except Exception:
+        return
+
+    for mission in active:
+        # Only process issue-driven missions
+        if not mission.id.startswith("issue_"):
+            continue
+
+        # Extract issue number from mission id (format: "issue_42_heartbeat")
+        parts = mission.id.split("_")
+        if len(parts) < 2:
+            continue
+        try:
+            issue_number = int(parts[1])
+        except ValueError:
+            continue
+
+        # Determine action based on mission name prefix
+        if mission.name.startswith("IssueAudit"):
+            success = _execute_issue_audit(ctx, issue_number)
+        else:
+            success = _execute_issue_heal(ctx, issue_number)
+
+        operations.append(
+            f"issue_mission:{mission.id}:{'success' if success else 'pending'}"
+        )
+
+        # Update mission status
+        if success:
+            mission.status = MissionStatus.COMPLETED
+            ctx.sankalpa.registry.add_mission(mission)
+
+        # Learn from outcome
+        _learn(ctx, f"issue_{issue_number}", "issue_mission", success=success)
+        logger.info(
+            "KARMA: Issue mission %s — %s",
+            mission.id, "completed" if success else "pending",
+        )
+
+
+def _execute_issue_audit(ctx: PhaseContext, issue_number: int) -> bool:
+    """Execute an audit-needed issue mission."""
+    if ctx.audit is None:
+        return False
+    try:
+        ctx.audit.run_all()
+        logger.info("KARMA: Issue #%d audit executed", issue_number)
+        return True
+    except Exception as e:
+        logger.warning("KARMA: Issue #%d audit failed: %s", issue_number, e)
+        return False
+
+
+def _execute_issue_heal(ctx: PhaseContext, issue_number: int) -> bool:
+    """Execute a heal-needed issue mission via immune system."""
+    if ctx.immune is not None:
+        diagnosis = ctx.immune.diagnose(f"issue_low_prana:{issue_number}")
+        if diagnosis.healable:
+            result = ctx.immune.heal(diagnosis)
+            if result.success:
+                logger.info("KARMA: Issue #%d healed by immune system", issue_number)
+                return True
+
+    # No immune system or no healable diagnosis — stay pending
+    return False

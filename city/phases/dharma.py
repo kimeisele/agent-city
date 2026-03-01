@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import time
 
-from city.missions import create_healing_mission
+from city.missions import create_healing_mission, create_issue_mission
 from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.PHASES.DHARMA")
@@ -91,6 +91,11 @@ def execute(ctx: PhaseContext) -> list[str]:
         issue_actions = ctx.issues.metabolize_issues()
         actions.extend(issue_actions)
 
+        # Parse issue actions into Sankalpa missions
+        if ctx.sankalpa is not None:
+            for action in issue_actions:
+                _process_issue_action(ctx, action)
+
     if actions:
         logger.info("DHARMA: %d governance actions", len(actions))
     return actions
@@ -165,3 +170,42 @@ def _submit_contract_proposal(ctx: PhaseContext, contract_result: object) -> Non
         },
         timestamp=time.time(),
     )
+
+
+def _process_issue_action(ctx: PhaseContext, action: str) -> None:
+    """Parse an issue action string and create a Sankalpa mission if warranted.
+
+    Action format: "type:#number:reason"
+    - "intent_needed:#42:low_prana" → create HEAL mission
+    - "contract_check:#42:audit_needed" → create AUDIT mission
+    - "closed:#42:prana_exhaustion" → no action (already handled)
+    - "ashrama:#42:brahmachari" → no action (informational)
+    """
+    parts = action.split(":")
+    if len(parts) < 2:
+        return
+
+    action_type = parts[0]
+    issue_ref = parts[1] if len(parts) > 1 else ""
+
+    # Only create missions for actionable types
+    if action_type not in ("intent_needed", "contract_check"):
+        return
+
+    # Extract issue number from "#42" format
+    if not issue_ref.startswith("#"):
+        return
+    try:
+        issue_number = int(issue_ref[1:])
+    except ValueError:
+        return
+
+    # Get issue title from CityIssueManager cell cache
+    title = f"Issue #{issue_number}"
+    if ctx.issues is not None:
+        cell = ctx.issues._issue_cells.get(issue_number)
+        if cell is not None:
+            title = getattr(cell, "name", title)
+
+    mission_type = "audit_needed" if action_type == "contract_check" else "intent_needed"
+    create_issue_mission(ctx, issue_number, title, mission_type)
