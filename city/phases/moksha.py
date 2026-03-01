@@ -145,6 +145,29 @@ def execute(ctx: PhaseContext) -> dict:
         if pr_stats.get("total_tracked", 0) > 0:
             reflection["pr_lifecycle_stats"] = pr_stats
 
+    # Spawner stats
+    from city.registry import SVC_SPAWNER
+
+    spawner = ctx.registry.get(SVC_SPAWNER)
+    if spawner is not None:
+        reflection["spawner_stats"] = spawner.stats()
+
+    # CartridgeFactory stats
+    from city.registry import SVC_CARTRIDGE_FACTORY
+
+    cart_factory = ctx.registry.get(SVC_CARTRIDGE_FACTORY)
+    if cart_factory is not None:
+        reflection["cartridge_factory_stats"] = cart_factory.stats()
+
+    # CityBuilder: update cell snapshots + census
+    from city.registry import SVC_CITY_BUILDER
+
+    city_builder = ctx.registry.get(SVC_CITY_BUILDER)
+    if city_builder is not None:
+        for agent in ctx.pokedex.list_citizens():
+            city_builder.update_cell(agent["name"])
+        reflection["city_census"] = city_builder.census()
+
     # Issue lifecycle: close resolved issue missions
     if ctx.issues is not None and ctx.sankalpa is not None:
         closed_count = _close_resolved_issues(ctx)
@@ -200,6 +223,10 @@ def execute(ctx: PhaseContext) -> dict:
         post_data = _build_post_data(ctx, reflection)
         posted = ctx.moltbook_bridge.post_city_update(post_data)
         reflection["moltbook_update_posted"] = posted
+
+    # Moltbook Assistant: reflect on engagement metrics
+    if ctx.moltbook_assistant is not None:
+        reflection["moltbook_assistant"] = ctx.moltbook_assistant.on_moksha()
 
     return reflection
 

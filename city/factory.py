@@ -187,6 +187,7 @@ def default_definitions(
         SVC_REFLECTION,
         SVC_SANKALPA,
         SVC_SPAWNER,
+        SVC_MOLTBOOK_ASSISTANT,
     )
 
     defs: list[ServiceDefinition] = []
@@ -300,6 +301,10 @@ def default_definitions(
             ServiceDefinition(
                 name=SVC_EVENT_BUS,
                 factory=lambda ctx: _build_event_bus(),
+            ),
+            ServiceDefinition(
+                name=SVC_MOLTBOOK_ASSISTANT,
+                factory=lambda ctx: _build_moltbook_assistant(ctx),
             ),
         ]
     )
@@ -517,3 +522,14 @@ def _build_event_bus() -> object | None:
     from city.cognition import get_city_bus
 
     return get_city_bus()
+
+
+def _build_moltbook_assistant(ctx: BuildContext) -> object | None:
+    from city.moltbook_assistant import MoltbookAssistant
+    from city.registry import SVC_MOLTBOOK_CLIENT
+
+    client = ctx.registry.get(SVC_MOLTBOOK_CLIENT)
+    if client is None:
+        logger.info("MoltbookAssistant skipped: no MoltbookClient")
+        return None
+    return MoltbookAssistant(client=client, pokedex=ctx.pokedex)

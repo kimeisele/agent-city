@@ -27,10 +27,12 @@ def test_discover_cartridges():
 
 
 def test_list_available():
-    """list_available() returns same as discover()."""
+    """list_available() includes static cartridges."""
     loader = CityCartridgeLoader()
     loader.discover()
-    assert loader.list_available() == loader._available
+    available = loader.list_available()
+    for name in loader._available:
+        assert name in available
 
 
 def test_get_unknown_cartridge():
@@ -60,7 +62,7 @@ def test_stats():
     loader._loaded = {"a": object()}
 
     stats = loader.stats()
-    assert stats["available"] == 2
+    assert stats["static"] == 2
     assert stats["loaded"] == 1
     assert "a" in stats["loaded_names"]
 

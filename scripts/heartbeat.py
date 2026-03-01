@@ -22,10 +22,6 @@ import os
 import sys
 from pathlib import Path
 
-# Ensure imports work from repo root
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 # Heartbeat file-lock path (Issue #17 S1b — prevents concurrent overlap)
 _LOCK_PATH = Path("data/.heartbeat.lock")
 
@@ -161,8 +157,6 @@ def main() -> None:
 
     # Wire MoltbookClient for DM pipeline (online mode only)
     if not args.offline:
-        import os
-
         api_key = os.environ.get("MOLTBOOK_API_KEY", "")
         if api_key:
             try:
@@ -197,6 +191,19 @@ def main() -> None:
         except Exception as e:
             log.warning("Moltbook bridge init failed: %s", e)
 
+    # Wire Moltbook Assistant (community management service)
+    from city.registry import SVC_MOLTBOOK_ASSISTANT
+
+    assistant = registry.get(SVC_MOLTBOOK_ASSISTANT)
+    _assistant_state_path = db_path.parent / "assistant_state.json"
+    if assistant is not None and _assistant_state_path.exists():
+        try:
+            import json as _json_a
+
+            assistant.restore(_json_a.loads(_assistant_state_path.read_text()))
+        except Exception:
+            pass
+
     # Spawn system agents from cartridge registry
     from city.registry import SVC_SPAWNER
 
@@ -205,6 +212,10 @@ def main() -> None:
         sys_agents = spawner.spawn_system_agents()
         if sys_agents:
             log.info("Spawned %d system agents: %s", len(sys_agents), sys_agents)
+        # Materialize cartridges + physical dirs for existing citizens
+        materialized = spawner.materialize_existing()
+        if materialized:
+            log.info("Materialized %d existing citizens", materialized)
 
     factory_stats = factory.stats()
     print(f"=== Agent City Heartbeat — {args.cycles} cycles ===")
@@ -244,6 +255,17 @@ def main() -> None:
             )
         except Exception as e:
             log.warning("Bridge state save failed: %s", e)
+
+    # Persist assistant state
+    if assistant is not None:
+        import json as _json_b
+
+        try:
+            _assistant_state_path.write_text(
+                _json_b.dumps(assistant.snapshot(), indent=2),
+            )
+        except Exception as e:
+            log.warning("Assistant state save failed: %s", e)
 
     for r in results:
         dept = r["department"]
