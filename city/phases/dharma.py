@@ -29,6 +29,15 @@ def execute(ctx: PhaseContext) -> list[str]:
         actions.append(f"archived:{name}:prana_exhaustion")
         logger.info("DHARMA: Agent %s archived (prana exhaustion)", name)
 
+    # Immune scan: diagnose why agents died
+    if ctx.immune is not None and dead:
+        for name in dead:
+            diagnosis = ctx.immune.diagnose(f"agent_death:{name}:prana_exhaustion")
+            if diagnosis.healable:
+                result = ctx.immune.heal(diagnosis)
+                if result.success:
+                    actions.append(f"immune_healed:{name}:{diagnosis.rule_id}")
+
     # Clear active set for next cycle
     ctx.active_agents.clear()
 

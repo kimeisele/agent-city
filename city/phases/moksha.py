@@ -57,6 +57,12 @@ def execute(ctx: PhaseContext) -> dict:
         if agent_nadi_stats:
             reflection["agent_nadi_stats"] = agent_nadi_stats
 
+    # Immune system stats
+    if ctx.immune is not None:
+        immune_stats = ctx.immune.stats()
+        if immune_stats:
+            reflection["immune_stats"] = immune_stats
+
     # Hebbian learning: flush weights + stats
     if ctx.learning is not None:
         ctx.learning.flush()
