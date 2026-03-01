@@ -241,7 +241,9 @@ def test_pokedex_register():
     assert entry["oath"]["signature"]
 
     # Economy via CivicBank (genesis grant - zone tax)
-    assert entry["economy"]["balance"] == 90  # 100 - 10% zone tax
+    from city.seed_constants import GENESIS_GRANT
+    expected_balance = GENESIS_GRANT - (GENESIS_GRANT // 10)
+    assert entry["economy"]["balance"] == expected_balance  # 108 - 10% zone tax = 98
 
     # Moltbook metadata
     assert entry["moltbook"]["karma"] == 6459

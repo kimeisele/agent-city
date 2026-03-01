@@ -12,10 +12,35 @@ from __future__ import annotations
 
 import logging
 
+import time as _time
+
+from config import get_config
+
 from city.cognition import emit_event
 from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.PHASES.KARMA")
+
+# ── Cognitive Action Map ──────────────────────────────────────────────
+# Maps buddhi function × agent capability → existing city operation.
+# No new infrastructure — reuses council, sankalpa, nadi, audit, immune.
+_ACTION_MAP: dict[str, dict[str, str]] = {
+    "BRAHMA": {  # Create
+        "propose": "council_propose",
+        "create": "create_mission",
+        "observe": "emit_observation",
+    },
+    "VISHNU": {  # Sustain
+        "observe": "emit_observation",
+        "monitor": "emit_observation",
+        "relay": "nadi_dispatch",
+    },
+    "SHIVA": {  # Transform
+        "validate": "trigger_audit",
+        "execute": "trigger_heal",
+        "transform": "trigger_audit",
+    },
+}
 
 
 def _learn(ctx: PhaseContext, source: str, action: str, *, success: bool) -> None:
@@ -160,42 +185,43 @@ def execute(ctx: PhaseContext) -> list[str]:
         heal_authorized = authorize_mission("heal_", all_specs, ctx.active_agents, all_inventories)
         if not heal_authorized:
             logger.info(
-                "KARMA: Heal operations blocked — no agent with validate capability at contributor tier"
+                "KARMA: No agent with validate capability — executor handles heal as system service"
             )
-        else:
-            for contract in ctx.contracts.failing():
-                details = contract.last_result.details if contract.last_result else []
-                fix = ctx.executor.execute_heal(contract.name, details)
-                operations.append(f"heal:{fix.contract_name}:{fix.action_taken}:{fix.success}")
-                logger.info(
-                    "KARMA: Heal %s — %s (success=%s)",
-                    fix.contract_name,
-                    fix.action_taken,
-                    fix.success,
-                )
+        # Gate is advisory: IntentExecutor is a system service, not an agent.
+        # Even without a citizen holding 'validate', the executor heals.
+        for contract in ctx.contracts.failing():
+            details = contract.last_result.details if contract.last_result else []
+            fix = ctx.executor.execute_heal(contract.name, details)
+            operations.append(f"heal:{fix.contract_name}:{fix.action_taken}:{fix.success}")
+            logger.info(
+                "KARMA: Heal %s — %s (success=%s)",
+                fix.contract_name,
+                fix.action_taken,
+                fix.success,
+            )
 
-                if fix.success and fix.files_changed:
-                    pr = ctx.executor.create_fix_pr(fix, ctx.heartbeat_count)
-                    if pr is not None and pr.success:
-                        operations.append(f"pr_created:{pr.pr_url}")
-                        emit_event(
-                            "ACTION",
-                            "karma",
-                            f"PR created: {pr.pr_url}",
-                            {
-                                "action": "pr_created",
-                                "contract": contract.name,
-                                "pr_url": pr.pr_url,
-                                "heartbeat": ctx.heartbeat_count,
-                            },
-                        )
-                        # Track PR for lifecycle management
-                        from city.registry import SVC_PR_LIFECYCLE
+            if fix.success and fix.files_changed:
+                pr = ctx.executor.create_fix_pr(fix, ctx.heartbeat_count)
+                if pr is not None and pr.success:
+                    operations.append(f"pr_created:{pr.pr_url}")
+                    emit_event(
+                        "ACTION",
+                        "karma",
+                        f"PR created: {pr.pr_url}",
+                        {
+                            "action": "pr_created",
+                            "contract": contract.name,
+                            "pr_url": pr.pr_url,
+                            "heartbeat": ctx.heartbeat_count,
+                        },
+                    )
+                    # Track PR for lifecycle management
+                    from city.registry import SVC_PR_LIFECYCLE
 
-                        pr_mgr = ctx.registry.get(SVC_PR_LIFECYCLE)
-                        if pr_mgr is not None:
-                            pr_mgr.track(pr.pr_url, pr.branch, contract.name, ctx.heartbeat_count)
-                        logger.info("KARMA: PR created — %s", pr.pr_url)
+                    pr_mgr = ctx.registry.get(SVC_PR_LIFECYCLE)
+                    if pr_mgr is not None:
+                        pr_mgr.track(pr.pr_url, pr.branch, contract.name, ctx.heartbeat_count)
+                    logger.info("KARMA: PR created — %s", pr.pr_url)
 
     # Layer 5: Council governance cycle
     if ctx.council is not None and ctx.council.member_count > 0:
@@ -297,6 +323,19 @@ def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
         logger.info("Proposal %s: improvement noted — %s", proposal.id, proposal.title)
         return True
 
+    # Marketplace governance actions (Phase 8)
+    if action_type in ("set_commission", "freeze_market", "unfreeze_market"):
+        if ctx.council is not None:
+            success = ctx.council.apply_marketplace_action(proposal.action)
+            if success:
+                logger.info(
+                    "Proposal %s: marketplace action %s applied",
+                    proposal.id,
+                    action_type,
+                )
+            return success
+        return False
+
     logger.warning("Unknown proposal action: %s", action_type)
     return False
 
@@ -384,14 +423,12 @@ def _process_issue_missions(
     for mission in active:
         # Handle federation execute_code missions
         if mission.id.startswith("exec_"):
-            # CAPABILITY GATE: must have at least one agent with execute + verified tier
+            # CAPABILITY GATE (advisory): log if no agent qualifies, but executor handles it
             if not authorize_mission(mission.id, all_specs, ctx.active_agents, all_inventories):
-                operations.append(f"exec_blocked:{mission.id}:capability_gate")
                 logger.info(
-                    "KARMA: Exec mission %s blocked — no agent with execute capability",
+                    "KARMA: No agent with execute capability — executor handles exec mission %s as system service",
                     mission.id,
                 )
-                continue
 
             success = _execute_code_mission(ctx, mission)
             operations.append(f"exec_mission:{mission.id}:{'success' if success else 'pending'}")
@@ -580,6 +617,11 @@ def _route_to_cartridges(
     except Exception:
         return
 
+    # Per-cycle throttle: limit cognitive actions to prevent runaway
+    autonomy_cfg = get_config().get("autonomy", {})
+    max_cognitive_actions = autonomy_cfg.get("max_actions_per_cycle", 3)
+    cognitive_count = 0
+
     for mission in active:
         # Skip types handled by dedicated processors (which have their own gates)
         if mission.id.startswith(("issue_", "exec_")):
@@ -606,14 +648,37 @@ def _route_to_cartridges(
 
         try:
             if hasattr(cartridge, "process"):
-                cartridge.process(mission.description)
-                operations.append(f"routed:{agent_name}:{mission.id}:score={result['score']:.2f}")
+                cognitive_action = cartridge.process(mission.description)
+
+                if cognitive_action.get("status") != "cognized":
+                    operations.append(f"routed_passive:{agent_name}:{mission.id}")
+                    continue
+
+                # Throttle: max cognitive actions per cycle
+                if cognitive_count >= max_cognitive_actions:
+                    operations.append(f"cognition_throttled:{agent_name}")
+                    continue
+
+                # Act on cognitive decision
+                executed = _execute_cognitive_action(
+                    ctx, cognitive_action, mission, operations,
+                )
+                _learn(ctx, f"cognition:{agent_name}", cognitive_action["function"], success=executed)
+
+                if executed:
+                    cognitive_count += 1
+
+                operations.append(
+                    f"routed:{agent_name}:{mission.id}:score={result['score']:.2f}"
+                    f":cognized={cognitive_action['function']}"
+                )
                 logger.info(
-                    "KARMA: Routed %s → %s (score=%.2f, %d candidates)",
+                    "KARMA: Routed %s → %s (score=%.2f, function=%s, executed=%s)",
                     mission.id,
                     agent_name,
                     result["score"],
-                    result["candidates_count"],
+                    cognitive_action["function"],
+                    executed,
                 )
         except Exception as e:
             logger.warning(
@@ -622,6 +687,144 @@ def _route_to_cartridges(
                 mission.id,
                 e,
             )
+
+
+def _execute_cognitive_action(
+    ctx: PhaseContext,
+    action: dict,
+    mission: object,
+    operations: list[str],
+) -> bool:
+    """Map CognitiveAction → existing city operation. Execute it.
+
+    Gates: confidence (synapse weight), prana (cell alive), capability map.
+    Returns True if operation succeeded.
+    """
+    function = action.get("function", "")
+    caps = action.get("capabilities", [])
+    agent_name = action.get("agent", "")
+    autonomy_cfg = get_config().get("autonomy", {})
+
+    # Confidence gate: skip if historical weight too low
+    min_confidence = autonomy_cfg.get("min_confidence", 0.2)
+    if ctx.learning is not None:
+        confidence = ctx.learning.get_confidence(f"cognition:{agent_name}", function)
+        if confidence < min_confidence:
+            operations.append(
+                f"cognition_low_confidence:{agent_name}:{function}:{confidence:.2f}"
+            )
+            return False
+
+    # Prana gate: agent must be alive to act
+    cell = ctx.pokedex.get_cell(agent_name)
+    if cell is None or not cell.is_alive:
+        return False
+
+    # Find matching operation via capability × function map
+    function_map = _ACTION_MAP.get(function, {})
+    operation = None
+    for cap in caps:
+        if cap in function_map:
+            operation = function_map[cap]
+            break
+
+    if operation is None:
+        operations.append(f"cognition_no_op:{agent_name}:{function}")
+        return False
+
+    # Execute the operation
+    success = False
+    if operation == "council_propose" and ctx.council is not None:
+        success = _cognitive_propose(ctx, action, mission)
+    elif operation == "create_mission" and ctx.sankalpa is not None:
+        success = _cognitive_create_mission(ctx, action, mission)
+    elif operation == "emit_observation":
+        emit_event(
+            "OBSERVATION",
+            agent_name,
+            action.get("composed", ""),
+            {
+                "function": function,
+                "chapter": action.get("chapter", 0),
+                "mission": mission.id,
+            },
+        )
+        success = True
+    elif operation == "nadi_dispatch" and ctx.agent_nadi is not None:
+        success = _cognitive_nadi_dispatch(ctx, action, agent_name)
+    elif operation == "trigger_audit" and ctx.audit is not None:
+        try:
+            ctx.audit.run_all()
+            success = True
+        except Exception:
+            success = False
+    elif operation == "trigger_heal" and ctx.immune is not None:
+        diagnosis = ctx.immune.diagnose(f"mission:{mission.id}")
+        if diagnosis.healable:
+            result = ctx.immune.heal(diagnosis)
+            success = result.success
+
+    if success:
+        operations.append(f"cognition:{agent_name}:{function}→{operation}")
+        emit_event(
+            "ACTION",
+            agent_name,
+            f"Cognitive action: {operation}",
+            {
+                "action": "cognitive_exec",
+                "function": function,
+                "operation": operation,
+                "mission": mission.id,
+                "composed": action.get("composed", ""),
+            },
+        )
+
+    return success
+
+
+def _cognitive_propose(ctx: PhaseContext, action: dict, mission: object) -> bool:
+    """Submit a council proposal from cognitive action."""
+    if ctx.council is None or ctx.council.elected_mayor is None:
+        return False
+
+    from city.council import ProposalType
+
+    ctx.council.propose(
+        title=f"Agent Proposal: {action.get('composed', mission.name)[:60]}",
+        description=mission.description,
+        proposer=action["agent"],
+        proposal_type=ProposalType.POLICY,
+        action={"type": "improve", "source": "cognitive"},
+        timestamp=_time.time(),
+    )
+    return True
+
+
+def _cognitive_create_mission(ctx: PhaseContext, action: dict, mission: object) -> bool:
+    """Create an improvement mission from cognitive action."""
+    from city.missions import create_improvement_mission
+
+    proposal = type(
+        "Proposal",
+        (),
+        {
+            "id": f"cog_{mission.id}",
+            "title": action.get("composed", "")[:60] or mission.name,
+            "description": mission.description,
+        },
+    )()
+    create_improvement_mission(ctx, proposal)
+    return True
+
+
+def _cognitive_nadi_dispatch(ctx: PhaseContext, action: dict, agent_name: str) -> bool:
+    """Broadcast observation to AgentNadi for other agents to see."""
+    composed = action.get("composed", "")
+    function = action.get("function", "")
+    chapter = action.get("chapter", 0)
+    text = f"[{function}] ch.{chapter}: {composed}" if composed else f"[{function}] ch.{chapter}"
+    ctx.agent_nadi.broadcast(agent_name, text)
+    return True
 
 
 def _handle_discussion_item(
@@ -768,7 +971,9 @@ def _handle_agent_intro(
         posted = ctx.discussions.post_agent_intro(spec)
         if posted:
             ctx.pokedex.grant_asset(
-                agent_name, "word_token", "introduced",
+                agent_name,
+                "word_token",
+                "introduced",
                 source="discussion_intro",
             )
             operations.append(f"agent_intro:{agent_name}")
@@ -928,6 +1133,11 @@ def _process_marketplace(
     Anti-Pac-Man: agents only buy capabilities they NEED (mission-blocked
     or domain-aligned). Rich agents cannot blindly hoard.
     """
+    # Check marketplace governance freeze (Phase 8)
+    if ctx.council is not None and ctx.council.is_market_frozen:
+        operations.append("marketplace:frozen_by_council")
+        return
+
     from city.seed_constants import WORKER_VISA_STIPEND
 
     # Step 1: Expire stale orders
@@ -1015,7 +1225,15 @@ def _process_marketplace(
             if buyer_balance < order["price"]:
                 continue
 
-            receipt = ctx.pokedex.fill_order(order["id"], agent_name, ctx.heartbeat_count)
+            commission_pct = None
+            if ctx.council is not None:
+                commission_pct = ctx.council.effective_commission
+            receipt = ctx.pokedex.fill_order(
+                order["id"],
+                agent_name,
+                ctx.heartbeat_count,
+                commission_pct=commission_pct,
+            )
             if receipt:
                 operations.append(
                     f"marketplace:trade={order['asset_id']}:"

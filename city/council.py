@@ -24,7 +24,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TypedDict
 
-from vibe_core.mahamantra.protocols import MALA, SHARANAGATI
+from vibe_core.mahamantra.protocols import MALA, SHARANAGATI, TRINITY
 
 from config import get_config
 
@@ -49,6 +49,7 @@ class ProposalStatus(str, Enum):
     PASSED = "passed"
     REJECTED = "rejected"
     EXECUTED = "executed"
+    EXPIRED = "expired"
 
 
 class ProposalType(str, Enum):
@@ -56,6 +57,7 @@ class ProposalType(str, Enum):
 
     POLICY = "policy"  # Simple majority (>50%)
     CONSTITUTIONAL = "constitutional"  # Supermajority (>67%)
+    MARKETPLACE = "marketplace"  # Mayor-only, simple majority (>50%)
 
 
 class VoteChoice(str, Enum):
@@ -100,6 +102,7 @@ class Proposal:
     guardian_route: str
     route_score: float
     submitted_at: float
+    submitted_heartbeat: int = 0
     status: ProposalStatus = ProposalStatus.OPEN
     votes: tuple[VoteRecord, ...] = ()
     result_hash: str = ""
@@ -108,7 +111,7 @@ class Proposal:
         """Voting threshold for this proposal type."""
         if self.proposal_type == ProposalType.CONSTITUTIONAL:
             return SUPERMAJORITY_THRESHOLD
-        return DEMOCRATIC_THRESHOLD
+        return DEMOCRATIC_THRESHOLD  # POLICY and MARKETPLACE both use simple majority
 
     def to_dict(self) -> dict:
         """Serialize for persistence."""
@@ -122,6 +125,7 @@ class Proposal:
             "guardian_route": self.guardian_route,
             "route_score": self.route_score,
             "submitted_at": self.submitted_at,
+            "submitted_heartbeat": self.submitted_heartbeat,
             "status": self.status.value,
             "votes": list(self.votes),
             "result_hash": self.result_hash,
@@ -142,6 +146,8 @@ class CityCouncil:
     _next_proposal_num: int = 1
     _last_election_heartbeat: int = -ELECTION_CYCLE  # Force first election
     _state_path: Path | None = None
+    _market_frozen: bool = False
+    _commission_override: int | None = None
 
     def __post_init__(self) -> None:
         """Auto-load state from disk if state_path is set and exists."""
@@ -169,6 +175,8 @@ class CityCouncil:
             "last_election_heartbeat",
             -ELECTION_CYCLE,
         )
+        self._market_frozen = data.get("market_frozen", False)
+        self._commission_override = data.get("commission_override", None)
         # Restore proposals
         self._proposals = {}
         for pid, pdata in data.get("proposals", {}).items():
@@ -182,6 +190,7 @@ class CityCouncil:
                 guardian_route=pdata.get("guardian_route", ""),
                 route_score=pdata.get("route_score", 0.0),
                 submitted_at=pdata.get("submitted_at", 0.0),
+                submitted_heartbeat=pdata.get("submitted_heartbeat", 0),
                 status=ProposalStatus(pdata["status"]),
                 votes=tuple(pdata.get("votes", [])),
                 result_hash=pdata.get("result_hash", ""),
@@ -261,14 +270,24 @@ class CityCouncil:
         proposal_type: ProposalType,
         action: dict,
         timestamp: float,
+        heartbeat: int = 0,
     ) -> Proposal | None:
         """Submit a proposal. Only council members can propose.
 
-        Returns None if proposer is not on council.
+        MARKETPLACE proposals require the elected mayor as proposer.
+        Returns None if proposer is not on council or not authorized.
         """
         if proposer not in self._seats.values():
             logger.warning("Proposal rejected: %s not on council", proposer)
             return None
+
+        if proposal_type == ProposalType.MARKETPLACE:
+            if proposer != self._elected_mayor:
+                logger.warning(
+                    "MARKETPLACE proposal rejected: %s is not mayor",
+                    proposer,
+                )
+                return None
 
         guardian_name = ""
         route_score = 0.0
@@ -295,6 +314,7 @@ class CityCouncil:
             guardian_route=guardian_name,
             route_score=route_score,
             submitted_at=timestamp,
+            submitted_heartbeat=heartbeat,
         )
 
         self._proposals[proposal_id] = proposal
@@ -352,6 +372,7 @@ class CityCouncil:
             guardian_route=proposal.guardian_route,
             route_score=proposal.route_score,
             submitted_at=proposal.submitted_at,
+            submitted_heartbeat=proposal.submitted_heartbeat,
             status=proposal.status,
             votes=new_votes,
         )
@@ -368,8 +389,17 @@ class CityCouncil:
         if proposal is None or proposal.status != ProposalStatus.OPEN:
             return None
 
-        yes_weight = sum(v["prana_weight"] for v in proposal.votes if v["choice"] == "yes")
-        no_weight = sum(v["prana_weight"] for v in proposal.votes if v["choice"] == "no")
+        yes_weight = 0
+        no_weight = 0
+        for v in proposal.votes:
+            weight = v["prana_weight"]
+            # Mayor's vote counts TRINITY (3x) — real governance power
+            if v["voter"] == self._elected_mayor:
+                weight *= TRINITY
+            if v["choice"] == "yes":
+                yes_weight += weight
+            elif v["choice"] == "no":
+                no_weight += weight
         total_weight = yes_weight + no_weight
 
         if total_weight == 0:
@@ -403,6 +433,7 @@ class CityCouncil:
             guardian_route=proposal.guardian_route,
             route_score=proposal.route_score,
             submitted_at=proposal.submitted_at,
+            submitted_heartbeat=proposal.submitted_heartbeat,
             status=new_status,
             votes=proposal.votes,
             result_hash=result_hash,
@@ -438,6 +469,16 @@ class CityCouncil:
         """Number of filled seats."""
         return len(self._seats)
 
+    @property
+    def is_market_frozen(self) -> bool:
+        """Whether the marketplace is frozen by council governance."""
+        return self._market_frozen
+
+    @property
+    def effective_commission(self) -> int | None:
+        """Council-set commission override, or None for default."""
+        return self._commission_override
+
     def is_member(self, name: str) -> bool:
         """Check if an agent is on the council."""
         return name in self._seats.values()
@@ -469,12 +510,84 @@ class CityCouncil:
             guardian_route=proposal.guardian_route,
             route_score=proposal.route_score,
             submitted_at=proposal.submitted_at,
+            submitted_heartbeat=proposal.submitted_heartbeat,
             status=ProposalStatus.EXECUTED,
             votes=proposal.votes,
             result_hash=proposal.result_hash,
         )
         self._proposals[proposal_id] = updated
         self._auto_save()
+
+    # ── Governance Powers (Phase 8) ──────────────────────────────────
+
+    def expire_proposals(self, heartbeat: int) -> int:
+        """Expire open proposals older than PROPOSAL_EXPIRY_HEARTBEATS.
+
+        Returns count of expired proposals.
+        """
+        from city.seed_constants import PROPOSAL_EXPIRY_HEARTBEATS
+
+        count = 0
+        for pid, proposal in list(self._proposals.items()):
+            if proposal.status != ProposalStatus.OPEN:
+                continue
+            age = heartbeat - proposal.submitted_heartbeat
+            if age >= PROPOSAL_EXPIRY_HEARTBEATS:
+                updated = Proposal(
+                    id=proposal.id,
+                    title=proposal.title,
+                    description=proposal.description,
+                    proposer=proposal.proposer,
+                    proposal_type=proposal.proposal_type,
+                    action=proposal.action,
+                    guardian_route=proposal.guardian_route,
+                    route_score=proposal.route_score,
+                    submitted_at=proposal.submitted_at,
+                    submitted_heartbeat=proposal.submitted_heartbeat,
+                    status=ProposalStatus.EXPIRED,
+                    votes=proposal.votes,
+                    result_hash=proposal.result_hash,
+                )
+                self._proposals[pid] = updated
+                count += 1
+                logger.info("Proposal %s expired (age=%d)", pid, age)
+        if count:
+            self._auto_save()
+        return count
+
+    def apply_marketplace_action(self, action: dict) -> bool:
+        """Apply a marketplace governance action from an executed proposal."""
+        action_type = action.get("type")
+
+        if action_type == "set_commission":
+            from city.seed_constants import MAX_COMMISSION_PERCENT
+
+            new_rate = action.get("rate", 0)
+            if not (0 <= new_rate <= MAX_COMMISSION_PERCENT):
+                logger.warning(
+                    "Commission rate %d rejected (max=%d)",
+                    new_rate,
+                    MAX_COMMISSION_PERCENT,
+                )
+                return False
+            self._commission_override = new_rate
+            logger.info("Commission override set to %d%%", new_rate)
+            self._auto_save()
+            return True
+
+        if action_type == "freeze_market":
+            self._market_frozen = True
+            logger.info("Marketplace frozen by council")
+            self._auto_save()
+            return True
+
+        if action_type == "unfreeze_market":
+            self._market_frozen = False
+            logger.info("Marketplace unfrozen by council")
+            self._auto_save()
+            return True
+
+        return False
 
     def query_guardians(self, text: str) -> list[dict]:
         """Route text through Guardian Router for topic analysis."""
@@ -533,4 +646,6 @@ class CityCouncil:
             "proposals": {k: v.to_dict() for k, v in self._proposals.items()},
             "next_proposal_num": self._next_proposal_num,
             "last_election_heartbeat": self._last_election_heartbeat,
+            "market_frozen": self._market_frozen,
+            "commission_override": self._commission_override,
         }
