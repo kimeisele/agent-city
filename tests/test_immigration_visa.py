@@ -1,0 +1,696 @@
+"""
+Tests for Immigration Protocol & Visa System
+==============================================
+
+Issue #17 Stufe 3: Agent City Immigration & Visa Management
+
+Tests cover:
+1. Visa classes and lifecycle
+2. Visa restrictions per class
+3. Immigration applications and review process
+4. Council voting integration
+5. Citizenship grant and revocation
+
+    Hare Krishna Hare Krishna Krishna Krishna Hare Hare
+    Hare Rama   Hare Rama   Rama   Rama   Hare Hare
+"""
+
+from __future__ import annotations
+
+import pytest
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
+
+from city.visa import (
+    Visa,
+    VisaClass,
+    VisaStatus,
+    VisaRestrictions,
+    VISA_RESTRICTIONS,
+    issue_visa,
+    revoke_visa,
+    upgrade_visa,
+)
+from city.immigration import (
+    ImmigrationService,
+    ImmigrationApplication,
+    ApplicationStatus,
+    ApplicationReason,
+)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# VISA TESTS
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestVisaClasses:
+    """Test visa class definitions and restrictions."""
+
+    def test_visa_classes_exist(self):
+        """All visa classes are defined."""
+        assert VisaClass.TEMPORARY
+        assert VisaClass.WORKER
+        assert VisaClass.RESIDENT
+        assert VisaClass.CITIZEN
+        assert VisaClass.REVOKED
+
+    def test_visa_restrictions_per_class(self):
+        """Each visa class has appropriate restrictions."""
+        # Temporary: read-only
+        temp_restrictions = VISA_RESTRICTIONS[VisaClass.TEMPORARY]
+        assert temp_restrictions.read_only is True
+        assert temp_restrictions.can_vote is False
+        assert temp_restrictions.can_propose is False
+
+        # Worker: can earn but not vote
+        worker_restrictions = VISA_RESTRICTIONS[VisaClass.WORKER]
+        assert worker_restrictions.read_only is False
+        assert worker_restrictions.can_earn_credits is True
+        assert worker_restrictions.can_vote is False
+
+        # Resident: can vote
+        resident_restrictions = VISA_RESTRICTIONS[VisaClass.RESIDENT]
+        assert resident_restrictions.can_vote is True
+        assert resident_restrictions.can_propose is True
+        assert resident_restrictions.voting_power == 1.0
+
+        # Citizen: full rights
+        citizen_restrictions = VISA_RESTRICTIONS[VisaClass.CITIZEN]
+        assert citizen_restrictions.can_vote is True
+        assert citizen_restrictions.can_propose is True
+        assert citizen_restrictions.voting_power == 1.0
+        assert citizen_restrictions.read_only is False
+
+
+class TestVisaIssuance:
+    """Test visa issuance and basic operations."""
+
+    def test_issue_temporary_visa(self):
+        """Issue a temporary visitor visa."""
+        visa = issue_visa(
+            agent_name="alice",
+            visa_class=VisaClass.TEMPORARY,
+            sponsor="mayor",
+        )
+
+        assert visa.agent_name == "alice"
+        assert visa.visa_class == VisaClass.TEMPORARY
+        assert visa.status == VisaStatus.ACTIVE
+        assert visa.sponsor == "mayor"
+        assert visa.days_remaining() >= 6  # 7 days
+
+    def test_issue_worker_visa(self):
+        """Issue a worker visa with restricted earning."""
+        visa = issue_visa(
+            agent_name="bob",
+            visa_class=VisaClass.WORKER,
+            sponsor="council",
+        )
+
+        assert visa.visa_class == VisaClass.WORKER
+        assert visa.restrictions.can_earn_credits is True
+        assert visa.restrictions.can_vote is False
+        assert visa.days_remaining() >= 89  # 90 days
+
+    def test_issue_citizen_visa(self):
+        """Issue a citizen visa with unlimited duration."""
+        visa = issue_visa(
+            agent_name="charlie",
+            visa_class=VisaClass.CITIZEN,
+            sponsor="council",
+        )
+
+        assert visa.visa_class == VisaClass.CITIZEN
+        assert visa.restrictions.can_vote is True
+        assert visa.restrictions.voting_power == 1.0
+        assert visa.days_remaining() > 1000  # Very long duration
+
+    def test_visa_has_deterministic_id(self):
+        """Visa IDs are deterministic based on agent + sponsor + time."""
+        now = datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+        visa1 = issue_visa(
+            agent_name="diana",
+            visa_class=VisaClass.TEMPORARY,
+            sponsor="mayor",
+            issued_at=now,
+        )
+        visa2 = issue_visa(
+            agent_name="diana",
+            visa_class=VisaClass.TEMPORARY,
+            sponsor="mayor",
+            issued_at=now,
+        )
+        assert visa1.visa_id == visa2.visa_id
+
+    def test_visa_serialization(self):
+        """Visa can be serialized to dict."""
+        visa = issue_visa(
+            agent_name="eve",
+            visa_class=VisaClass.RESIDENT,
+            sponsor="council",
+        )
+        data = visa.to_dict()
+
+        assert data["agent_name"] == "eve"
+        assert data["visa_class"] == "resident"
+        assert data["status"] == "active"
+        assert "visa_id" in data
+        assert "issued_at" in data
+        assert "expires_at" in data
+
+
+class TestVisaLifecycle:
+    """Test visa validity, expiry, and revocation."""
+
+    def test_visa_validity_check(self):
+        """Check if visa is valid (not expired)."""
+        now = datetime.now(timezone.utc)
+        visa = issue_visa(
+            agent_name="frank",
+            visa_class=VisaClass.TEMPORARY,
+            sponsor="mayor",
+            issued_at=now,
+            duration_days=7,
+        )
+
+        # Should be valid right after issue
+        assert visa.is_valid(now) is True
+
+        # Should expire after duration
+        future = now + timedelta(days=8)
+        assert visa.is_valid(future) is False
+
+    def test_visa_days_remaining(self):
+        """Track days remaining on a visa."""
+        now = datetime.now(timezone.utc)
+        visa = issue_visa(
+            agent_name="grace",
+            visa_class=VisaClass.TEMPORARY,
+            sponsor="mayor",
+            issued_at=now,
+            duration_days=7,
+        )
+
+        assert visa.days_remaining(now) == 7
+        assert visa.days_remaining(now + timedelta(days=3)) == 4
+        assert visa.days_remaining(now + timedelta(days=7)) == 0
+        assert visa.days_remaining(now + timedelta(days=8)) == -1
+
+    def test_revoke_visa(self):
+        """Revoke a valid visa."""
+        visa = issue_visa(
+            agent_name="henry",
+            visa_class=VisaClass.CITIZEN,
+            sponsor="council",
+        )
+        assert visa.status == VisaStatus.ACTIVE
+
+        revoked = revoke_visa(visa, "Violation of community standards")
+        assert revoked.status == VisaStatus.REVOKED
+        assert revoked.visa_class == VisaClass.REVOKED
+        assert revoked.is_valid() is False
+        assert "Violation" in revoked.remarks
+
+    def test_upgrade_visa(self):
+        """Upgrade a visa to a higher class."""
+        worker_visa = issue_visa(
+            agent_name="iris",
+            visa_class=VisaClass.WORKER,
+            sponsor="council",
+        )
+
+        resident_visa = upgrade_visa(
+            worker_visa, VisaClass.RESIDENT, sponsor="council"
+        )
+
+        assert resident_visa.agent_name == "iris"
+        assert resident_visa.visa_class == VisaClass.RESIDENT
+        assert resident_visa.restrictions.can_vote is True
+        assert "Upgraded from worker" in resident_visa.remarks
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# IMMIGRATION APPLICATION TESTS
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestImmigrationApplication:
+    """Test application lifecycle."""
+
+    def test_application_creation(self):
+        """Create a new immigration application."""
+        app = ImmigrationApplication(
+            application_id="app_001",
+            agent_name="jack",
+            applied_at=datetime.now(timezone.utc),
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+
+        assert app.application_id == "app_001"
+        assert app.agent_name == "jack"
+        assert app.status == ApplicationStatus.PENDING
+        assert app.kyc_passed is False
+
+    def test_application_serialization(self):
+        """Applications can be serialized to dict."""
+        app = ImmigrationApplication(
+            application_id="app_002",
+            agent_name="kate",
+            applied_at=datetime.now(timezone.utc),
+            reason=ApplicationReason.WORKER_TO_RESIDENT,
+            requested_visa_class=VisaClass.RESIDENT,
+        )
+        data = app.to_dict()
+
+        assert data["agent_name"] == "kate"
+        assert data["status"] == "pending"
+        assert data["requested_visa_class"] == "resident"
+
+    def test_application_can_proceed_to_council(self):
+        """Application must pass KYC and contracts before council."""
+        app = ImmigrationApplication(
+            application_id="app_003",
+            agent_name="leo",
+            applied_at=datetime.now(timezone.utc),
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+            status=ApplicationStatus.APPROVED,
+            kyc_passed=True,
+            contracts_passed=True,
+        )
+
+        assert app.can_proceed_to_council() is True
+
+        # Failed KYC blocks council
+        app_fail_kyc = ImmigrationApplication(
+            application_id="app_004",
+            agent_name="mike",
+            applied_at=datetime.now(timezone.utc),
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+            status=ApplicationStatus.APPROVED,
+            kyc_passed=False,
+            contracts_passed=True,
+        )
+        assert app_fail_kyc.can_proceed_to_council() is False
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# IMMIGRATION SERVICE TESTS
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestImmigrationService:
+    """Test the Rathaus (immigration office)."""
+
+    def test_submit_application(self):
+        """Submit a new application."""
+        service = ImmigrationService()
+
+        app = service.submit_application(
+            agent_name="nancy",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+
+        assert app.agent_name == "nancy"
+        assert app.status == ApplicationStatus.PENDING
+        assert service.get_application(app.application_id) == app
+
+    def test_start_review(self):
+        """Start reviewing an application."""
+        service = ImmigrationService()
+        app = service.submit_application(
+            agent_name="oscar",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+
+        success = service.start_review(app.application_id, reviewer="council_chair")
+        assert success is True
+        assert app.status == ApplicationStatus.UNDER_REVIEW
+        assert app.reviewer == "council_chair"
+
+    def test_complete_review_approved(self):
+        """Complete review with approval."""
+        service = ImmigrationService()
+        app = service.submit_application(
+            agent_name="patricia",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app.application_id, "reviewer1")
+
+        success = service.complete_review(
+            app.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=0.95,
+            notes="Excellent candidate",
+        )
+
+        assert success is True
+        assert app.status == ApplicationStatus.APPROVED
+        assert app.kyc_passed is True
+        assert app.contracts_passed is True
+        assert app.community_score == 0.95
+
+    def test_complete_review_rejected(self):
+        """Complete review with rejection."""
+        service = ImmigrationService()
+        app = service.submit_application(
+            agent_name="quinn",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app.application_id, "reviewer1")
+
+        success = service.complete_review(
+            app.application_id,
+            kyc_passed=False,
+            contracts_passed=True,
+            community_score=0.3,
+            notes="KYC failed",
+        )
+
+        assert success is True
+        assert app.status == ApplicationStatus.REJECTED
+        assert app.kyc_passed is False
+
+    def test_move_to_council(self):
+        """Move approved application to council vote."""
+        service = ImmigrationService()
+        app = service.submit_application(
+            agent_name="robert",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app.application_id, "reviewer1")
+        service.complete_review(
+            app.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=0.9,
+        )
+
+        success = service.move_to_council(app.application_id, "vote_001")
+        assert success is True
+        assert app.status == ApplicationStatus.COUNCIL_PENDING
+        assert app.council_vote_id == "vote_001"
+
+    def test_record_council_vote_approved(self):
+        """Record council approval."""
+        service = ImmigrationService()
+        app = service.submit_application(
+            agent_name="sophia",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app.application_id, "reviewer1")
+        service.complete_review(
+            app.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=0.88,
+        )
+        service.move_to_council(app.application_id, "vote_001")
+
+        success = service.record_council_vote(
+            app.application_id, approved=True, vote_tally={"yes": 4, "no": 1, "abstain": 1}
+        )
+
+        assert success is True
+        assert app.status == ApplicationStatus.COUNCIL_APPROVED
+        assert app.council_approved is True
+        assert app.council_vote_count["yes"] == 4
+
+    def test_record_council_vote_rejected(self):
+        """Record council rejection."""
+        service = ImmigrationService()
+        app = service.submit_application(
+            agent_name="theo",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app.application_id, "reviewer1")
+        service.complete_review(
+            app.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=0.75,
+        )
+        service.move_to_council(app.application_id, "vote_002")
+
+        success = service.record_council_vote(
+            app.application_id, approved=False, vote_tally={"yes": 2, "no": 3, "abstain": 1}
+        )
+
+        assert success is True
+        assert app.status == ApplicationStatus.COUNCIL_REJECTED
+        assert app.council_approved is False
+
+    def test_grant_citizenship(self):
+        """Grant citizenship after council approval."""
+        service = ImmigrationService()
+        app = service.submit_application(
+            agent_name="unity",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app.application_id, "reviewer1")
+        service.complete_review(
+            app.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=0.92,
+        )
+        service.move_to_council(app.application_id, "vote_003")
+        service.record_council_vote(
+            app.application_id, approved=True, vote_tally={"yes": 5, "no": 1, "abstain": 0}
+        )
+
+        visa = service.grant_citizenship(app.application_id, sponsor="council")
+
+        assert visa is not None
+        assert visa.agent_name == "unity"
+        assert visa.visa_class == VisaClass.CITIZEN
+        assert visa.status == VisaStatus.ACTIVE
+        assert app.status == ApplicationStatus.CITIZENSHIP_GRANTED
+        assert app.issued_visa == visa
+
+        # Check visa is retrievable
+        assert service.get_visa("unity") == visa
+
+    def test_revoke_citizenship(self):
+        """Revoke citizenship after granting."""
+        service = ImmigrationService()
+
+        # First grant citizenship
+        app = service.submit_application(
+            agent_name="victor",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app.application_id, "reviewer1")
+        service.complete_review(
+            app.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=0.91,
+        )
+        service.move_to_council(app.application_id, "vote_004")
+        service.record_council_vote(
+            app.application_id, approved=True, vote_tally={"yes": 6, "no": 0, "abstain": 0}
+        )
+        service.grant_citizenship(app.application_id)
+
+        # Now revoke it
+        success = service.revoke_citizenship("victor", "Violation of code of conduct")
+        assert success is True
+
+        visa = service.get_visa("victor")
+        assert visa.status == VisaStatus.REVOKED
+        assert "Violation" in visa.remarks
+
+    def test_list_applications_by_status(self):
+        """List applications filtered by status."""
+        service = ImmigrationService()
+
+        # Create several applications with different statuses
+        app1 = service.submit_application(
+            agent_name="walter",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+
+        app2 = service.submit_application(
+            agent_name="xena",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app2.application_id, "reviewer1")
+
+        app3 = service.submit_application(
+            agent_name="yara",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        service.start_review(app3.application_id, "reviewer1")
+        service.complete_review(
+            app3.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=0.85,
+        )
+
+        # Filter by status
+        pending = service.list_applications(ApplicationStatus.PENDING)
+        assert len(pending) == 1
+        assert pending[0].application_id == app1.application_id
+
+        under_review = service.list_applications(ApplicationStatus.UNDER_REVIEW)
+        assert len(under_review) == 1
+
+        approved = service.list_applications(ApplicationStatus.APPROVED)
+        assert len(approved) == 1
+        assert approved[0].application_id == app3.application_id
+
+    def test_stats(self):
+        """Get immigration service statistics."""
+        service = ImmigrationService()
+
+        app1 = service.submit_application(
+            agent_name="zeta",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        app2 = service.submit_application(
+            agent_name="alpha2",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+
+        stats = service.stats()
+        assert stats["total_applications"] == 2
+        assert stats["pending_applications"] == 2
+        assert stats["citizenship_granted"] == 0
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# INTEGRATION TESTS
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestImmigrationIntegration:
+    """Test full immigration workflow."""
+
+    def test_full_citizen_pathway(self):
+        """Complete pathway: apply → review → council → citizenship."""
+        service = ImmigrationService()
+
+        # 1. Agent applies for citizenship
+        app = service.submit_application(
+            agent_name="full_test_agent",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+        assert app.status == ApplicationStatus.PENDING
+
+        # 2. Reviewer reviews application
+        service.start_review(app.application_id, "reviewer_bot")
+        assert app.status == ApplicationStatus.UNDER_REVIEW
+
+        service.complete_review(
+            app.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=0.9,
+            notes="Strong candidate",
+        )
+        assert app.status == ApplicationStatus.APPROVED
+
+        # 3. Move to council
+        service.move_to_council(app.application_id, "vote_council_001")
+        assert app.status == ApplicationStatus.COUNCIL_PENDING
+
+        # 4. Council votes
+        service.record_council_vote(
+            app.application_id,
+            approved=True,
+            vote_tally={"yes": 5, "no": 0, "abstain": 1},
+        )
+        assert app.status == ApplicationStatus.COUNCIL_APPROVED
+
+        # 5. Grant citizenship
+        visa = service.grant_citizenship(app.application_id)
+        assert app.status == ApplicationStatus.CITIZENSHIP_GRANTED
+        assert visa.visa_class == VisaClass.CITIZEN
+        assert visa.is_valid() is True
+
+    def test_worker_upgrade_pathway(self):
+        """Upgrade pathway: worker → resident → citizen."""
+        service = ImmigrationService()
+
+        # Start with worker visa
+        worker_visa = issue_visa(
+            agent_name="upgrade_test_agent",
+            visa_class=VisaClass.WORKER,
+            sponsor="immigration",
+        )
+        service._visas["upgrade_test_agent"] = worker_visa
+
+        # Apply for resident upgrade
+        app = service.submit_application(
+            agent_name="upgrade_test_agent",
+            reason=ApplicationReason.WORKER_TO_RESIDENT,
+            requested_visa_class=VisaClass.RESIDENT,
+        )
+
+        service.start_review(app.application_id, "reviewer_bot")
+        service.complete_review(
+            app.application_id,
+            kyc_passed=True,
+            contracts_passed=True,
+            community_score=0.88,
+            notes="Worker in good standing",
+        )
+        service.move_to_council(app.application_id, "vote_upgrade_001")
+        service.record_council_vote(
+            app.application_id,
+            approved=True,
+            vote_tally={"yes": 4, "no": 1, "abstain": 1},
+        )
+
+        # Grant resident status
+        resident_visa = service.grant_citizenship(app.application_id)
+        assert resident_visa.visa_class == VisaClass.RESIDENT
+        assert resident_visa.restrictions.can_vote is True
+
+    def test_rejection_pathway(self):
+        """Rejected application cannot proceed to council."""
+        service = ImmigrationService()
+
+        app = service.submit_application(
+            agent_name="reject_test_agent",
+            reason=ApplicationReason.CITIZEN_APPLICATION,
+            requested_visa_class=VisaClass.CITIZEN,
+        )
+
+        service.start_review(app.application_id, "reviewer_bot")
+        service.complete_review(
+            app.application_id,
+            kyc_passed=False,
+            contracts_passed=True,
+            community_score=0.2,
+            notes="KYC failed: high-risk profile",
+        )
+
+        assert app.status == ApplicationStatus.REJECTED
+        assert app.can_proceed_to_council() is False
+
+        # Cannot move to council
+        success = service.move_to_council(app.application_id, "vote_none")
+        assert success is False
+        assert app.status == ApplicationStatus.REJECTED
