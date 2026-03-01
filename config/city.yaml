@@ -58,6 +58,35 @@ database:
   economy_path: "data/economy.db"
 
 # ============================================================================
+# ACCESS CLASSES — Capability-based access levels for operators
+# ============================================================================
+# Used by AccessClass enum (city/access.py) and GitStateAuthority.
+# Any access boundary (CLI, API, webhook, federation) resolves against these.
+#
+# Each class defines:
+#   level:              Numeric rank (higher = more access)
+#   can_write:          Can stage and commit code files
+#   can_modify_protected: Can modify protected files (with Council approval)
+# ============================================================================
+access_classes:
+  observer:
+    level: 0
+    can_write: false
+    can_modify_protected: false
+  operator:
+    level: 1
+    can_write: true
+    can_modify_protected: false
+  steward:
+    level: 2
+    can_write: true
+    can_modify_protected: true
+  sovereign:
+    level: 3
+    can_write: true
+    can_modify_protected: true
+
+# ============================================================================
 # GIT STATE AUTHORITY — Single Source of Truth for Repository Governance
 # ============================================================================
 # Three classes of files:
