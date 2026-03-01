@@ -201,11 +201,13 @@ def _submit_contract_proposal(ctx: PhaseContext, contract_result: object) -> Non
 
     is_integrity = contract_result.name == "integrity"
 
+    prefix = "Integrity violation" if is_integrity else "Heal contract"
+    ptype = ProposalType.CONSTITUTIONAL if is_integrity else ProposalType.POLICY
     ctx.council.propose(
-        title=f"{'Integrity violation' if is_integrity else 'Heal contract'}: {contract_result.name}",
+        title=f"{prefix}: {contract_result.name}",
         description=f"Contract failing: {contract_result.message}",
         proposer=proposer,
-        proposal_type=ProposalType.CONSTITUTIONAL if is_integrity else ProposalType.POLICY,
+        proposal_type=ptype,
         action={
             "type": "integrity" if is_integrity else "heal",
             "contract": contract_result.name,
