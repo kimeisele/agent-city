@@ -58,7 +58,7 @@ class TestInventoryTable(unittest.TestCase):
     def setUp(self):
         self.pokedex = _make_pokedex()
         self.pokedex.discover("test_agent")
-        self.pokedex.register("test_agent")
+        self.pokedex.register("test_agent", grant_override=108)  # skip starter pack
 
     def test_grant_asset(self):
         """grant_asset creates row, get_inventory returns it."""
@@ -186,7 +186,7 @@ class TestDynamicGate(unittest.TestCase):
 
         pokedex = _make_pokedex()
         pokedex.discover("agent_x")
-        pokedex.register("agent_x")
+        pokedex.register("agent_x", grant_override=108)  # skip starter pack
 
         past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
         pokedex.grant_asset(
@@ -239,7 +239,7 @@ class TestIntegration(unittest.TestCase):
         """_row_to_dict includes inventory.asset_count for citizens."""
         pokedex = _make_pokedex()
         pokedex.discover("inv_test")
-        pokedex.register("inv_test")
+        pokedex.register("inv_test", grant_override=108)  # skip starter pack
 
         agent = pokedex.get("inv_test")
         self.assertIsNotNone(agent["inventory"])
@@ -255,7 +255,7 @@ class TestIntegration(unittest.TestCase):
         """Asset consumed after mission dispatch (marketplace hook)."""
         pokedex = _make_pokedex()
         pokedex.discover("consumer")
-        pokedex.register("consumer")
+        pokedex.register("consumer", grant_override=108)  # skip starter pack
 
         pokedex.grant_asset("consumer", "capability_token", "execute", quantity=1, source="trade")
         self.assertTrue(pokedex.has_asset("consumer", "capability_token", "execute"))

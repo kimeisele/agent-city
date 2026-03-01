@@ -46,6 +46,7 @@ SVC_REACTOR = "reactor"
 SVC_IMMIGRATION = "immigration"
 SVC_MOLTBOOK_ASSISTANT = "moltbook_assistant"
 SVC_PATHOGEN_INDEX = "pathogen_index"
+SVC_DISCUSSIONS = "discussions"
 
 
 class CityServiceRegistry:

@@ -189,6 +189,7 @@ def default_definitions(
         SVC_SPAWNER,
         SVC_MOLTBOOK_ASSISTANT,
         SVC_PATHOGEN_INDEX,
+        SVC_DISCUSSIONS,
     )
 
     defs: list[ServiceDefinition] = []
@@ -311,6 +312,10 @@ def default_definitions(
                 name=SVC_PATHOGEN_INDEX,
                 factory=lambda ctx: _build_pathogen_index(ctx),
                 deps=(SVC_REACTOR,),
+            ),
+            ServiceDefinition(
+                name=SVC_DISCUSSIONS,
+                factory=lambda ctx: _build_discussions(ctx),
             ),
         ]
     )
@@ -541,6 +546,26 @@ def _build_event_bus() -> object | None:
     from city.cognition import get_city_bus
 
     return get_city_bus()
+
+
+def _build_discussions(ctx: BuildContext) -> object | None:
+    from city.discussions_bridge import DiscussionsBridge
+
+    cfg = ctx.config.get("discussions", {})
+    if not cfg.get("repo_id"):
+        logger.info("DiscussionsBridge skipped: no repo_id in config")
+        return None
+    if ctx.offline:
+        logger.info("DiscussionsBridge skipped: offline mode")
+        return None
+    bridge = DiscussionsBridge(
+        _repo_id=cfg["repo_id"],
+        _owner=cfg.get("owner", "kimeisele"),
+        _repo=cfg.get("repo", "agent-city"),
+        _categories=cfg.get("categories", {}),
+    )
+    logger.info("DiscussionsBridge wired")
+    return bridge
 
 
 def _build_moltbook_assistant(ctx: BuildContext) -> object | None:

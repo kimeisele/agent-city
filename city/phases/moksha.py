@@ -185,6 +185,11 @@ def execute(ctx: PhaseContext) -> dict:
     if terminal_missions:
         reflection["mission_results_terminal"] = terminal_missions
 
+        # Mint rewards for completed missions (Phase 6)
+        mint_results = _mint_mission_rewards(ctx, terminal_missions)
+        if mint_results:
+            reflection["assets_minted"] = mint_results
+
     # Evaluate dormant agents for treasury-funded revival
     revival_results = _evaluate_dormant_revival(ctx)
     if revival_results:
@@ -232,6 +237,21 @@ def execute(ctx: PhaseContext) -> dict:
     # Moltbook Assistant: reflect on engagement metrics
     if ctx.moltbook_assistant is not None:
         reflection["moltbook_assistant"] = ctx.moltbook_assistant.on_moksha()
+
+    # GitHub Discussions: post city report + cross-post mission results
+    if ctx.discussions is not None and not ctx.offline_mode:
+        report_posted = ctx.discussions.post_city_report(
+            ctx.heartbeat_count, reflection,
+        )
+        reflection["discussions_report_posted"] = report_posted
+
+        mission_results = reflection.get("mission_results_terminal", [])
+        if mission_results:
+            crossposted = ctx.discussions.cross_post_mission_results(mission_results)
+            reflection["discussions_crossposted"] = crossposted
+
+    if ctx.discussions is not None:
+        reflection["discussions"] = ctx.discussions.stats()
 
     return reflection
 
@@ -606,3 +626,64 @@ def _evaluate_dormant_revival(ctx: PhaseContext) -> dict | None:
         "eligible": len(eligible),
         "revived": revived,
     }
+
+
+def _mint_mission_rewards(
+    ctx: PhaseContext, terminal_missions: list[dict]
+) -> list[dict]:
+    """Mint semantic assets as rewards for completed missions.
+
+    Each completed mission → MISSION_REWARD_TOKENS (1) capability_token
+    for the mission's owner agent. The token matches the mission type
+    (exec_ → execute, heal_ → validate, etc.).
+    """
+    from city.seed_constants import MISSION_REWARD_TOKENS
+
+    _REWARD_CAP: dict[str, str] = {
+        "heal_": "validate",
+        "audit_": "audit",
+        "improve_": "propose",
+        "issue_": "execute",
+        "exec_": "execute",
+        "signal_": "observe",
+        "fed_": "relay",
+    }
+
+    minted: list[dict] = []
+    for mission in terminal_missions:
+        if mission["status"] != "completed":
+            continue
+
+        owner = mission.get("owner", "")
+        if not owner or owner in ("reported", "unknown"):
+            continue
+
+        # Determine reward type from mission prefix
+        mission_id = mission["id"]
+        reward_cap = "propose"  # default
+        for prefix, cap in _REWARD_CAP.items():
+            if mission_id.startswith(prefix):
+                reward_cap = cap
+                break
+
+        try:
+            ctx.pokedex.grant_asset(
+                owner,
+                "capability_token",
+                reward_cap,
+                quantity=MISSION_REWARD_TOKENS,
+                source="mission_reward",
+            )
+            minted.append(
+                {"agent": owner, "asset": reward_cap, "mission": mission_id}
+            )
+            logger.info(
+                "MOKSHA: Minted %s token for %s (mission %s)",
+                reward_cap,
+                owner,
+                mission_id,
+            )
+        except Exception as e:
+            logger.warning("MOKSHA: Failed to mint reward for %s: %s", owner, e)
+
+    return minted

@@ -19,6 +19,7 @@ on:
 permissions:
   contents: write
   issues: write
+  discussions: write
 
 # Issue #17 S1b: Single-writer — only one heartbeat at a time
 concurrency:
@@ -60,6 +61,7 @@ jobs:
             data/mayor_state.json
             data/bridge_state.json
             data/assistant_state.json
+            data/discussions_state.json
             .vibe/state/sankalpa.json
           key: agent-city-state-${{ github.run_id }}
           restore-keys: |
@@ -93,7 +95,7 @@ jobs:
         run: |
           git config user.name "agent-city-bot"
           git config user.email "bot@agent-city"
-          git add -f data/federation/ data/mayor_state.json data/bridge_state.json data/assistant_state.json .vibe/state/sankalpa.json || true
+          git add -f data/federation/ data/mayor_state.json data/bridge_state.json data/assistant_state.json data/discussions_state.json .vibe/state/sankalpa.json || true
           git diff --cached --quiet || \
             git commit -m "chore: heartbeat #${{ github.run_number }} federation state"
           git push || true
@@ -108,5 +110,6 @@ jobs:
             data/mayor_state.json
             data/bridge_state.json
             data/assistant_state.json
+            data/discussions_state.json
             .vibe/state/sankalpa.json
           key: agent-city-state-${{ github.run_id }}
