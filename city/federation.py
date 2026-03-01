@@ -2,13 +2,12 @@
 FEDERATION RELAY — Cross-Repo Communication
 =============================================
 
-Bidirectional federation between agent-city and mothership (steward-protocol)
-via GitHub `repository_dispatch` events.
+Bidirectional federation between agent-city and mothership (steward-protocol).
 
-MOKSHA: Mayor sends CityReport → mothership
+MOKSHA: Mayor saves CityReport locally (audit trail) + posts via MoltbookBridge
 GENESIS: Mayor reads FederationDirectives from data/federation/directives/
 
-Communication channel: `gh api repos/{repo}/dispatches`
+Social channel: MoltbookBridge posts to m/agent-city (primary)
 Directive intake: file-based (mothership workflow commits JSON files)
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
@@ -19,7 +18,6 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -81,36 +79,11 @@ class FederationDirective:
     source: str  # "mothership" | "council"
 
 
-def _gh_dispatch(repo: str, event_type: str, payload: dict) -> bool:
-    """Fire a repository_dispatch event via gh CLI. Returns True on success."""
-    payload_json = json.dumps(payload)
-    try:
-        result = subprocess.run(
-            [
-                "gh", "api",
-                f"repos/{repo}/dispatches",
-                "-f", f"event_type={event_type}",
-                "-f", f"client_payload={payload_json}",
-            ],
-            capture_output=True, text=True,
-            timeout=_fed_cfg.get("dispatch_timeout_s", 30),
-        )
-        if result.returncode != 0:
-            logger.warning(
-                "gh dispatch to %s failed: %s", repo, result.stderr.strip(),
-            )
-            return False
-        return True
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        logger.warning("gh CLI unavailable or timed out: %s", e)
-        return False
-
-
 @dataclass
 class FederationRelay:
     """Cross-repo federation relay.
 
-    Sends CityReports to mothership via repository_dispatch.
+    Saves CityReports locally (audit trail). Social posting via MoltbookBridge.
     Reads directives from data/federation/directives/ (file-based intake).
     """
 
@@ -127,9 +100,9 @@ class FederationRelay:
         self._reports_dir.mkdir(parents=True, exist_ok=True)
 
     def send_report(self, report: CityReport) -> bool:
-        """Send city status report to mothership.
+        """Save city status report locally (audit trail).
 
-        Dry-run: logs payload, saves locally, returns True without dispatch.
+        Social posting handled by MoltbookBridge in MOKSHA phase.
         """
         payload = report.to_dict()
         self._last_report = payload
@@ -145,23 +118,12 @@ class FederationRelay:
         if len(self._report_log) > _log_max:
             self._report_log = self._report_log[-_log_trim:]
 
-        if self._dry_run:
-            logger.info(
-                "Federation dry-run: would send report (heartbeat=%d, pop=%d)",
-                report.heartbeat, report.population,
-            )
-            return True
-
-        sent = _gh_dispatch(self._mothership_repo, "city-report", payload)
-        if sent:
-            logger.info(
-                "Federation: sent report to %s (heartbeat=%d)",
-                self._mothership_repo, report.heartbeat,
-            )
-        # Clear acknowledged list after successful send
-        if sent:
-            self._acknowledged.clear()
-        return sent
+        logger.info(
+            "Federation: saved report (heartbeat=%d, pop=%d)",
+            report.heartbeat, report.population,
+        )
+        self._acknowledged.clear()
+        return True
 
     def check_directives(self) -> list[FederationDirective]:
         """Read pending directives from the directives directory.
