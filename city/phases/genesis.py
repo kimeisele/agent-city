@@ -74,7 +74,7 @@ def execute(ctx: PhaseContext) -> list[str]:
 
             # Enqueue code signals for KARMA processing
             if signal.get("code_signals"):
-                ctx.gateway_queue.append({
+                _enqueue_item(ctx, {
                     "source": "submolt",
                     "text": signal["title"],
                     "post_id": signal["post_id"],
@@ -183,7 +183,7 @@ def _poll_dm_inbox(ctx: PhaseContext) -> list[str]:
                     if not sender or not content:
                         continue
 
-                    ctx.gateway_queue.append({
+                    _enqueue_item(ctx, {
                         "source": "dm",
                         "text": content,
                         "conversation_id": conv_id,
@@ -204,6 +204,21 @@ def _poll_dm_inbox(ctx: PhaseContext) -> list[str]:
             _seen_message_ids.pop()
 
     return results
+
+
+def _enqueue_item(ctx: PhaseContext, item: dict) -> None:
+    """Enqueue item via CityNadi (preferred) or gateway_queue (fallback)."""
+    if ctx.city_nadi is not None:
+        ctx.city_nadi.enqueue(
+            source=item.get("source", "unknown"),
+            text=item.get("text", ""),
+            conversation_id=item.get("conversation_id", ""),
+            from_agent=item.get("from_agent", ""),
+            post_id=item.get("post_id", ""),
+            code_signals=item.get("code_signals"),
+        )
+    else:
+        ctx.gateway_queue.append(item)
 
 
 def _execute_directive(ctx: PhaseContext, directive: object) -> bool:

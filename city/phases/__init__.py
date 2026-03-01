@@ -66,6 +66,9 @@ class PhaseContext:
     # Layer 7 Moltbook inbox (DM pipeline)
     moltbook_client: object = None  # MoltbookClient (steward-protocol)
 
+    # Nadi messaging (replaces gateway_queue for structured messaging)
+    city_nadi: object = None  # CityNadi (city.nadi_hub)
+
     # Cognition layer (steward-protocol KnowledgeGraph + EventBus)
     knowledge_graph: object = None  # UnifiedKnowledgeGraph
     event_bus: object = None  # EventBus (Narada)

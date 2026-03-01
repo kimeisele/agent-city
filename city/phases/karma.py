@@ -27,9 +27,15 @@ def execute(ctx: PhaseContext) -> list[str]:
         from city.cognition import compile_context
         kg_context = compile_context("process gateway queue operations")
 
-    # Process queued gateway items
+    # Drain from Nadi (priority-sorted) + fallback gateway_queue
+    queue_items: list[dict] = []
+    if ctx.city_nadi is not None:
+        queue_items = ctx.city_nadi.drain()
+    # Also drain legacy gateway_queue (backward compat)
     while ctx.gateway_queue:
-        item = ctx.gateway_queue.pop(0)
+        queue_items.append(ctx.gateway_queue.pop(0))
+
+    for item in queue_items:
         source = item.get("source", "unknown")
         text = item.get("text", "")
         conversation_id = item.get("conversation_id", "")
