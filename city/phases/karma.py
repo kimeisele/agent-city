@@ -66,6 +66,11 @@ def execute(ctx: PhaseContext) -> list[str]:
         conversation_id = item.get("conversation_id", "")
         from_agent = item.get("from_agent", "")
 
+        # Agent introduction: bypass gateway processing (pure transport)
+        if source == "agent_intro":
+            _handle_agent_intro(ctx, item, all_specs, operations)
+            continue
+
         try:
             # Enrich text with KG context if available
             enriched_text = f"{text}\n\n{kg_context}" if kg_context else text
@@ -723,6 +728,62 @@ def _handle_discussion_item(
             _learn(ctx, "discussion", "reply", success=False)
     else:
         operations.append(f"disc_rate_limited:#{discussion_number}")
+
+
+def _handle_agent_intro(
+    ctx: PhaseContext,
+    item: dict,
+    all_specs: dict[str, dict],
+    operations: list[str],
+) -> None:
+    """Post an agent self-introduction to the Discussions registry thread.
+
+    SSOT: Pokedex `has_asset("word_token", "introduced")` is the truth.
+    Asset granted ONLY after successful post. Rate-limited agents stay
+    un-introduced and will be retried next GENESIS cycle.
+    """
+    agent_name = item.get("agent_name", "")
+    if not agent_name:
+        return
+
+    # Double-check: already introduced? (Nadi may have stale items)
+    if ctx.pokedex.has_asset(agent_name, "word_token", "introduced"):
+        return
+
+    spec = all_specs.get(agent_name)
+    if spec is None:
+        # Try generating spec on the fly
+        from city.registry import SVC_CARTRIDGE_FACTORY
+
+        factory = ctx.registry.get(SVC_CARTRIDGE_FACTORY)
+        if factory is not None:
+            factory.generate(agent_name)
+            spec = factory.get_spec(agent_name)
+
+    if spec is None:
+        operations.append(f"intro_no_spec:{agent_name}")
+        return
+
+    if ctx.discussions is not None and not ctx.offline_mode:
+        posted = ctx.discussions.post_agent_intro(spec)
+        if posted:
+            ctx.pokedex.grant_asset(
+                agent_name, "word_token", "introduced",
+                source="discussion_intro",
+            )
+            operations.append(f"agent_intro:{agent_name}")
+            emit_event(
+                "ACTION",
+                agent_name,
+                f"Introduced in Discussions",
+                {
+                    "action": "discussion_intro",
+                    "agent": agent_name,
+                },
+            )
+            _learn(ctx, "agent_intro", "post", success=True)
+        else:
+            operations.append(f"intro_rate_limited:{agent_name}")
 
 
 def _route_discussion_to_agent(

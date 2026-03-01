@@ -243,7 +243,7 @@ def execute(ctx: PhaseContext) -> dict:
     if ctx.moltbook_assistant is not None:
         reflection["moltbook_assistant"] = ctx.moltbook_assistant.on_moksha()
 
-    # GitHub Discussions: post city report + cross-post mission results
+    # GitHub Discussions: post city report + cross-post mission results + pulse
     if ctx.discussions is not None and not ctx.offline_mode:
         report_posted = ctx.discussions.post_city_report(
             ctx.heartbeat_count,
@@ -255,6 +255,14 @@ def execute(ctx: PhaseContext) -> dict:
         if mission_results:
             crossposted = ctx.discussions.cross_post_mission_results(mission_results)
             reflection["discussions_crossposted"] = crossposted
+
+        # Delta-gated pulse: only fire when something happened this rotation
+        delta = _count_rotation_delta(reflection)
+        if delta > 0:
+            pulse_stats = reflection.get("city_stats", {})
+            pulsed = ctx.discussions.post_pulse(ctx.heartbeat_count, pulse_stats)
+            reflection["discussions_pulse_posted"] = pulsed
+            reflection["discussions_pulse_delta"] = delta
 
     if ctx.discussions is not None:
         reflection["discussions"] = ctx.discussions.stats()
@@ -417,6 +425,22 @@ def _purge_stale_missions(ctx: PhaseContext) -> int:
     if purged:
         logger.info("MOKSHA: Purged %d stale duplicate missions", purged)
     return purged
+
+
+def _count_rotation_delta(reflection: dict) -> int:
+    """Count real events in this MURALI rotation. 0 = nothing happened."""
+    delta = 0
+    # Completed missions
+    delta += len(reflection.get("mission_results_terminal", []))
+    # Heal events
+    immune = reflection.get("immune_stats", {})
+    delta += immune.get("heals_attempted", 0)
+    # New agents spawned
+    spawner = reflection.get("spawner_stats", {})
+    delta += spawner.get("spawned_this_cycle", 0)
+    # Governance actions
+    delta += len(reflection.get("council_executed", []))
+    return delta
 
 
 def _should_audit(ctx: PhaseContext) -> bool:

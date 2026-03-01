@@ -82,6 +82,7 @@ class CityNadi:
         discussion_number: int = 0,
         discussion_title: str = "",
         direct_agent: str = "",
+        agent_name: str = "",
     ) -> bool:
         """Enqueue a message for KARMA processing.
 
@@ -137,6 +138,8 @@ class CityNadi:
                 payload["discussion_title"] = discussion_title
             if direct_agent:
                 payload["direct_agent"] = direct_agent
+            if agent_name:
+                payload["agent_name"] = agent_name
 
             msg = NadiMessage(
                 source=source,
@@ -196,6 +199,8 @@ class CityNadi:
                     item["discussion_title"] = msg.payload["discussion_title"]
                 if msg.payload.get("direct_agent"):
                     item["direct_agent"] = msg.payload["direct_agent"]
+                if msg.payload.get("agent_name"):
+                    item["agent_name"] = msg.payload["agent_name"]
                 result.append(item)
             return result
 
