@@ -182,4 +182,62 @@ def test_8th_dimension_telemetry(monkeypatch):
     # Cleanup mock
     del sys.modules["github"]
 
+def test_commit_authority_gpg(monkeypatch, tmp_path):
+    """GREEN TEST: CommitAuthority enforces GPG verification when available,
+    and predictably degrades when GPG is missing/disabled. (OPUS-092)
+    """
+    from city.git_client import CommitAuthority
+    import subprocess
+    
+    # 1. Init a fake git repo in tmp_path
+    subprocess.run(["git", "init"], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "config", "user.name", "Test Agent"], cwd=str(tmp_path), check=True)
+    subprocess.run(["git", "config", "user.email", "test@agent.city"], cwd=str(tmp_path), check=True)
+    
+    # 2. Mock `gpg --list-secret-keys` to simulate NO GPG
+    def mock_run_no_gpg(*args, **kwargs):
+        if args[0] == ["gpg", "--list-secret-keys"]:
+            return subprocess.CompletedProcess(args[0], 1, stdout="gpg: no default secret key found\n", stderr="")
+        return subprocess.run(*args, **kwargs)
+        
+    monkeypatch.setattr(subprocess, "run", mock_run_no_gpg)
+    
+    # 3. Instantiate CommitAuthority
+    ca_no_gpg = CommitAuthority(workspace=tmp_path)
+    assert ca_no_gpg._gpg_available is False, "CommitAuthority should realize GPG is missing"
+    
+    # 4. Mock `gpg --list-secret-keys` to simulate ACTIVE GPG
+    def mock_run_yes_gpg(*args, **kwargs):
+        if args[0] == ["gpg", "--list-secret-keys"]:
+            return subprocess.CompletedProcess(args[0], 0, stdout="/root/.gnupg/pubring.kbx\n-----------------------\nsec   rsa4096 2024-01-01 [SC]\n", stderr="")
+        return subprocess.run(*args, **kwargs)
+        
+    monkeypatch.setattr(subprocess, "run", mock_run_yes_gpg)
+    
+    # 5. Instantiate CommitAuthority
+    ca_yes_gpg = CommitAuthority(workspace=tmp_path)
+    assert ca_yes_gpg._gpg_available is True, "CommitAuthority should detect the active GPG key"
+    
+    # 6. Test a mock commit flow using `ca_yes_gpg` (we just intercept the final `git commit`)
+    commit_cmd_called = []
+    
+    def mock_run_intercept_commit(*args, **kwargs):
+        if args[0][:2] == ["git", "commit"]:
+            commit_cmd_called.append(args[0])
+            return subprocess.CompletedProcess(args[0], 0, stdout="[main xxx] test", stderr="")
+        if args[0][:2] == ["git", "status"]:
+            return subprocess.CompletedProcess(args[0], 0, stdout="M  test.txt\n", stderr="")
+        return subprocess.run(*args, **kwargs)
+        
+    monkeypatch.setattr(subprocess, "run", mock_run_intercept_commit)
+    
+    # Attempt a commit that SHOULD use GPG
+    ca_yes_gpg.commit("Test signed commit")
+    assert "-S" in commit_cmd_called[0], "CommitAuthority MUST inject -S for GPG verified commits"
+    
+    # Attempt a commit that is FORCED unsigned
+    commit_cmd_called.clear()
+    ca_yes_gpg.commit("Test forced unsigned", force_unsigned=True)
+    assert "-S" not in commit_cmd_called[0], "CommitAuthority MUST respect force_unsigned"
+
 
