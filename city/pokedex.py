@@ -643,24 +643,6 @@ class Pokedex:
 
         try:
             from city.identity import verify_ownership
-            
-            # Detect if payload is GPG signed
-            if isinstance(payload, bytes):
-                payload_str = payload.decode(errors="ignore")
-            else:
-                payload_str = str(payload)
-                
-            if "-----BEGIN PGP SIGNED MESSAGE-----" in payload_str:
-                # GPG Verification Path
-                import subprocess
-                import tempfile
-                with tempfile.NamedTemporaryFile(mode='w', suffix=".asc") as f:
-                    f.write(payload_str)
-                    f.flush()
-                    res = subprocess.run(["gpg", "--batch", "--verify", f.name], capture_output=True)
-                    return res.returncode == 0
-            
-            # Legacy ECDSA Path
             passport = {"public_key": public_key_pem}
             return verify_ownership(passport, payload, signature_b64)
         except Exception as e:

@@ -1,61 +1,60 @@
 import pytest
-import subprocess
-import os
 from city.jiva import Jiva, JivaSeed, derive_jiva
-from city.identity import generate_identity, generate_gpg_identity
+from city.identity import generate_identity, verify_ownership
 
-def test_gpg_identity_binding(monkeypatch):
-    """VERIFY: Agent can bind a GPG identity and sign messages. (Sovereign ID)"""
-    
-    # 1. Derive a Jiva using the real VM pipeline
+
+def test_ecdsa_identity_deterministic():
+    """VERIFY: Same agent name always produces the same ECDSA identity."""
+    id_a = generate_identity(derive_jiva("Prahlad", "Devotion"))
+    id_b = generate_identity(derive_jiva("Prahlad", "Devotion"))
+    assert id_a.fingerprint == id_b.fingerprint
+    assert id_a.public_key_pem == id_b.public_key_pem
+    assert id_a.seed_hash == id_b.seed_hash
+
+
+def test_ecdsa_sign_and_verify():
+    """VERIFY: Agent can sign a message and self-verify it (pure ECDSA)."""
     jiva = derive_jiva("Prahlad", "Devotion")
-    
-    # 2. Generate Base Identity (ECDSA)
     identity = generate_identity(jiva)
-    assert identity.agent_name == "Prahlad"
-    
-    # 3. Generate GPG Identity (Noreply / Internal Dual-UID)
-    # We use a unique test email to avoid colliding with real keys
-    test_email = "prahlad-test@agent-city.local"
-    
-    # Cleanup previous test keys if any
-    subprocess.run(["gpg", "--batch", "--yes", "--delete-secret-keys", test_email], capture_output=True)
-    subprocess.run(["gpg", "--batch", "--yes", "--delete-keys", test_email], capture_output=True)
-    
-    gpg_identity = generate_gpg_identity(identity, email=test_email)
-    
-    # 4. Assertions on GPG Binding
-    assert gpg_identity.gpg_fingerprint is not None
-    assert gpg_identity.gpg_email == test_email
-    assert "-----BEGIN PGP PUBLIC KEY BLOCK-----" in gpg_identity.gpg_public_key
-    
-    # 5. Verify Signing Works
-    message = "I am Prahlad, and I am the Sovereign of my own state."
-    signed_msg = gpg_identity.sign_with_gpg(message)
-    
-    assert "-----BEGIN PGP SIGNED MESSAGE-----" in signed_msg
-    assert message in signed_msg
-    assert "-----BEGIN PGP SIGNATURE-----" in signed_msg
-    
-    # 6. Verify Signature Validity (Self-Verification)
-    # We write the signed message to a file and verify it
-    import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', suffix=".asc") as f:
-        f.write(signed_msg)
-        f.flush()
-        
-        verify_res = subprocess.run(
-            ["gpg", "--batch", "--verify", f.name],
-            capture_output=True, text=True
-        )
-        assert verify_res.returncode == 0
-        # GPG output is locale-dependent (EN: "Good signature", DE: "Korrekte Signatur")
-        assert ("Good signature" in verify_res.stderr or "Korrekte Signatur" in verify_res.stderr)
-        assert test_email in verify_res.stderr
 
-def test_deterministic_gpg_generation_stub():
-    """NOTE: Currently GPG generation via CLI is not natively deterministic.
-    We are simulating the 'anchor' approach where the GPG key is generated 
-    and then bound to the Jiva's secure vault.
-    """
-    pass
+    message = b"I am Prahlad, and I am the Sovereign of my own state."
+    signature = identity.sign(message)
+
+    assert identity.verify(message, signature) is True
+    assert identity.verify(b"tampered message", signature) is False
+
+
+def test_cross_agent_spoofing_prevented():
+    """VERIFY: Agent A's signature does not verify under Agent B's key."""
+    id_a = generate_identity(derive_jiva("AgentAlpha"))
+    id_b = generate_identity(derive_jiva("AgentBeta"))
+
+    message = b"Secret orders from Alpha"
+    sig_a = id_a.sign(message)
+
+    # A's own key verifies
+    assert id_a.verify(message, sig_a) is True
+    # B's key rejects A's signature
+    assert id_b.verify(message, sig_a) is False
+
+
+def test_verify_ownership_roundtrip():
+    """VERIFY: verify_ownership() works with the passport dict format."""
+    jiva = derive_jiva("Prahlad")
+    identity = generate_identity(jiva)
+    passport = identity.sign_passport(jiva)
+
+    payload = passport["passport_data"].encode()
+    sig = passport["passport_signature"]
+
+    assert verify_ownership({"public_key": passport["public_key"]}, payload, sig) is True
+    assert verify_ownership({"public_key": passport["public_key"]}, b"wrong", sig) is False
+
+
+def test_different_agents_produce_different_keys():
+    """VERIFY: Two different agents never share an identity."""
+    id_a = generate_identity(derive_jiva("AgentAlpha"))
+    id_b = generate_identity(derive_jiva("AgentBeta"))
+    assert id_a.fingerprint != id_b.fingerprint
+    assert id_a.public_key_pem != id_b.public_key_pem
+    assert id_a.seed_hash != id_b.seed_hash
