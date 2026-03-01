@@ -110,7 +110,9 @@ class AgentManifest:
 
         logger.info(
             "Published manifest for %s at %s (cell address=%d)",
-            name, filepath, cell.header.sravanam,
+            name,
+            filepath,
+            cell.header.sravanam,
         )
         return str(filepath)
 

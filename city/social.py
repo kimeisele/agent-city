@@ -9,14 +9,15 @@ logger = logging.getLogger("AGENT_CITY.SOCIAL")
 
 MAX_MESSAGE_LENGTH = 4096
 
+
 class SocialBroadcaster:
     """Agent City Sovereign Social Ledger.
-    
+
     Senior implementation following the 'Herald' pattern:
     - Writes to ISO-dated files in broadcasts/
     - Enforces BROADCAST_LICENSE (Pokedex citizen status)
     """
-    
+
     def __init__(self, broadcasts_dir: str = "broadcasts"):
         self.broadcasts_dir = broadcasts_dir
         self._lock = threading.Lock()
@@ -24,7 +25,7 @@ class SocialBroadcaster:
 
     def post(self, identity: AgentIdentity, pokedex, message: str):
         """Signs and appends a message to the daily log.
-        
+
         Args:
             identity: The agent's cryptographic identity.
             pokedex: The Pokedex registry (MANDATORY for governance check).
@@ -46,7 +47,7 @@ class SocialBroadcaster:
         timestamp = now.isoformat()
         date_str = now.strftime("%Y-%m-%d")
         log_file = os.path.join(self.broadcasts_dir, f"{date_str}_sovereign_square.md")
-        
+
         # 3. Sign the message (ECDSA — deterministic, OS-agnostic, no subprocess)
         signature = identity.sign(safe_message.encode())
         signed_msg = f"{safe_message}\n\n[Signature: {signature}]"
@@ -64,5 +65,5 @@ class SocialBroadcaster:
         with self._lock:
             with open(log_file, "a") as f:
                 f.write(post_block)
-        
+
         return True

@@ -45,6 +45,7 @@ OP_HEALTH_CHECK = 4
 
 class MessageRecord(TypedDict):
     """Immutable record of a routed message."""
+
     timestamp: float
     from_name: str
     to_name: str
@@ -94,12 +95,16 @@ class CityNetwork:
         verified = False
         if signature and public_key_pem:
             verified = self._gateway.validate_agent_message(
-                from_name, message.encode(), signature, public_key_pem,
+                from_name,
+                message.encode(),
+                signature,
+                public_key_pem,
             )
             if not verified:
                 logger.warning(
                     "Message from %s to %s: ECDSA verification failed",
-                    from_name, to_name,
+                    from_name,
+                    to_name,
                 )
                 return False
 
@@ -117,12 +122,15 @@ class CityNetwork:
         self._append_record(record)
 
         # Emit event on AnantaShesha
-        self._anchor.emit_event("AGENT_MESSAGE", {
-            "from": from_name,
-            "to": to_name,
-            "source_address": header.sravanam,
-            "target_address": header.kirtanam,
-        })
+        self._anchor.emit_event(
+            "AGENT_MESSAGE",
+            {
+                "from": from_name,
+                "to": to_name,
+                "source_address": header.sravanam,
+                "target_address": header.kirtanam,
+            },
+        )
 
         # Also deliver via AgentNadi (if wired)
         if self._agent_nadi is not None:
@@ -139,12 +147,15 @@ class CityNetwork:
         header = self._address_book.route(from_name, from_name, operation=OP_BROADCAST)
 
         # Emit event
-        self._anchor.emit_event("AGENT_BROADCAST", {
-            "from": from_name,
-            "source_address": header.sravanam,
-            "message_hash": hash(message),
-            "recipients": len(self._registered_agents),
-        })
+        self._anchor.emit_event(
+            "AGENT_BROADCAST",
+            {
+                "from": from_name,
+                "source_address": header.sravanam,
+                "message_hash": hash(message),
+                "recipients": len(self._registered_agents),
+            },
+        )
 
         record: MessageRecord = {
             "timestamp": time.time(),
@@ -180,16 +191,22 @@ class CityNetwork:
             self._agent_nadi.register(name)
 
         # Register as gene with AnantaShesha for health monitoring
-        self._anchor.register_gene_simple(f"city_agent_{name}", {
-            "name": name,
-            "address": address,
-            "body": "PRANA",  # Runtime state
-        })
+        self._anchor.register_gene_simple(
+            f"city_agent_{name}",
+            {
+                "name": name,
+                "address": address,
+                "body": "PRANA",  # Runtime state
+            },
+        )
 
-        self._anchor.emit_event("AGENT_REGISTERED", {
-            "name": name,
-            "address": address,
-        })
+        self._anchor.emit_event(
+            "AGENT_REGISTERED",
+            {
+                "name": name,
+                "address": address,
+            },
+        )
 
         logger.debug("Agent %s registered at address %d", name, address)
         return address
@@ -222,7 +239,7 @@ class CityNetwork:
             "integrity": cell.membrane_integrity,
             "is_alive": cell.is_alive,
             "age": cell.age,
-            "body_sthula": True,   # Persistent (SQLite)
+            "body_sthula": True,  # Persistent (SQLite)
             "body_prana": cell.is_alive,  # Runtime vitality
             "body_purusha": True,  # Eternal (ECDSA + seed)
         }
@@ -242,4 +259,4 @@ class CityNetwork:
         """Append a message record, trimming to limit."""
         self._message_log.append(record)
         if len(self._message_log) > self._message_limit:
-            self._message_log = self._message_log[-self._message_limit:]
+            self._message_log = self._message_log[-self._message_limit :]

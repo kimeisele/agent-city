@@ -35,6 +35,7 @@ SUDDHA = 3
 @dataclass
 class _AgentMessage:
     """Lightweight message struct (no GADBase, no NadiMessage overhead)."""
+
     source: str
     target: str
     text: str
@@ -154,13 +155,15 @@ class AgentNadiManager:
             msg = inbox.popleft()
             if msg.is_expired:
                 continue
-            items.append({
-                "source": msg.source,
-                "text": msg.text,
-                "from_agent": msg.from_agent,
-                "priority": msg.priority,
-                "correlation_id": msg.correlation_id,
-            })
+            items.append(
+                {
+                    "source": msg.source,
+                    "text": msg.text,
+                    "from_agent": msg.from_agent,
+                    "priority": msg.priority,
+                    "correlation_id": msg.correlation_id,
+                }
+            )
 
         # Sort by priority descending
         items.sort(key=lambda x: x["priority"], reverse=True)

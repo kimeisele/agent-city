@@ -70,10 +70,21 @@ class PhaseContext:
     last_audit_time: float = 0.0
     recent_events: list = field(default_factory=list)
 
-    def __init__(self, pokedex, gateway, network, heartbeat_count, offline_mode,
-                 state_path, active_agents=None, gateway_queue=None,
-                 registry=None, last_audit_time=0.0, recent_events=None,
-                 **kwargs):
+    def __init__(
+        self,
+        pokedex,
+        gateway,
+        network,
+        heartbeat_count,
+        offline_mode,
+        state_path,
+        active_agents=None,
+        gateway_queue=None,
+        registry=None,
+        last_audit_time=0.0,
+        recent_events=None,
+        **kwargs,
+    ):
         self.pokedex = pokedex
         self.gateway = gateway
         self.network = network
@@ -89,16 +100,22 @@ class PhaseContext:
 
         # Migrate legacy kwargs into registry
         _LEGACY_NAMES = {
-            "contracts": SVC_CONTRACTS, "issues": SVC_ISSUES,
-            "sankalpa": SVC_SANKALPA, "audit": SVC_AUDIT,
-            "reflection": SVC_REFLECTION, "executor": SVC_EXECUTOR,
-            "council": SVC_COUNCIL, "federation": SVC_FEDERATION,
+            "contracts": SVC_CONTRACTS,
+            "issues": SVC_ISSUES,
+            "sankalpa": SVC_SANKALPA,
+            "audit": SVC_AUDIT,
+            "reflection": SVC_REFLECTION,
+            "executor": SVC_EXECUTOR,
+            "council": SVC_COUNCIL,
+            "federation": SVC_FEDERATION,
             "moltbook_bridge": SVC_MOLTBOOK_BRIDGE,
             "moltbook_client": SVC_MOLTBOOK_CLIENT,
             "city_nadi": SVC_CITY_NADI,
             "knowledge_graph": SVC_KNOWLEDGE_GRAPH,
-            "event_bus": SVC_EVENT_BUS, "learning": SVC_LEARNING,
-            "agent_nadi": SVC_AGENT_NADI, "immune": SVC_IMMUNE,
+            "event_bus": SVC_EVENT_BUS,
+            "learning": SVC_LEARNING,
+            "agent_nadi": SVC_AGENT_NADI,
+            "immune": SVC_IMMUNE,
             "identity": SVC_IDENTITY,
         }
         for kwarg_name, svc_name in _LEGACY_NAMES.items():

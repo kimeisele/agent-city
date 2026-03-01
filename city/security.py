@@ -41,8 +41,9 @@ class VajraGuarded:
     def vajra_seal(self) -> None:
         """Activate the seal. Protected attributes become immutable."""
         object.__setattr__(self, "_vajra_sealed", True)
-        logger.info("VAJRA SEAL: %s locked. Protected: %s",
-                     self.__class__.__name__, self._vajra_protected)
+        logger.info(
+            "VAJRA SEAL: %s locked. Protected: %s", self.__class__.__name__, self._vajra_protected
+        )
 
     def vajra_unseal(self) -> None:
         """Temporarily unseal for controlled upgrades. Use sparingly."""
@@ -62,8 +63,9 @@ class VajraGuarded:
         if getattr(self, "_vajra_sealed", False):
             protected = getattr(self, "_vajra_protected", set())
             if name in protected:
-                logger.error("VAJRA VIOLATION: Attempt to modify '%s' on %s",
-                             name, self.__class__.__name__)
+                logger.error(
+                    "VAJRA VIOLATION: Attempt to modify '%s' on %s", name, self.__class__.__name__
+                )
                 raise PermissionError(
                     f"VAJRA VIOLATION: '{name}' on {self.__class__.__name__} "
                     f"is sealed. The blueprint is immutable."

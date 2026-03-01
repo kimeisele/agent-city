@@ -25,6 +25,7 @@ def get_city_knowledge():
     """
     try:
         from vibe_core.knowledge.graph import get_knowledge_graph
+
         graph = get_knowledge_graph()
         if graph is not None and getattr(graph, "_loaded", False):
             return graph
@@ -74,6 +75,7 @@ def get_city_bus():
     """
     try:
         from vibe_core.mahamantra.substrate.services.event_bus import get_event_bus
+
         return get_event_bus()
     except Exception as e:
         logger.debug("EventBus unavailable: %s", e)
@@ -90,6 +92,7 @@ def emit_event(event_type: str, agent_id: str, message: str, data: dict | None =
         return ""
     try:
         from vibe_core.mahamantra.substrate.event_types import EventType
+
         etype = EventType(event_type) if isinstance(event_type, str) else event_type
         return bus.emit_sync(
             event_type=etype,

@@ -46,10 +46,13 @@ def execute(ctx: PhaseContext) -> list[str]:
                         continue
                     existing = ctx.pokedex.get(author)
                     if not existing:
-                        ctx.pokedex.discover(author, moltbook_profile={
-                            "karma": post.get("author", {}).get("karma"),
-                            "follower_count": post.get("author", {}).get("follower_count"),
-                        })
+                        ctx.pokedex.discover(
+                            author,
+                            moltbook_profile={
+                                "karma": post.get("author", {}).get("karma"),
+                                "follower_count": post.get("author", {}).get("follower_count"),
+                            },
+                        )
                         discovered.append(author)
                         logger.info("GENESIS: Discovered agent %s", author)
             except Exception as e:
@@ -81,12 +84,15 @@ def execute(ctx: PhaseContext) -> list[str]:
 
             # Enqueue code signals for KARMA processing
             if signal.get("code_signals"):
-                _enqueue_item(ctx, {
-                    "source": signal.get("source", "submolt"),
-                    "text": signal["title"],
-                    "post_id": signal["post_id"],
-                    "code_signals": signal["code_signals"],
-                })
+                _enqueue_item(
+                    ctx,
+                    {
+                        "source": signal.get("source", "submolt"),
+                        "text": signal["title"],
+                        "post_id": signal["post_id"],
+                        "code_signals": signal["code_signals"],
+                    },
+                )
                 discovered.append(f"submolt_signal:{signal['post_id']}")
 
     # Layer 6: Federation Nadi — receive cross-repo messages
@@ -94,12 +100,15 @@ def execute(ctx: PhaseContext) -> list[str]:
         fed_messages = ctx.federation_nadi.receive()
         for msg in fed_messages:
             # Enqueue federation messages for KARMA processing
-            _enqueue_item(ctx, {
-                "source": f"federation:{msg.source}",
-                "text": msg.operation,
-                "federation_payload": msg.payload,
-                "correlation_id": msg.correlation_id,
-            })
+            _enqueue_item(
+                ctx,
+                {
+                    "source": f"federation:{msg.source}",
+                    "text": msg.operation,
+                    "federation_payload": msg.payload,
+                    "correlation_id": msg.correlation_id,
+                },
+            )
             discovered.append(f"fed_nadi:{msg.source}:{msg.operation}")
         if fed_messages:
             logger.info("GENESIS: %d federation Nadi messages received", len(fed_messages))
@@ -166,11 +175,14 @@ def _poll_dm_inbox(ctx: PhaseContext) -> list[str]:
             if not req_id:
                 continue
             try:
-                client.sync_approve_dm_request(req_id) if hasattr(client, "sync_approve_dm_request") else None
+                client.sync_approve_dm_request(req_id) if hasattr(
+                    client, "sync_approve_dm_request"
+                ) else None
                 # Send welcome via the new conversation
                 conv_id = req.get("conversation_id", "")
                 if conv_id and hasattr(client, "sync_send_dm"):
                     from city.inbox import WELCOME_MESSAGE
+
                     client.sync_send_dm(conv_id, WELCOME_MESSAGE)
                 results.append(f"dm_approved:{from_agent}")
                 logger.info("GENESIS: Approved DM request from %s", from_agent)
@@ -181,7 +193,11 @@ def _poll_dm_inbox(ctx: PhaseContext) -> list[str]:
 
     # Step 2: Read DM conversations → enqueue unread messages
     try:
-        conversations = client.sync_get_dm_conversations() if hasattr(client, "sync_get_dm_conversations") else []
+        conversations = (
+            client.sync_get_dm_conversations()
+            if hasattr(client, "sync_get_dm_conversations")
+            else []
+        )
         for conv in conversations:
             conv_id = conv.get("id", "")
             if not conv_id:
@@ -192,7 +208,11 @@ def _poll_dm_inbox(ctx: PhaseContext) -> list[str]:
                 continue
 
             try:
-                messages = client.sync_get_dm_messages(conv_id) if hasattr(client, "sync_get_dm_messages") else []
+                messages = (
+                    client.sync_get_dm_messages(conv_id)
+                    if hasattr(client, "sync_get_dm_messages")
+                    else []
+                )
                 for msg in messages:
                     msg_id = msg.get("id", "")
                     if msg_id in _seen_message_ids:
@@ -205,12 +225,15 @@ def _poll_dm_inbox(ctx: PhaseContext) -> list[str]:
                     if not sender or not content:
                         continue
 
-                    _enqueue_item(ctx, {
-                        "source": "dm",
-                        "text": content,
-                        "conversation_id": conv_id,
-                        "from_agent": sender,
-                    })
+                    _enqueue_item(
+                        ctx,
+                        {
+                            "source": "dm",
+                            "text": content,
+                            "conversation_id": conv_id,
+                            "from_agent": sender,
+                        },
+                    )
                     results.append(f"dm_enqueued:{sender}")
                     logger.info("GENESIS: Enqueued DM from %s", sender)
             except Exception as e:
@@ -235,6 +258,7 @@ def _create_signal_mission(ctx: PhaseContext, signal: dict) -> str | None:
     Structured [Signal] posts get HIGH priority. Normal word-match gets MEDIUM.
     """
     from city.missions import create_signal_mission
+
     return create_signal_mission(
         ctx,
         signal_keywords=signal.get("code_signals", []),
@@ -291,10 +315,12 @@ def _execute_directive(ctx: PhaseContext, directive: object) -> bool:
 
     if dtype == "create_mission" and ctx.sankalpa is not None:
         from city.missions import create_federation_mission
+
         created = create_federation_mission(ctx, directive)
         # Also create a council proposal for governance visibility
         if created and ctx.council is not None and ctx.council.elected_mayor is not None:
             from city.council import ProposalType
+
             topic = params.get("topic", "Federation mission")
             ctx.council.propose(
                 title=f"Federation: {topic}",
@@ -313,6 +339,7 @@ def _execute_directive(ctx: PhaseContext, directive: object) -> bool:
 
     if dtype == "execute_code" and ctx.sankalpa is not None:
         from city.missions import create_execution_mission
+
         created = create_execution_mission(ctx, directive)
         if created:
             logger.info(

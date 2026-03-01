@@ -38,7 +38,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def main() -> None:
     parser = argparse.ArgumentParser(description="FederationNadi Bridge CLI")
     parser.add_argument(
-        "--data-dir", type=str, default="data/federation",
+        "--data-dir",
+        type=str,
+        default="data/federation",
         help="Federation data directory (default: data/federation)",
     )
     sub = parser.add_subparsers(dest="command", required=True)

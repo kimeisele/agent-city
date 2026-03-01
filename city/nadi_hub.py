@@ -21,9 +21,9 @@ logger = logging.getLogger("AGENT_CITY.NADI")
 
 # Guna mode → Nadi priority mapping
 _MODE_TO_PRIORITY = {
-    "SATTVA": 2,   # NadiPriority.SATTVA
-    "RAJAS": 1,    # NadiPriority.RAJAS
-    "TAMAS": 0,    # NadiPriority.TAMAS
+    "SATTVA": 2,  # NadiPriority.SATTVA
+    "RAJAS": 1,  # NadiPriority.RAJAS
+    "TAMAS": 0,  # NadiPriority.TAMAS
 }
 
 
@@ -34,11 +34,13 @@ def _create_nadi(endpoint_id: str):
             LocalNadi,
             NadiType,
         )
+
         return LocalNadi(endpoint_id, NadiType.PRANA)
     except Exception as e:
         logger.debug("LocalNadi unavailable, using NullNadi: %s", e)
         try:
             from vibe_core.mahamantra.substrate.state.nadi import NullNadi
+
             return NullNadi(endpoint_id)
         except Exception:
             return None

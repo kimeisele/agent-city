@@ -40,10 +40,10 @@ SUDDHA = 3
 class FederationMessage:
     """Cross-repo Nadi message. JSON-serializable."""
 
-    source: str        # Sender endpoint (e.g., "karma", "moksha", "genesis")
-    target: str        # Receiver endpoint (e.g., "steward-protocol", "agent-city")
-    operation: str     # NadiOp value (e.g., "process", "send", "commit")
-    payload: dict      # Message data
+    source: str  # Sender endpoint (e.g., "karma", "moksha", "genesis")
+    target: str  # Receiver endpoint (e.g., "steward-protocol", "agent-city")
+    operation: str  # NadiOp value (e.g., "process", "send", "commit")
+    payload: dict  # Message data
     priority: int = RAJAS
     correlation_id: str = ""
     timestamp: float = field(default_factory=time.time)
@@ -139,7 +139,8 @@ class FederationNadi:
         # Filter expired and cap buffer
         now = time.time()
         live = [
-            m for m in all_msgs
+            m
+            for m in all_msgs
             if now <= m.get("timestamp", 0) + m.get("ttl_s", NADI_FEDERATION_TTL_S)
         ]
         # Sort by priority descending, then timestamp ascending
@@ -192,7 +193,8 @@ class FederationNadi:
             raw = self._read_file(self.inbox_path)
             now = time.time()
             live = [
-                m for m in raw
+                m
+                for m in raw
                 if now <= m.get("timestamp", 0) + m.get("ttl_s", NADI_FEDERATION_TTL_S)
             ]
             self._write_file(self.inbox_path, live)

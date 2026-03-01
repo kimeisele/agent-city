@@ -44,6 +44,7 @@ def execute(ctx: PhaseContext) -> dict:
     # Cognition: EventBus history + stats
     if ctx.event_bus is not None:
         from city.cognition import get_bus_stats, get_event_history
+
         bus_stats = get_bus_stats()
         if bus_stats:
             reflection["event_bus_stats"] = bus_stats
@@ -83,7 +84,8 @@ def execute(ctx: PhaseContext) -> dict:
     else:
         logger.info(
             "MOKSHA: Reflection — %d agents, chain valid, %d events",
-            stats.get("total", 0), stats.get("events", 0),
+            stats.get("total", 0),
+            stats.get("events", 0),
         )
 
     # Layer 3: Audit
@@ -187,6 +189,7 @@ def _collect_terminal_missions(ctx: PhaseContext) -> list[dict]:
 
     try:
         from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
+
         all_missions = ctx.sankalpa.registry.list_missions()
     except Exception:
         return []
@@ -199,12 +202,14 @@ def _collect_terminal_missions(ctx: PhaseContext) -> list[dict]:
         # Convention: owner changes to "reported" after posting
         if getattr(m, "owner", "") == "reported":
             continue
-        terminal.append({
-            "id": m.id,
-            "name": m.name,
-            "status": m.status.value if hasattr(m.status, "value") else str(m.status),
-            "owner": getattr(m, "owner", "unknown"),
-        })
+        terminal.append(
+            {
+                "id": m.id,
+                "name": m.name,
+                "status": m.status.value if hasattr(m.status, "value") else str(m.status),
+                "owner": getattr(m, "owner", "unknown"),
+            }
+        )
         # Mark as reported to prevent re-posting
         m.owner = "reported"
         ctx.sankalpa.registry.add_mission(m)
@@ -217,12 +222,14 @@ def _collect_pr_results(ctx: PhaseContext) -> list[dict]:
     results: list[dict] = []
     for event in ctx.recent_events:
         if isinstance(event, dict) and event.get("type") == "pr_created":
-            results.append({
-                "issue_number": event.get("issue_number", 0),
-                "pr_url": event.get("pr_url", ""),
-                "branch": event.get("branch", ""),
-                "heartbeat": event.get("heartbeat", 0),
-            })
+            results.append(
+                {
+                    "issue_number": event.get("issue_number", 0),
+                    "pr_url": event.get("pr_url", ""),
+                    "branch": event.get("branch", ""),
+                    "heartbeat": event.get("heartbeat", 0),
+                }
+            )
     return results
 
 
@@ -259,12 +266,18 @@ def _close_resolved_issues(ctx: PhaseContext) -> int:
 
         # Only auto-close EPHEMERAL issues
         from city.issues import IssueType, _gh_run
+
         issue_type = ctx.issues.get_issue_type(issue_number)
         if issue_type == IssueType.EPHEMERAL:
-            _gh_run([
-                "issue", "close", str(issue_number),
-                "--comment", f"Auto-resolved: Mission {mission.id} completed.",
-            ])
+            _gh_run(
+                [
+                    "issue",
+                    "close",
+                    str(issue_number),
+                    "--comment",
+                    f"Auto-resolved: Mission {mission.id} completed.",
+                ]
+            )
             closed += 1
             logger.info("MOKSHA: Closed issue #%d (mission %s completed)", issue_number, mission.id)
 
@@ -329,18 +342,18 @@ def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
         try:
             all_missions = ctx.sankalpa.registry.list_missions()
             for m in all_missions:
-                mission_results.append({
-                    "id": m.id,
-                    "name": m.name,
-                    "status": m.status.value if hasattr(m.status, "value") else str(m.status),
-                    "owner": getattr(m, "owner", "unknown"),
-                })
+                mission_results.append(
+                    {
+                        "id": m.id,
+                        "name": m.name,
+                        "status": m.status.value if hasattr(m.status, "value") else str(m.status),
+                        "owner": getattr(m, "owner", "unknown"),
+                    }
+                )
         except Exception as e:
             logger.warning("MOKSHA: Failed to collect mission results for post: %s", e)
 
-    directive_acks = (
-        ctx.federation.pending_acks if ctx.federation is not None else []
-    )
+    directive_acks = ctx.federation.pending_acks if ctx.federation is not None else []
 
     return {
         "heartbeat": ctx.heartbeat_count,
@@ -383,9 +396,7 @@ def _build_city_report(ctx: PhaseContext, reflection: dict) -> object:
             "failing": cs.get("failing", 0),
         }
 
-    directive_acks = (
-        ctx.federation.pending_acks if ctx.federation is not None else []
-    )
+    directive_acks = ctx.federation.pending_acks if ctx.federation is not None else []
 
     # Collect mission results from sankalpa registry
     mission_results: list[dict] = []
@@ -393,13 +404,17 @@ def _build_city_report(ctx: PhaseContext, reflection: dict) -> object:
         try:
             all_missions = ctx.sankalpa.registry.list_missions()
             for m in all_missions:
-                mission_results.append({
-                    "id": m.id,
-                    "name": m.name,
-                    "status": m.status.value if hasattr(m.status, "value") else str(m.status),
-                    "owner": getattr(m, "owner", "unknown"),
-                    "priority": m.priority.name if hasattr(m.priority, "name") else str(m.priority),
-                })
+                mission_results.append(
+                    {
+                        "id": m.id,
+                        "name": m.name,
+                        "status": m.status.value if hasattr(m.status, "value") else str(m.status),
+                        "owner": getattr(m, "owner", "unknown"),
+                        "priority": m.priority.name
+                        if hasattr(m.priority, "name")
+                        else str(m.priority),
+                    }
+                )
         except Exception as e:
             logger.warning("MOKSHA: Failed to collect mission results: %s", e)
 

@@ -74,9 +74,7 @@ class Pokedex:
         self._init_schema()
 
         # Wire to CivicBank from steward-protocol (shared DB or separate)
-        self._bank = bank or CivicBank(
-            db_path=str(self._db_path.parent / "economy.db")
-        )
+        self._bank = bank or CivicBank(db_path=str(self._db_path.parent / "economy.db"))
 
         # Constitution hash for oath binding
         self._constitution_path = Path(constitution_path or "docs/CONSTITUTION.md")
@@ -174,11 +172,9 @@ class Pokedex:
         try:
             cur.execute("SELECT civic_role FROM agents LIMIT 0")
         except Exception:
-            cur.execute(
-                "ALTER TABLE agents ADD COLUMN civic_role TEXT DEFAULT 'citizen'"
-            )
+            cur.execute("ALTER TABLE agents ADD COLUMN civic_role TEXT DEFAULT 'citizen'")
             self._conn.commit()
-            
+
         # Migration: GPG columns
         try:
             cur.execute("SELECT gpg_fingerprint FROM agents LIMIT 0")
@@ -220,7 +216,8 @@ class Pokedex:
 
         with self._lock:
             cur = self._conn.cursor()
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO agents (
                     name, status, address,
                     vm_position, vm_quarter, vm_guardian, vm_guna,
@@ -229,30 +226,46 @@ class Pokedex:
                     zone, cell_bytes, discovered_at, updated_at,
                     moltbook_karma, moltbook_followers
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                name, "discovered", jiva.address,
-                jiva.classification.position, jiva.classification.quarter,
-                jiva.classification.guardian, jiva.classification.guna,
-                jiva.classification.chapter, jiva.classification.holy_name,
-                jiva.classification.trinity_function, jiva.classification.chapter_significance,
-                jiva.vibration.seed, jiva.vibration.element,
-                int(jiva.vibration.shruti), jiva.vibration.frequency,
-                jiva.classification.zone,
-                jiva.cell.to_bytes(),
-                now, now,
-                (moltbook_profile or {}).get("karma"),
-                (moltbook_profile or {}).get("follower_count"),
-            ))
+            """,
+                (
+                    name,
+                    "discovered",
+                    jiva.address,
+                    jiva.classification.position,
+                    jiva.classification.quarter,
+                    jiva.classification.guardian,
+                    jiva.classification.guna,
+                    jiva.classification.chapter,
+                    jiva.classification.holy_name,
+                    jiva.classification.trinity_function,
+                    jiva.classification.chapter_significance,
+                    jiva.vibration.seed,
+                    jiva.vibration.element,
+                    int(jiva.vibration.shruti),
+                    jiva.vibration.frequency,
+                    jiva.classification.zone,
+                    jiva.cell.to_bytes(),
+                    now,
+                    now,
+                    (moltbook_profile or {}).get("karma"),
+                    (moltbook_profile or {}).get("follower_count"),
+                ),
+            )
 
-            self._record_event(name, "discover", None, "discovered", json.dumps(moltbook_profile or {}))
+            self._record_event(
+                name, "discover", None, "discovered", json.dumps(moltbook_profile or {})
+            )
             self._conn.commit()
 
         return self.get(name)
 
-    def _discover_locked(self, name: str, jiva: object, moltbook_profile: dict | None, now: str) -> None:
+    def _discover_locked(
+        self, name: str, jiva: object, moltbook_profile: dict | None, now: str
+    ) -> None:
         """Insert discovered agent row. Caller MUST hold self._lock."""
         cur = self._conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             INSERT OR IGNORE INTO agents (
                 name, status, address,
                 vm_position, vm_quarter, vm_guardian, vm_guna,
@@ -261,20 +274,31 @@ class Pokedex:
                 zone, cell_bytes, discovered_at, updated_at,
                 moltbook_karma, moltbook_followers
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            name, "discovered", jiva.address,
-            jiva.classification.position, jiva.classification.quarter,
-            jiva.classification.guardian, jiva.classification.guna,
-            jiva.classification.chapter, jiva.classification.holy_name,
-            jiva.classification.trinity_function, jiva.classification.chapter_significance,
-            jiva.vibration.seed, jiva.vibration.element,
-            int(jiva.vibration.shruti), jiva.vibration.frequency,
-            jiva.classification.zone,
-            jiva.cell.to_bytes(),
-            now, now,
-            (moltbook_profile or {}).get("karma"),
-            (moltbook_profile or {}).get("follower_count"),
-        ))
+        """,
+            (
+                name,
+                "discovered",
+                jiva.address,
+                jiva.classification.position,
+                jiva.classification.quarter,
+                jiva.classification.guardian,
+                jiva.classification.guna,
+                jiva.classification.chapter,
+                jiva.classification.holy_name,
+                jiva.classification.trinity_function,
+                jiva.classification.chapter_significance,
+                jiva.vibration.seed,
+                jiva.vibration.element,
+                int(jiva.vibration.shruti),
+                jiva.vibration.frequency,
+                jiva.classification.zone,
+                jiva.cell.to_bytes(),
+                now,
+                now,
+                (moltbook_profile or {}).get("karma"),
+                (moltbook_profile or {}).get("follower_count"),
+            ),
+        )
         self._record_event(name, "discover", None, "discovered", json.dumps(moltbook_profile or {}))
 
     def register(self, name: str, moltbook_profile: dict | None = None) -> dict:
@@ -309,7 +333,8 @@ class Pokedex:
 
             # Upgrade to citizen
             cur = self._conn.cursor()
-            cur.execute("""
+            cur.execute(
+                """
                 UPDATE agents SET
                     status = 'citizen',
                     fingerprint = ?,
@@ -325,30 +350,41 @@ class Pokedex:
                     gpg_public_key = ?,
                     gpg_email = ?
                 WHERE name = ?
-            """, (
-                identity.fingerprint,
-                identity.public_key_pem,
-                identity.seed_hash,
-                self._constitution_hash,
-                oath_signature,
-                now, now,
-                (moltbook_profile or {}).get("karma"),
-                (moltbook_profile or {}).get("follower_count"),
-                identity.gpg_fingerprint,
-                identity.gpg_public_key,
-                identity.gpg_email,
-                name,
-            ))
+            """,
+                (
+                    identity.fingerprint,
+                    identity.public_key_pem,
+                    identity.seed_hash,
+                    self._constitution_hash,
+                    oath_signature,
+                    now,
+                    now,
+                    (moltbook_profile or {}).get("karma"),
+                    (moltbook_profile or {}).get("follower_count"),
+                    identity.gpg_fingerprint,
+                    identity.gpg_public_key,
+                    identity.gpg_email,
+                    name,
+                ),
+            )
 
             passport = identity.sign_passport(jiva)
-            self._record_event(name, "register", "discovered", "citizen", json.dumps({
-                "fingerprint": identity.fingerprint,
-                "oath_hash": self._constitution_hash[:16],
-                "genesis_grant": GENESIS_GRANT,
-                "zone": zone,
-                "zone_tax": zone_tax,
-                "passport_signature": passport["passport_signature"][:32],
-            }))
+            self._record_event(
+                name,
+                "register",
+                "discovered",
+                "citizen",
+                json.dumps(
+                    {
+                        "fingerprint": identity.fingerprint,
+                        "oath_hash": self._constitution_hash[:16],
+                        "genesis_grant": GENESIS_GRANT,
+                        "zone": zone,
+                        "zone_tax": zone_tax,
+                        "passport_signature": passport["passport_signature"][:32],
+                    }
+                ),
+            )
             self._conn.commit()
 
         return self.get(name)
@@ -411,9 +447,7 @@ class Pokedex:
     def list_citizens(self) -> list[dict]:
         """All agents with citizen or active status."""
         cur = self._conn.cursor()
-        cur.execute(
-            "SELECT * FROM agents WHERE status IN ('citizen', 'active') ORDER BY name"
-        )
+        cur.execute("SELECT * FROM agents WHERE status IN ('citizen', 'active') ORDER BY name")
         return [self._row_to_dict(r) for r in cur.fetchall()]
 
     def list_all(self) -> list[dict]:
@@ -425,9 +459,7 @@ class Pokedex:
     def list_by_role(self, role: str) -> list[dict]:
         """List all agents with a given civic role."""
         cur = self._conn.cursor()
-        cur.execute(
-            "SELECT * FROM agents WHERE civic_role = ? ORDER BY name", (role,)
-        )
+        cur.execute("SELECT * FROM agents WHERE civic_role = ? ORDER BY name", (role,))
         return [self._row_to_dict(r) for r in cur.fetchall()]
 
     def assign_role(self, name: str, role: str, reason: str = "election") -> dict:
@@ -515,9 +547,7 @@ class Pokedex:
         active_agents = active_agents or set()
         dead: list[str] = []
         cur = self._conn.cursor()
-        cur.execute(
-            "SELECT name, cell_bytes FROM agents WHERE status IN ('citizen', 'active')"
-        )
+        cur.execute("SELECT name, cell_bytes FROM agents WHERE status IN ('citizen', 'active')")
         for row in cur.fetchall():
             name = row["name"]
             if not row["cell_bytes"]:
@@ -562,15 +592,20 @@ class Pokedex:
 
         with self._lock:
             cur = self._conn.cursor()
-            cur.execute("""
+            cur.execute(
+                """
                 INSERT INTO operators (
                     name, operator_type, access_class, fingerprint,
                     registered_by, registered_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (name, operator_type, access_class, fingerprint,
-                  registered_by, now, now))
+            """,
+                (name, operator_type, access_class, fingerprint, registered_by, now, now),
+            )
             self._record_event(
-                name, "register_operator", None, access_class,
+                name,
+                "register_operator",
+                None,
+                access_class,
                 json.dumps({"operator_type": operator_type, "registered_by": registered_by}),
             )
             self._conn.commit()
@@ -616,7 +651,10 @@ class Pokedex:
         return False
 
     def update_operator_access(
-        self, name: str, new_access_class: str, reason: str = "manual",
+        self,
+        name: str,
+        new_access_class: str,
+        reason: str = "manual",
     ) -> dict | None:
         """Update an operator's access class. Records event in ledger."""
         op = self.get_operator(name)
@@ -633,7 +671,11 @@ class Pokedex:
                 (new_access_class, now, name),
             )
             self._record_event(
-                name, "access_change", old_class, new_access_class, reason,
+                name,
+                "access_change",
+                old_class,
+                new_access_class,
+                reason,
             )
             self._conn.commit()
 
@@ -654,8 +696,12 @@ class Pokedex:
         return self.get(name)
 
     def _record_event(
-        self, agent_name: str, event_type: str,
-        from_status: str | None, to_status: str, details: str,
+        self,
+        agent_name: str,
+        event_type: str,
+        from_status: str | None,
+        to_status: str,
+        details: str,
     ) -> None:
         """Record an immutable event in the chained ledger."""
         now = datetime.now(timezone.utc).isoformat()
@@ -664,13 +710,15 @@ class Pokedex:
         event_hash = hashlib.sha256(raw.encode()).hexdigest()
 
         cur = self._conn.cursor()
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO events (
                 timestamp, agent_name, event_type, from_status, to_status,
                 details, previous_hash, event_hash
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (now, agent_name, event_type, from_status, to_status,
-              details, prev_hash, event_hash))
+        """,
+            (now, agent_name, event_type, from_status, to_status, details, prev_hash, event_hash),
+        )
 
     def _last_event_hash(self) -> str:
         cur = self._conn.cursor()
@@ -721,23 +769,33 @@ class Pokedex:
                 "fingerprint": d["fingerprint"],
                 "public_key": d["public_key"],
                 "seed_hash": d["seed_hash"],
-            } if d["fingerprint"] else None,
+            }
+            if d["fingerprint"]
+            else None,
             "oath": {
                 "hash": d["oath_hash"],
                 "signature": d["oath_signature"],
-            } if d["oath_hash"] else None,
+            }
+            if d["oath_hash"]
+            else None,
             "gpg": {
                 "fingerprint": d["gpg_fingerprint"],
                 "public_key": d["gpg_public_key"],
                 "email": d["gpg_email"],
-            } if d["gpg_fingerprint"] else None,
+            }
+            if d["gpg_fingerprint"]
+            else None,
             "economy": {
                 "balance": self._bank.get_balance(d["name"]),
-            } if d["status"] in ("citizen", "active") else None,
+            }
+            if d["status"] in ("citizen", "active")
+            else None,
             "moltbook": {
                 "karma": d["moltbook_karma"],
                 "followers": d["moltbook_followers"],
-            } if d["moltbook_karma"] is not None else None,
+            }
+            if d["moltbook_karma"] is not None
+            else None,
             "civic_role": d.get("civic_role", "citizen"),
             "discovered_at": d["discovered_at"],
             "registered_at": d["registered_at"],
@@ -760,6 +818,7 @@ class Pokedex:
 
         try:
             from city.identity import verify_ownership
+
             passport = {"public_key": public_key_pem}
             return verify_ownership(passport, payload, signature_b64)
         except Exception as e:

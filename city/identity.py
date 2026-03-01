@@ -24,15 +24,16 @@ from city.jiva import Jiva
 @dataclass(frozen=True)
 class AgentIdentity:
     """Cryptographic identity bound to a Jiva."""
+
     agent_name: str
-    channel: str           # The frequency channel this identity belongs to
-    fingerprint: str       # SHA-256 of public key (first 16 hex chars)
+    channel: str  # The frequency channel this identity belongs to
+    fingerprint: str  # SHA-256 of public key (first 16 hex chars)
     public_key_pem: str
     private_key_pem: str
-    seed_hash: str         # SHA-256 of Mahamantra signature (binds identity to seed)
+    seed_hash: str  # SHA-256 of Mahamantra signature (binds identity to seed)
     gpg_fingerprint: str | None = None  # RSA 4096 or Ed25519 Fingerprint
-    gpg_public_key: str | None = None   # GPG Armored Public Key
-    gpg_email: str | None = None        # Email used for GPG (noreply or local)
+    gpg_public_key: str | None = None  # GPG Armored Public Key
+    gpg_email: str | None = None  # Email used for GPG (noreply or local)
 
     def sign(self, payload: bytes) -> str:
         """Sign payload, return base64-encoded signature."""

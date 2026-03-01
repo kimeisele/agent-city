@@ -185,7 +185,8 @@ def dispatch(
 
     logger.info(
         "Inbox dispatch: %s → intent=%s (function=%s, mode=%s)",
-        msg.from_agent, intent,
+        msg.from_agent,
+        intent,
         gateway_result.get("buddhi_function", "?"),
         gateway_result.get("buddhi_mode", "?"),
     )

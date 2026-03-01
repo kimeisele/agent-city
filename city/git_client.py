@@ -66,6 +66,7 @@ class GitStateAuthority(VajraGuarded):
     def _load_config(self) -> dict:
         try:
             from config import get_config
+
             return get_config()
         except Exception:
             return {}
@@ -128,12 +129,27 @@ class GitStateAuthority(VajraGuarded):
 
         lines.append("# Standard Python / tooling")
         for p in [
-            "*.so", "build/", "dist/", "*.egg-info/", "*.egg",
-            ".venv/", "venv/", "env/",
-            ".coverage", "htmlcov/", ".tox/", ".nox/",
-            ".hypothesis/", "cover/",
-            ".idea/", ".vscode/", "*.swp", "*.swo", "*~",
-            ".cursorignore", ".cursorindexingignore",
+            "*.so",
+            "build/",
+            "dist/",
+            "*.egg-info/",
+            "*.egg",
+            ".venv/",
+            "venv/",
+            "env/",
+            ".coverage",
+            "htmlcov/",
+            ".tox/",
+            ".nox/",
+            ".hypothesis/",
+            "cover/",
+            ".idea/",
+            ".vscode/",
+            "*.swp",
+            "*.swo",
+            "*~",
+            ".cursorignore",
+            ".cursorindexingignore",
         ]:
             lines.append(p)
         lines.append("")
@@ -176,7 +192,9 @@ class GitStateAuthority(VajraGuarded):
         """Verify protected files against saved hashes. Returns list of violations."""
         hash_path = self._workspace / HASH_FILE
         if not hash_path.exists():
-            logger.warning("GitStateAuthority: No hash file found at %s — run save_hashes() first", HASH_FILE)
+            logger.warning(
+                "GitStateAuthority: No hash file found at %s — run save_hashes() first", HASH_FILE
+            )
             return []
         expected = json.loads(hash_path.read_text())
         violations = []
@@ -184,8 +202,12 @@ class GitStateAuthority(VajraGuarded):
             current = self.compute_hash(path)
             if current != expected_hash:
                 violations.append(path)
-                logger.warning("INTEGRITY VIOLATION: %s (expected %s..., got %s...)",
-                               path, expected_hash[:12], current[:12])
+                logger.warning(
+                    "INTEGRITY VIOLATION: %s (expected %s..., got %s...)",
+                    path,
+                    expected_hash[:12],
+                    current[:12],
+                )
         return violations
 
     # ── GPG (Deploy-Concern) ─────────────────────────────────────────────
@@ -194,8 +216,17 @@ class GitStateAuthority(VajraGuarded):
         """Non-interactive GPG sign test with timeout. Deploy-concern only."""
         try:
             result = subprocess.run(
-                ["gpg", "--batch", "--pinentry-mode", "error",
-                 "--sign", "--default-key", "", "-o", "/dev/null"],
+                [
+                    "gpg",
+                    "--batch",
+                    "--pinentry-mode",
+                    "error",
+                    "--sign",
+                    "--default-key",
+                    "",
+                    "-o",
+                    "/dev/null",
+                ],
                 input=b"test",
                 cwd=str(self._workspace),
                 capture_output=True,
@@ -216,7 +247,9 @@ class GitStateAuthority(VajraGuarded):
             result = subprocess.run(
                 ["git", "status", "--porcelain"],
                 cwd=str(self._workspace),
-                capture_output=True, text=True, check=True,
+                capture_output=True,
+                text=True,
+                check=True,
             )
             return bool(result.stdout.strip())
         except subprocess.CalledProcessError:
@@ -238,6 +271,7 @@ class GitStateAuthority(VajraGuarded):
         # Access class enforcement
         if access_class is not None:
             from city.access import AccessClass
+
             try:
                 ac = AccessClass(access_class)
             except ValueError:
@@ -246,7 +280,8 @@ class GitStateAuthority(VajraGuarded):
             if not ac.can_write:
                 logger.error(
                     "GitStateAuthority: BLOCKED — operator '%s' (access=%s) cannot write",
-                    operator_id or "unknown", access_class,
+                    operator_id or "unknown",
+                    access_class,
                 )
                 return False
             if not ac.can_modify_protected:
@@ -254,13 +289,17 @@ class GitStateAuthority(VajraGuarded):
                 if protected_in_paths:
                     logger.error(
                         "GitStateAuthority: BLOCKED — operator '%s' (access=%s) cannot modify protected: %s",
-                        operator_id or "unknown", access_class, protected_in_paths,
+                        operator_id or "unknown",
+                        access_class,
+                        protected_in_paths,
                     )
                     return False
 
         blocked = [p for p in paths if self.is_blocked(p)]
         if blocked:
-            logger.error("GitStateAuthority: BLOCKED staging of runtime/security files: %s", blocked)
+            logger.error(
+                "GitStateAuthority: BLOCKED staging of runtime/security files: %s", blocked
+            )
             return False
         safe = [p for p in paths if not self.is_blocked(p)]
         if not safe:
@@ -272,7 +311,9 @@ class GitStateAuthority(VajraGuarded):
                 check=True,
             )
             if operator_id:
-                logger.info("GitStateAuthority: Staged %d file(s) by operator '%s'", len(safe), operator_id)
+                logger.info(
+                    "GitStateAuthority: Staged %d file(s) by operator '%s'", len(safe), operator_id
+                )
             return True
         except subprocess.CalledProcessError as e:
             logger.error("Failed to stage files: %s", e)
@@ -300,7 +341,10 @@ class GitStateAuthority(VajraGuarded):
 
         violations = self.verify_protected()
         if violations:
-            logger.error("GitStateAuthority: COMMIT BLOCKED — protected file integrity violated: %s", violations)
+            logger.error(
+                "GitStateAuthority: COMMIT BLOCKED — protected file integrity violated: %s",
+                violations,
+            )
             return False
 
         # Append operator trace as git trailer
@@ -316,10 +360,15 @@ class GitStateAuthority(VajraGuarded):
             subprocess.run(
                 cmd,
                 cwd=str(self._workspace),
-                capture_output=True, text=True, check=True,
+                capture_output=True,
+                text=True,
+                check=True,
             )
-            logger.info("GitStateAuthority: Committed '%s'%s", message,
-                        f" (operator: {operator_id})" if operator_id else "")
+            logger.info(
+                "GitStateAuthority: Committed '%s'%s",
+                message,
+                f" (operator: {operator_id})" if operator_id else "",
+            )
             return True
         except subprocess.CalledProcessError as e:
             logger.error("GitStateAuthority: Commit failed: %s", e.stderr)
@@ -328,6 +377,7 @@ class GitStateAuthority(VajraGuarded):
 
 if __name__ == "__main__":
     import sys
+
     gsa = GitStateAuthority()
     if len(sys.argv) > 1 and sys.argv[1] == "sync":
         gsa.sync_gitignore()
