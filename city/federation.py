@@ -23,10 +23,13 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from config import get_config
+
 logger = logging.getLogger("AGENT_CITY.FEDERATION")
 
-# Default mothership
-DEFAULT_MOTHERSHIP = "kimeisele/steward-protocol"
+# Default mothership — sourced from config/city.yaml
+_fed_cfg = get_config().get("federation", {})
+DEFAULT_MOTHERSHIP: str = _fed_cfg.get("mothership_repo", "kimeisele/steward-protocol")
 
 
 @dataclass(frozen=True)
@@ -87,7 +90,8 @@ def _gh_dispatch(repo: str, event_type: str, payload: dict) -> bool:
                 "-f", f"event_type={event_type}",
                 "-f", f"client_payload={payload_json}",
             ],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True,
+            timeout=_fed_cfg.get("dispatch_timeout_s", 30),
         )
         if result.returncode != 0:
             logger.warning(
@@ -134,8 +138,10 @@ class FederationRelay:
         self._report_log.append(payload)
 
         # Cap report log
-        if len(self._report_log) > 50:
-            self._report_log = self._report_log[-25:]
+        _log_max = _fed_cfg.get("report_log_max", 50)
+        _log_trim = _fed_cfg.get("report_log_trim", 25)
+        if len(self._report_log) > _log_max:
+            self._report_log = self._report_log[-_log_trim:]
 
         if self._dry_run:
             logger.info(

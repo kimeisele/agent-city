@@ -33,7 +33,13 @@ def main() -> None:
     parser.add_argument(
         "--offline", action="store_true", help="Offline mode (no Moltbook API)",
     )
-    parser.add_argument("--db", type=str, default="data/city.db", help="Database path")
+    from config import get_config
+    _cfg = get_config()
+    parser.add_argument(
+        "--db", type=str,
+        default=_cfg.get("database", {}).get("default_path", "data/city.db"),
+        help="Database path",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
     parser.add_argument(
         "--governance", action="store_true",
@@ -48,7 +54,8 @@ def main() -> None:
         help="Federation dry-run (log payloads, don't dispatch)",
     )
     parser.add_argument(
-        "--mothership", type=str, default="kimeisele/steward-protocol",
+        "--mothership", type=str,
+        default=_cfg.get("federation", {}).get("mothership_repo", "kimeisele/steward-protocol"),
         help="Mothership repo (owner/name)",
     )
     args = parser.parse_args()
@@ -89,7 +96,31 @@ def main() -> None:
         governance_kwargs["_contracts"] = create_default_contracts()
         governance_kwargs["_executor"] = IntentExecutor(_cwd=Path.cwd())
         governance_kwargs["_issues"] = CityIssueManager()
-        governance_kwargs["_council"] = CityCouncil()
+
+        # Council with persistence (survives restarts)
+        council_state_path = db_path.parent / "council_state.json"
+        governance_kwargs["_council"] = CityCouncil(_state_path=council_state_path)
+
+        # Layer 3: Sankalpa + Reflection + Audit
+        try:
+            from vibe_core.mahamantra.protocols.sankalpa.orchestrator import (
+                SankalpaOrchestrator,
+            )
+            governance_kwargs["_sankalpa"] = SankalpaOrchestrator()
+        except Exception as e:
+            logging.getLogger("HEARTBEAT").warning("Sankalpa init failed: %s", e)
+
+        try:
+            from vibe_core.protocols.reflection import BasicReflection
+            governance_kwargs["_reflection"] = BasicReflection()
+        except Exception as e:
+            logging.getLogger("HEARTBEAT").warning("Reflection init failed: %s", e)
+
+        try:
+            from vibe_core.mahamantra.audit.kernel import AuditKernel
+            governance_kwargs["_audit"] = AuditKernel()
+        except Exception as e:
+            logging.getLogger("HEARTBEAT").warning("Audit init failed: %s", e)
 
     # Layer 6 federation wiring (optional)
     if args.federation or args.federation_dry_run:

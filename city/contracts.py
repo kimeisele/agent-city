@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from config import get_config
+
 logger = logging.getLogger("AGENT_CITY.CONTRACTS")
 
 
@@ -117,20 +119,13 @@ class ContractRegistry:
 # ── Built-in Contract Checks ─────────────────────────────────────────
 
 
-# Slop patterns — word-level detection for city source files
-# (different from Moltbook constitution which uses phrase-level patterns for LLM output)
-SLOP_PATTERNS = [
-    "delve", "tapestry", "landscape", "realm", "paradigm",
-    "synergy", "ecosystem", "leverage", "holistic",
-]
-
-
 def check_ruff_clean(cwd: Path) -> ContractResult:
     """Contract: ruff check --select F821,F811 must pass."""
     try:
         result = subprocess.run(
             ["python", "-m", "ruff", "check", "--select", "F821,F811", str(cwd)],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True,
+            timeout=get_config().get("contracts", {}).get("ruff_timeout_s", 60),
         )
         if result.returncode == 0:
             return ContractResult(
@@ -143,7 +138,7 @@ def check_ruff_clean(cwd: Path) -> ContractResult:
             name="ruff_clean",
             status=ContractStatus.FAILING,
             message=f"{len(lines)} ruff violations",
-            details=lines[:10],
+            details=lines[:get_config().get("contracts", {}).get("max_violation_lines", 10)],
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         return ContractResult(
@@ -158,7 +153,8 @@ def check_tests_pass(cwd: Path) -> ContractResult:
     try:
         result = subprocess.run(
             ["python", "-m", "pytest", "-x", "-q", "--tb=no", str(cwd)],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True,
+            timeout=get_config().get("contracts", {}).get("pytest_timeout_s", 120),
         )
         if result.returncode == 0:
             return ContractResult(
@@ -181,14 +177,30 @@ def check_tests_pass(cwd: Path) -> ContractResult:
 
 
 def check_no_slop(cwd: Path) -> ContractResult:
-    """Contract: no slop patterns in city/ source files."""
+    """Contract: no slop patterns in city/ source files.
+
+    Uses Mahamantra Constitution (phrase-level detection) instead of
+    primitive word-level matching.
+    """
+    from vibe_core.cartridges.agent_city.moltbook.governance.constitution import (
+        get_constitution,
+    )
+
+    constitution = get_constitution()
     violations: list[str] = []
     city_dir = cwd / "city" if (cwd / "city").is_dir() else cwd
     for py_file in city_dir.glob("*.py"):
-        content = py_file.read_text(errors="replace").lower()
-        for pattern in SLOP_PATTERNS:
-            if pattern in content:
-                violations.append(f"{py_file.name}: contains '{pattern}'")
+        if py_file.name == "contracts.py":
+            continue  # Don't scan the checker itself
+        content = py_file.read_text(errors="replace")
+        # Only check quality (slop + untranslated internals), not coherence.
+        # Source code is not user-facing content — skip platform/coherence checks.
+        result = constitution.validate(content, content_type="comment")
+        if not result.is_valid:
+            # Filter: only report slop/internal-term violations, not length issues
+            for v in result.violations:
+                if "slop" in v.lower() or "internal term" in v.lower() or "filler" in v.lower():
+                    violations.append(f"{py_file.name}: {v}")
 
     if not violations:
         return ContractResult(

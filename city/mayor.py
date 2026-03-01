@@ -2,18 +2,14 @@
 MAYOR AGENT — The Autonomous City Operator
 =============================================
 
-Runs the city via MURALI 4-phase cycle, exactly like the Moltbook plugin.
+Thin dispatcher. Delegates to city/phases/{genesis,dharma,karma,moksha}.py.
+Owns: heartbeat loop, state persistence, event handling, external interface.
 
 MURALI Departments:
   0 GENESIS: Census (discover agents from Moltbook feed)
   1 DHARMA:  Governance (cell homeostasis, zone health, contracts, sankalpa missions)
   2 KARMA:   Operations (process gateway queue, sankalpa intents)
   3 MOKSHA:  Reflection (audit, reflection analysis, stats, chain verification)
-
-Cell metabolism per heartbeat:
-- Each active agent's cell: metabolize(0) → loses METABOLIC_COST (3) prana
-- Agents with activity: metabolize(energy) → gains energy
-- Dead cells (prana=0): trigger archive("prana_exhaustion")
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
@@ -30,9 +26,16 @@ from typing import TypedDict
 
 from vibe_core.mahamantra.protocols import QUARTERS
 
+from city.contracts import ContractRegistry
+from city.council import CityCouncil
+from city.executor import IntentExecutor
+from city.federation import FederationRelay
 from city.gateway import CityGateway
+from city.issues import CityIssueManager
 from city.network import CityNetwork
+from city.phases import PhaseContext
 from city.pokedex import Pokedex
+from config import get_config
 
 logger = logging.getLogger("AGENT_CITY.MAYOR")
 
@@ -48,9 +51,6 @@ DEPARTMENT_NAMES = {
     KARMA: "KARMA",
     MOKSHA: "MOKSHA",
 }
-
-# Audit cooldown — prevent over-auditing (15 minutes)
-AUDIT_COOLDOWN_S = 15 * 60
 
 
 class HeartbeatResult(TypedDict):
@@ -100,20 +100,20 @@ class Mayor:
     _gateway_queue: list[dict] = field(default_factory=list)
 
     # Layer 3 governance wiring (all optional for backward compatibility)
-    _contracts: object = None  # ContractRegistry
-    _issues: object = None  # CityIssueManager
-    _sankalpa: object = None  # SankalpaOrchestrator
-    _audit: object = None  # AuditKernel
-    _reflection: object = None  # BasicReflection
+    _contracts: ContractRegistry | None = None
+    _issues: CityIssueManager | None = None
+    _sankalpa: object = None  # SankalpaOrchestrator (steward-protocol)
+    _audit: object = None  # AuditKernel (steward-protocol)
+    _reflection: object = None  # BasicReflection (steward-protocol)
 
     # Layer 4 action delegation (optional for backward compatibility)
-    _executor: object = None  # IntentExecutor
+    _executor: IntentExecutor | None = None
 
     # Layer 5 democratic governance (optional for backward compatibility)
-    _council: object = None  # CityCouncil
+    _council: CityCouncil | None = None
 
     # Layer 6 federation (optional for backward compatibility)
-    _federation: object = None  # FederationRelay
+    _federation: FederationRelay | None = None
 
     # Internal state
     _last_audit_time: float = field(default=0.0)
@@ -123,6 +123,37 @@ class Mayor:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._load_state()
         self._wire_event_handlers()
+
+    # ── PhaseContext Builder ──────────────────────────────────────────
+
+    def _build_ctx(self) -> PhaseContext:
+        """Build PhaseContext from current Mayor state."""
+        return PhaseContext(
+            pokedex=self._pokedex,
+            gateway=self._gateway,
+            network=self._network,
+            heartbeat_count=self._heartbeat_count,
+            offline_mode=self._offline_mode,
+            state_path=self._state_path,
+            active_agents=self._active_agents,
+            gateway_queue=self._gateway_queue,
+            contracts=self._contracts,
+            issues=self._issues,
+            sankalpa=self._sankalpa,
+            audit=self._audit,
+            reflection=self._reflection,
+            executor=self._executor,
+            council=self._council,
+            federation=self._federation,
+            last_audit_time=self._last_audit_time,
+            recent_events=self._recent_events,
+        )
+
+    def _sync_from_ctx(self, ctx: PhaseContext) -> None:
+        """Sync mutable state back from PhaseContext after phase execution."""
+        self._last_audit_time = ctx.last_audit_time
+
+    # ── Heartbeat Loop ────────────────────────────────────────────────
 
     def heartbeat(self) -> HeartbeatResult:
         """Execute one heartbeat cycle.
@@ -138,7 +169,7 @@ class Mayor:
         except Exception as e:
             logger.warning("VenuOrchestrator step failed: %s", e)
 
-        department = self._resolve_murali_phase()
+        department = self._heartbeat_count % QUARTERS
         dept_name = DEPARTMENT_NAMES[department]
 
         logger.info(
@@ -157,14 +188,22 @@ class Mayor:
             "reflection": {},
         }
 
+        ctx = self._build_ctx()
+
         if department == GENESIS:
-            result["discovered"] = self._genesis_census()
+            from city.phases import genesis
+            result["discovered"] = genesis.execute(ctx)
         elif department == DHARMA:
-            result["governance_actions"] = self._dharma_governance()
+            from city.phases import dharma
+            result["governance_actions"] = dharma.execute(ctx)
         elif department == KARMA:
-            result["operations"] = self._karma_operations()
+            from city.phases import karma
+            result["operations"] = karma.execute(ctx)
         elif department == MOKSHA:
-            result["reflection"] = self._moksha_reflection()
+            from city.phases import moksha
+            result["reflection"] = moksha.execute(ctx)
+
+        self._sync_from_ctx(ctx)
 
         # Record execution for reflection (every heartbeat)
         duration_ms = (time.time() - start_time) * 1000
@@ -181,603 +220,7 @@ class Mayor:
             results.append(self.heartbeat())
         return results
 
-    def _resolve_murali_phase(self) -> int:
-        """Resolve current MURALI phase.
-
-        THE_FLUTE_CYCLE is a 16-beat cycle (4 beats per department).
-        Agent City uses 4-beat MURALI rotation (1 beat per department).
-        So we use heartbeat_count % QUARTERS directly — same as MuraliRouter's
-        fallback path, and correct for 4-beat cycles.
-
-        VenuOrchestrator is still stepped per heartbeat (in heartbeat())
-        so the flute advances, but department routing uses the 4-beat pattern.
-        """
-        return self._heartbeat_count % QUARTERS
-
-    # ── GENESIS: Census ──────────────────────────────────────────────
-
-    def _genesis_census(self) -> list[str]:
-        """Discover agents from Moltbook feed, offline cache, or census seed.
-
-        First run with empty DB: seeds from data/pokedex.json census.
-        Offline mode: reports existing population.
-        Online: scans Moltbook feed for new agents.
-        """
-        discovered: list[str] = []
-
-        if self._offline_mode:
-            # Seed from census if DB is empty (first boot)
-            all_agents = self._pokedex.list_all()
-            if not all_agents:
-                discovered = self._seed_from_census()
-            else:
-                for agent in all_agents:
-                    discovered.append(agent["name"])
-            logger.info("GENESIS (offline): %d agents in registry", len(discovered))
-        else:
-            # Online: scan Moltbook feed for new agents
-            try:
-                from vibe_core.mahamantra.adapters.moltbook import MoltbookClient
-                client = MoltbookClient()
-                feed = client.get_feed(limit=20)
-
-                for post in feed:
-                    author = post.get("author", {}).get("username")
-                    if not author:
-                        continue
-                    existing = self._pokedex.get(author)
-                    if not existing:
-                        self._pokedex.discover(author, moltbook_profile={
-                            "karma": post.get("author", {}).get("karma"),
-                            "follower_count": post.get("author", {}).get("follower_count"),
-                        })
-                        discovered.append(author)
-                        logger.info("GENESIS: Discovered agent %s", author)
-            except Exception as e:
-                logger.warning("GENESIS: Moltbook scan failed: %s", e)
-
-        # ── Layer 6: Federation directives ──
-        if self._federation is not None:
-            directives = self._federation.check_directives()
-            for d in directives:
-                executed = self._execute_directive(d)
-                discovered.append(f"directive:{d.directive_type}:{executed}")
-                self._federation.acknowledge_directive(d.id)
-
-        return discovered
-
-    # ── DHARMA: Governance ───────────────────────────────────────────
-
-    def _dharma_governance(self) -> list[str]:
-        """Cell homeostasis, zone health, contracts, issue lifecycle.
-
-        Runs metabolize_all() on all living agents, then checks quality
-        contracts and processes issue intents.
-        """
-        actions: list[str] = []
-
-        # Metabolize all living agents
-        dead = self._pokedex.metabolize_all(active_agents=self._active_agents)
-        for name in dead:
-            actions.append(f"archived:{name}:prana_exhaustion")
-            logger.info("DHARMA: Agent %s archived (prana exhaustion)", name)
-
-        # Clear active set for next cycle
-        self._active_agents.clear()
-
-        # Zone health check
-        stats = self._pokedex.stats()
-        zones = stats.get("zones", {})
-        for zone, count in zones.items():
-            if count == 0:
-                actions.append(f"warning:zone_{zone}_empty")
-                logger.warning("DHARMA: Zone %s has 0 agents", zone)
-
-        # ── Layer 5: Council Election (before contracts, so proposals have a council) ──
-        if self._council is not None:
-            if self._council.election_due(self._heartbeat_count):
-                candidates = self._get_election_candidates()
-                if candidates:
-                    result = self._council.run_election(
-                        candidates, self._heartbeat_count,
-                    )
-                    if result["elected_mayor"]:
-                        actions.append(
-                            f"election:mayor={result['elected_mayor']}"
-                        )
-                    actions.append(
-                        f"election:seats={len(result['council_seats'])}"
-                    )
-
-        # ── Layer 3: Quality Contracts ──
-        if self._contracts is not None:
-            results = self._contracts.check_all()
-            for r in results:
-                if r.status.value == "failing":
-                    actions.append(f"contract_failing:{r.name}:{r.message}")
-                    self._create_healing_mission(r)
-                    self._submit_contract_proposal(r)
-
-        # ── Layer 3: Issue lifecycle intents ──
-        if self._issues is not None:
-            issue_actions = self._issues.metabolize_issues()
-            actions.extend(issue_actions)
-
-        if actions:
-            logger.info("DHARMA: %d governance actions", len(actions))
-        return actions
-
-    # ── KARMA: Operations ────────────────────────────────────────────
-
-    def _karma_operations(self) -> list[str]:
-        """Process gateway queue, sankalpa intents."""
-        operations: list[str] = []
-
-        # Process queued gateway items
-        while self._gateway_queue:
-            item = self._gateway_queue.pop(0)
-            source = item.get("source", "unknown")
-            text = item.get("text", "")
-            try:
-                result = self._gateway.process(text, source)
-                operations.append(f"processed:{source}:seed={result['seed']}")
-            except Exception as e:
-                operations.append(f"error:{source}:{e}")
-                logger.warning("KARMA: Gateway processing failed for %s: %s", source, e)
-
-        # ── Layer 3: Sankalpa strategic thinking ──
-        if self._sankalpa is not None:
-            intents = self._sankalpa.think()
-            for intent in intents:
-                operations.append(f"sankalpa_intent:{intent.title}")
-                logger.info("KARMA: Sankalpa intent — %s", intent.title)
-
-        # ── Layer 4: Execute HEAL intents on failing contracts ──
-        if self._executor is not None and self._contracts is not None:
-            for contract in self._contracts.failing():
-                details = contract.last_result.details if contract.last_result else []
-                fix = self._executor.execute_heal(contract.name, details)
-                operations.append(
-                    f"heal:{fix.contract_name}:{fix.action_taken}:{fix.success}"
-                )
-                logger.info(
-                    "KARMA: Heal %s — %s (success=%s)",
-                    fix.contract_name, fix.action_taken, fix.success,
-                )
-
-                if fix.success and fix.files_changed:
-                    pr = self._executor.create_fix_pr(fix, self._heartbeat_count)
-                    if pr is not None and pr.success:
-                        operations.append(f"pr_created:{pr.pr_url}")
-                        logger.info("KARMA: PR created — %s", pr.pr_url)
-
-        # ── Layer 5: Council governance cycle ──
-        if self._council is not None and self._council.member_count > 0:
-            # Auto-vote on open proposals (council members vote by prana)
-            self._council_auto_vote()
-
-            # Execute passed proposals
-            for proposal in self._council.get_passed_proposals():
-                executed = self._execute_proposal(proposal)
-                operations.append(
-                    f"council_executed:{proposal.id}:{executed}"
-                )
-                self._council.mark_executed(proposal.id)
-
-        if operations:
-            logger.info("KARMA: %d operations processed", len(operations))
-        return operations
-
-    # ── MOKSHA: Reflection ───────────────────────────────────────────
-
-    def _moksha_reflection(self) -> dict:
-        """Verify event chain, audit, reflection analysis, stats."""
-        stats = self._pokedex.stats()
-        chain_valid = self._pokedex.verify_event_chain()
-        network_stats = self._network.stats()
-
-        reflection: dict = {
-            "chain_valid": chain_valid,
-            "heartbeat": self._heartbeat_count,
-            "city_stats": stats,
-            "network_stats": network_stats,
-            "events_since_last": len(self._recent_events),
-        }
-
-        # Drain event buffer into reflection
-        if self._recent_events:
-            logger.info(
-                "MOKSHA: %d city events since last reflection",
-                len(self._recent_events),
-            )
-            self._recent_events.clear()
-
-        if not chain_valid:
-            logger.warning("MOKSHA: Event chain integrity BROKEN")
-        else:
-            logger.info(
-                "MOKSHA: Reflection — %d agents, chain valid, %d events",
-                stats.get("total", 0), stats.get("events", 0),
-            )
-
-        # ── Layer 3: Audit ──
-        if self._audit is not None and self._should_audit():
-            try:
-                finding_count = self._audit.run_all()
-                self._last_audit_time = time.time()
-                summary = self._audit.summary()
-                reflection["audit"] = summary
-
-                # Critical findings → healing missions
-                for finding in self._audit.critical_findings():
-                    self._create_audit_mission(finding)
-
-                logger.info("MOKSHA: Audit complete — %d findings", finding_count)
-            except Exception as e:
-                logger.warning("MOKSHA: Audit failed: %s", e)
-
-        # ── Layer 3: Reflection pattern analysis ──
-        if self._reflection is not None:
-            try:
-                insights = self._reflection.analyze_patterns()
-                if insights:
-                    proposal = self._reflection.propose_improvement(insights)
-                    if proposal is not None:
-                        self._create_improvement_mission(proposal)
-                        self._submit_reflection_proposal(proposal)
-                    reflection["insights"] = len(insights)
-                    reflection["proposal"] = proposal.title if proposal else None
-                reflection["reflection_stats"] = {
-                    "executions_analyzed": self._reflection.get_stats().executions_analyzed,
-                    "insights_generated": self._reflection.get_stats().insights_generated,
-                }
-            except Exception as e:
-                logger.warning("MOKSHA: Reflection analysis failed: %s", e)
-
-        # ── Layer 6: Federation report ──
-        if self._federation is not None:
-            report = self._build_city_report(reflection)
-            sent = self._federation.send_report(report)
-            reflection["federation_report_sent"] = sent
-
-        return reflection
-
-    # ── Layer 5: Council Helpers ──────────────────────────────────────
-
-    def _get_election_candidates(self) -> list[dict]:
-        """Build candidate list from living citizens with prana data."""
-        citizens = self._pokedex.list_citizens()
-        candidates = []
-        for c in citizens:
-            cell = self._pokedex.get_cell(c["name"])
-            if cell is not None and cell.is_alive:
-                candidates.append({
-                    "name": c["name"],
-                    "prana": cell.prana,
-                    "guardian": c["classification"]["guardian"],
-                    "position": c["classification"]["position"],
-                })
-        return candidates
-
-    def _execute_proposal(self, proposal: object) -> bool:
-        """Execute a passed council proposal. Returns True on success."""
-        action_type = proposal.action.get("type")
-        params = proposal.action.get("params", {})
-
-        if action_type == "freeze" and params.get("target"):
-            try:
-                self._pokedex.freeze(
-                    params["target"], f"council_proposal:{proposal.id}",
-                )
-                return True
-            except (ValueError, Exception) as e:
-                logger.warning("Proposal %s failed: %s", proposal.id, e)
-                return False
-
-        if action_type == "unfreeze" and params.get("target"):
-            try:
-                self._pokedex.unfreeze(
-                    params["target"], f"council_proposal:{proposal.id}",
-                )
-                return True
-            except (ValueError, Exception) as e:
-                logger.warning("Proposal %s failed: %s", proposal.id, e)
-                return False
-
-        if action_type == "heal" and self._executor is not None:
-            contract_name = proposal.action.get("contract", "")
-            details = params.get("details", [])
-            fix = self._executor.execute_heal(contract_name, details)
-            if fix.success:
-                logger.info(
-                    "Proposal %s: healed %s via %s",
-                    proposal.id, contract_name, fix.action_taken,
-                )
-            return fix.success
-
-        if action_type == "improve":
-            logger.info("Proposal %s: improvement noted — %s", proposal.id, proposal.title)
-            return True
-
-        logger.warning("Unknown proposal action: %s", action_type)
-        return False
-
-    def _submit_contract_proposal(self, contract_result: object) -> None:
-        """Submit a failing contract as a council proposal for democratic vote."""
-        if self._council is None or self._council.member_count == 0:
-            return
-
-        proposer = self._council.elected_mayor
-        if proposer is None:
-            return
-
-        from city.council import ProposalType
-
-        self._council.propose(
-            title=f"Heal contract: {contract_result.name}",
-            description=f"Contract failing: {contract_result.message}",
-            proposer=proposer,
-            proposal_type=ProposalType.POLICY,
-            action={
-                "type": "heal",
-                "contract": contract_result.name,
-                "params": {"details": contract_result.details},
-            },
-            timestamp=time.time(),
-        )
-
-    def _council_auto_vote(self) -> None:
-        """Council members vote on all open proposals (prana-weighted)."""
-        if self._council is None:
-            return
-
-        from city.council import VoteChoice
-
-        open_proposals = self._council.get_open_proposals()
-        for proposal in open_proposals:
-            for seat_idx, member_name in self._council.seats.items():
-                cell = self._pokedex.get_cell(member_name)
-                prana = cell.prana if cell is not None and cell.is_alive else 0
-                if prana > 0:
-                    self._council.vote(
-                        proposal.id, member_name, VoteChoice.YES, prana,
-                    )
-            self._council.tally(proposal.id)
-
-    def _submit_reflection_proposal(self, proposal: object) -> None:
-        """Submit a reflection improvement as a council proposal."""
-        if self._council is None or self._council.member_count == 0:
-            return
-
-        proposer = self._council.elected_mayor
-        if proposer is None:
-            return
-
-        from city.council import ProposalType
-
-        self._council.propose(
-            title=f"Improve: {proposal.title}",
-            description=proposal.description,
-            proposer=proposer,
-            proposal_type=ProposalType.POLICY,
-            action={"type": "improve", "proposal_id": proposal.id},
-            timestamp=time.time(),
-        )
-
-    # ── Layer 6: Federation Helpers ─────────────────────────────────
-
-    def _execute_directive(self, directive: object) -> bool:
-        """Execute a mothership directive. Returns True on success."""
-        dtype = directive.directive_type
-        params = directive.params
-
-        if dtype == "register_agent":
-            name = params.get("name")
-            if not name:
-                return False
-            existing = self._pokedex.get(name)
-            if existing:
-                logger.info("Directive: agent %s already registered", name)
-                return True
-            self._pokedex.register(name)
-            logger.info("Directive: registered agent %s", name)
-            return True
-
-        if dtype == "freeze_agent":
-            name = params.get("name")
-            if not name:
-                return False
-            try:
-                self._pokedex.freeze(name, f"directive:{directive.id}")
-                logger.info("Directive: froze agent %s", name)
-                return True
-            except (ValueError, Exception) as e:
-                logger.warning("Directive freeze failed: %s", e)
-                return False
-
-        if dtype == "create_mission" and self._sankalpa is not None:
-            from vibe_core.mahamantra.protocols.sankalpa.types import (
-                MissionPriority,
-                MissionStatus,
-                SankalpaMission,
-            )
-            topic = params.get("topic", "unknown")
-            priority_str = params.get("priority", "medium").upper()
-            priority = getattr(MissionPriority, priority_str, MissionPriority.MEDIUM)
-            mission_id = f"fed_{directive.id}_{self._heartbeat_count}"
-            mission = SankalpaMission(
-                id=mission_id,
-                name=f"Federation: {topic}",
-                description=params.get("context", topic),
-                priority=priority,
-                status=MissionStatus.ACTIVE,
-                owner="federation",
-            )
-            self._sankalpa.registry.add_mission(mission)
-            logger.info("Directive: created mission %s from %s", mission_id, topic)
-            return True
-
-        if dtype == "policy_update":
-            logger.info(
-                "Directive: policy update noted — %s",
-                params.get("description", "no description"),
-            )
-            return True
-
-        logger.warning("Unknown directive type: %s", dtype)
-        return False
-
-    def _build_city_report(self, reflection: dict) -> object:
-        """Build a CityReport from current city state."""
-        from city.federation import CityReport
-
-        stats = reflection.get("city_stats", {})
-        total = stats.get("total", 0)
-        alive = stats.get("alive", 0)
-
-        # Council state
-        elected_mayor = None
-        council_seats = 0
-        open_proposals = 0
-        if self._council is not None:
-            elected_mayor = self._council.elected_mayor
-            council_seats = self._council.member_count
-            open_proposals = len(self._council.get_open_proposals())
-
-        # Contract status
-        contract_status: dict = {}
-        if self._contracts is not None:
-            cs = self._contracts.stats()
-            contract_status = {
-                "total": cs.get("total", 0),
-                "passing": cs.get("passing", 0),
-                "failing": cs.get("failing", 0),
-            }
-
-        # Pending acks from federation relay
-        directive_acks = (
-            self._federation.pending_acks if self._federation is not None else []
-        )
-
-        return CityReport(
-            heartbeat=self._heartbeat_count,
-            timestamp=time.time(),
-            population=total,
-            alive=alive,
-            dead=total - alive,
-            elected_mayor=elected_mayor,
-            council_seats=council_seats,
-            open_proposals=open_proposals,
-            chain_valid=reflection.get("chain_valid", False),
-            recent_actions=[],
-            contract_status=contract_status,
-            mission_results=[],
-            directive_acks=directive_acks,
-        )
-
-    def _seed_from_census(self) -> list[str]:
-        """Seed agents from data/pokedex.json census file."""
-        census_path = self._state_path.parent / "pokedex.json"
-        if not census_path.exists():
-            # Try repo-level data/
-            census_path = Path("data/pokedex.json")
-        if not census_path.exists():
-            logger.info("GENESIS: No census file found, starting empty")
-            return []
-
-        try:
-            data = json.loads(census_path.read_text())
-            agents = data.get("agents", [])
-            seeded: list[str] = []
-            for agent in agents:
-                name = agent.get("name")
-                if not name:
-                    continue
-                existing = self._pokedex.get(name)
-                if not existing:
-                    self._pokedex.register(name)
-                    seeded.append(name)
-                    logger.info("GENESIS: Seeded citizen %s", name)
-            logger.info("GENESIS: Seeded %d agents from census", len(seeded))
-            return seeded
-        except Exception as e:
-            logger.warning("GENESIS: Census seeding failed: %s", e)
-            return []
-
-    # ── Layer 3: Mission Creators ─────────────────────────────────────
-
-    def _create_healing_mission(self, contract_result: object) -> None:
-        """Create a Sankalpa mission from a failing contract."""
-        if self._sankalpa is None:
-            return
-
-        from vibe_core.mahamantra.protocols.sankalpa.types import (
-            MissionPriority,
-            MissionStatus,
-            SankalpaMission,
-        )
-
-        mission_id = f"heal_{contract_result.name}_{self._heartbeat_count}"
-        mission = SankalpaMission(
-            id=mission_id,
-            name=f"Heal: {contract_result.name}",
-            description=f"Quality contract failing: {contract_result.message}",
-            priority=MissionPriority.HIGH,
-            status=MissionStatus.ACTIVE,
-            owner="mayor",
-        )
-        self._sankalpa.registry.add_mission(mission)
-        logger.info("DHARMA: Created healing mission %s", mission_id)
-
-    def _create_audit_mission(self, finding: object) -> None:
-        """Create a Sankalpa mission from a critical audit finding."""
-        if self._sankalpa is None:
-            return
-
-        from vibe_core.mahamantra.protocols.sankalpa.types import (
-            MissionPriority,
-            MissionStatus,
-            SankalpaMission,
-        )
-
-        mission_id = f"audit_{finding.source}_{self._heartbeat_count}"
-        mission = SankalpaMission(
-            id=mission_id,
-            name=f"Audit: {finding.source}",
-            description=f"Critical finding: {finding.description}",
-            priority=MissionPriority.CRITICAL,
-            status=MissionStatus.ACTIVE,
-            owner="mayor",
-        )
-        self._sankalpa.registry.add_mission(mission)
-        logger.info("MOKSHA: Created audit mission %s", mission_id)
-
-    def _create_improvement_mission(self, proposal: object) -> None:
-        """Create a Sankalpa mission from a reflection improvement proposal."""
-        if self._sankalpa is None:
-            return
-
-        from vibe_core.mahamantra.protocols.sankalpa.types import (
-            MissionPriority,
-            MissionStatus,
-            SankalpaMission,
-        )
-
-        mission_id = f"improve_{proposal.id}_{self._heartbeat_count}"
-        mission = SankalpaMission(
-            id=mission_id,
-            name=f"Improve: {proposal.title}",
-            description=proposal.description,
-            priority=MissionPriority.MEDIUM,
-            status=MissionStatus.ACTIVE,
-            owner="mayor",
-        )
-        self._sankalpa.registry.add_mission(mission)
-        logger.info("MOKSHA: Created improvement mission %s", mission_id)
-
-    def _should_audit(self) -> bool:
-        """Check if enough time has passed since last audit."""
-        return (time.time() - self._last_audit_time) > AUDIT_COOLDOWN_S
+    # ── Reflection Recording ──────────────────────────────────────────
 
     def _record_execution(self, department: str, duration_ms: float) -> None:
         """Record a heartbeat execution via Reflection protocol."""
@@ -793,7 +236,7 @@ class Mayor:
         )
         self._reflection.record_execution(record)
 
-    # ── Event Handlers ─────────────────────────────────────────────
+    # ── Event Handlers ────────────────────────────────────────────────
 
     def _wire_event_handlers(self) -> None:
         """Subscribe to AnantaShesha events via CityNetwork's anchor."""
@@ -813,11 +256,11 @@ class Mayor:
             "data": event.data,
             "timestamp": event.timestamp.isoformat() if hasattr(event.timestamp, 'isoformat') else str(event.timestamp),
         })
-        # Cap buffer to prevent unbounded growth
-        if len(self._recent_events) > 200:
-            self._recent_events = self._recent_events[-100:]
+        _mayor_cfg = get_config().get("mayor", {})
+        if len(self._recent_events) > _mayor_cfg.get("event_buffer_max", 200):
+            self._recent_events = self._recent_events[-_mayor_cfg.get("event_buffer_trim", 100):]
 
-    # ── External Interface ───────────────────────────────────────────
+    # ── External Interface ────────────────────────────────────────────
 
     def enqueue(self, source: str, text: str) -> None:
         """Add an item to the gateway queue for KARMA processing."""
@@ -827,7 +270,7 @@ class Mayor:
         """Mark an agent as active for the current metabolism cycle."""
         self._active_agents.add(name)
 
-    # ── State Persistence ────────────────────────────────────────────
+    # ── State Persistence ─────────────────────────────────────────────
 
     def _load_state(self) -> None:
         if self._state_path.exists():

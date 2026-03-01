@@ -21,9 +21,12 @@ import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TypedDict
 
 from vibe_core.mahamantra.protocols import MALA, SHARANAGATI
+
+from config import get_config
 
 logger = logging.getLogger("AGENT_CITY.COUNCIL")
 
@@ -33,9 +36,10 @@ COUNCIL_SEATS: int = SHARANAGATI
 # SSOT: Election cycle = MALA = 108 heartbeats
 ELECTION_CYCLE: int = MALA
 
-# Voting thresholds (from governance_vote.yaml)
-DEMOCRATIC_THRESHOLD = 0.5
-SUPERMAJORITY_THRESHOLD = 0.67
+# Voting thresholds — sourced from config/city.yaml
+_gov = get_config().get("governance", {})
+DEMOCRATIC_THRESHOLD: float = _gov.get("democratic_threshold", 0.5)
+SUPERMAJORITY_THRESHOLD: float = _gov.get("supermajority_threshold", 0.67)
 
 
 class ProposalStatus(str, Enum):
@@ -111,10 +115,13 @@ class Proposal:
         return {
             "id": self.id,
             "title": self.title,
+            "description": self.description,
             "proposer": self.proposer,
             "proposal_type": self.proposal_type.value,
             "action": self.action,
             "guardian_route": self.guardian_route,
+            "route_score": self.route_score,
+            "submitted_at": self.submitted_at,
             "status": self.status.value,
             "votes": list(self.votes),
             "result_hash": self.result_hash,
@@ -134,6 +141,57 @@ class CityCouncil:
     _proposals: dict[str, Proposal] = field(default_factory=dict)
     _next_proposal_num: int = 1
     _last_election_heartbeat: int = -ELECTION_CYCLE  # Force first election
+    _state_path: Path | None = None
+
+    def __post_init__(self) -> None:
+        """Auto-load state from disk if state_path is set and exists."""
+        if self._state_path is not None and self._state_path.exists():
+            try:
+                data = json.loads(self._state_path.read_text())
+                self._restore_from_dict(data)
+                logger.info("Council state loaded from %s", self._state_path)
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning("Council state load failed: %s", e)
+
+    def _auto_save(self) -> None:
+        """Persist state to disk after mutations (if state_path is set)."""
+        if self._state_path is None:
+            return
+        self._state_path.parent.mkdir(parents=True, exist_ok=True)
+        self._state_path.write_text(json.dumps(self.to_dict(), indent=2))
+
+    def _restore_from_dict(self, data: dict) -> None:
+        """Restore council state from serialized dict."""
+        self._seats = {int(k): v for k, v in data.get("seats", {}).items()}
+        self._elected_mayor = data.get("elected_mayor")
+        self._next_proposal_num = data.get("next_proposal_num", 1)
+        self._last_election_heartbeat = data.get(
+            "last_election_heartbeat", -ELECTION_CYCLE,
+        )
+        # Restore proposals
+        self._proposals = {}
+        for pid, pdata in data.get("proposals", {}).items():
+            self._proposals[pid] = Proposal(
+                id=pdata["id"],
+                title=pdata["title"],
+                description=pdata.get("description", ""),
+                proposer=pdata["proposer"],
+                proposal_type=ProposalType(pdata["proposal_type"]),
+                action=pdata["action"],
+                guardian_route=pdata.get("guardian_route", ""),
+                route_score=pdata.get("route_score", 0.0),
+                submitted_at=pdata.get("submitted_at", 0.0),
+                status=ProposalStatus(pdata["status"]),
+                votes=tuple(pdata.get("votes", [])),
+                result_hash=pdata.get("result_hash", ""),
+            )
+
+    @classmethod
+    def from_dict(cls, data: dict, state_path: Path | None = None) -> CityCouncil:
+        """Create a CityCouncil from a serialized dict."""
+        council = cls(_state_path=state_path)
+        council._restore_from_dict(data)
+        return council
 
     # ── Elections ────────────────────────────────────────────────────
 
@@ -188,6 +246,7 @@ class CityCouncil:
             "Election complete: mayor=%s, %d seats filled",
             new_mayor, len(new_seats),
         )
+        self._auto_save()
         return result
 
     # ── Proposals ───────────────────────────────────────────────────
@@ -237,6 +296,7 @@ class CityCouncil:
 
         self._proposals[proposal_id] = proposal
         logger.info("Proposal %s by %s: %s", proposal_id, proposer, title)
+        self._auto_save()
         return proposal
 
     def vote(
@@ -281,6 +341,7 @@ class CityCouncil:
             votes=new_votes,
         )
         self._proposals[proposal_id] = updated
+        self._auto_save()
         return True
 
     def tally(self, proposal_id: str) -> Proposal | None:
@@ -339,6 +400,7 @@ class CityCouncil:
             proposal.id, new_status.value,
             yes_weight, no_weight, yes_ratio, threshold,
         )
+        self._auto_save()
         return updated
 
     # ── Queries ─────────────────────────────────────────────────────
@@ -394,6 +456,7 @@ class CityCouncil:
             result_hash=proposal.result_hash,
         )
         self._proposals[proposal_id] = updated
+        self._auto_save()
 
     def query_guardians(self, text: str) -> list[dict]:
         """Route text through Guardian Router for topic analysis."""

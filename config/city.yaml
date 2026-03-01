@@ -1,0 +1,52 @@
+# Agent City Configuration — SSOT for all hardcoded values.
+#
+# Every constant in the codebase reads from here via config.get_config().
+# Mantra-derived constants (SHARANAGATI, MALA, QUARTERS) stay in code.
+#
+#     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
+#     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
+
+mayor:
+  audit_cooldown_s: 900
+  event_buffer_max: 200
+  event_buffer_trim: 100
+  state_path: "data/mayor_state.json"
+  feed_scan_limit: 20
+
+economy:
+  genesis_grant: 100
+  zone_tax_percent: 10
+
+governance:
+  democratic_threshold: 0.5
+  supermajority_threshold: 0.67
+
+issues:
+  low_prana_threshold: 1000
+  comment_energy_multiplier: 5
+  list_limit: 100
+  gh_timeout_s: 30
+
+contracts:
+  ruff_timeout_s: 60
+  pytest_timeout_s: 120
+  max_violation_lines: 10
+
+executor:
+  git_author_name: "Mayor Agent"
+  git_author_email: "mayor@agent-city.dev"
+  subprocess_timeout_s: 30
+  ruff_timeout_s: 60
+
+federation:
+  mothership_repo: "kimeisele/steward-protocol"
+  dispatch_timeout_s: 30
+  report_log_max: 50
+  report_log_trim: 25
+
+network:
+  message_log_limit: 1000
+
+database:
+  default_path: "data/city.db"
+  economy_path: "data/economy.db"

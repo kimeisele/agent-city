@@ -152,13 +152,18 @@ def test_contract_no_slop_clean():
 
 
 def test_contract_no_slop_detects():
-    """no_slop contract detects slop patterns."""
+    """no_slop contract detects slop patterns via Constitution (phrase-level)."""
     from city.contracts import check_no_slop, ContractStatus
 
     tmpdir = Path(tempfile.mkdtemp())
     city_dir = tmpdir / "city"
     city_dir.mkdir()
-    (city_dir / "sloppy.py").write_text("# This code delves into the tapestry\n")
+    # Constitution catches "delve into" and "vibrant tapestry" as AI filler phrases.
+    # Two matches = hard block (violations, not just warnings).
+    (city_dir / "sloppy.py").write_text(
+        "# Let me delve into this vibrant tapestry of code.\n"
+        "# It's worth noting that this is great question!\n"
+    )
 
     result = check_no_slop(tmpdir)
     assert result.status == ContractStatus.FAILING

@@ -32,6 +32,8 @@ from vibe_core.ouroboros.ananta_shesha import AnantaShesha, get_system_anchor
 from city.addressing import CityAddressBook
 from city.gateway import CityGateway
 
+from config import get_config
+
 logger = logging.getLogger("AGENT_CITY.NETWORK")
 
 # Operation codes for MahaHeader.pada_sevanam
@@ -66,7 +68,9 @@ class CityNetwork:
     _anchor: AnantaShesha = field(default_factory=get_system_anchor)
     _message_log: list[MessageRecord] = field(default_factory=list)
     _registered_agents: set[str] = field(default_factory=set)
-    _message_limit: int = 1000
+    _message_limit: int = field(
+        default_factory=lambda: get_config().get("network", {}).get("message_log_limit", 1000)
+    )
 
     def send(
         self,
