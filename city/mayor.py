@@ -45,7 +45,6 @@ from city.registry import (
     SVC_LEARNING,
     SVC_MOLTBOOK_BRIDGE,
     SVC_MOLTBOOK_CLIENT,
-    SVC_OUROBOROS,
     SVC_REFLECTION,
     SVC_SANKALPA,
     CityServiceRegistry,
@@ -134,7 +133,6 @@ class Mayor:
     _learning: object = None
     _agent_nadi: object = None
     _immune: object = None
-    _ouroboros: object = None
 
     # Internal state
     _last_audit_time: float = field(default=0.0)
@@ -156,7 +154,6 @@ class Mayor:
             "_knowledge_graph": SVC_KNOWLEDGE_GRAPH,
             "_event_bus": SVC_EVENT_BUS, "_learning": SVC_LEARNING,
             "_agent_nadi": SVC_AGENT_NADI, "_immune": SVC_IMMUNE,
-            "_ouroboros": SVC_OUROBOROS,
         }
         for field_name, svc_name in _field_to_svc.items():
             val = getattr(self, field_name, None)
@@ -183,7 +180,6 @@ class Mayor:
             "_knowledge_graph": SVC_KNOWLEDGE_GRAPH,
             "_event_bus": SVC_EVENT_BUS, "_learning": SVC_LEARNING,
             "_agent_nadi": SVC_AGENT_NADI, "_immune": SVC_IMMUNE,
-            "_ouroboros": SVC_OUROBOROS,
         }
         for field_name, svc_name in _field_to_svc.items():
             val = getattr(self, field_name, None)
@@ -231,11 +227,6 @@ class Mayor:
             "Mayor heartbeat #%d — department %s",
             self._heartbeat_count, dept_name,
         )
-
-        # Constant Chaos Evaluation
-        ouroboros = self._registry.get(SVC_OUROBOROS)
-        if ouroboros and hasattr(ouroboros, "inject_chaos"):
-            ouroboros.inject_chaos()
 
         result: HeartbeatResult = {
             "heartbeat": self._heartbeat_count,
