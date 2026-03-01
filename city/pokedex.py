@@ -45,6 +45,7 @@ from city.seed_constants import (
     MAX_AGE_RESILIENT,
     MAX_AGE_STANDARD,
     METABOLIC_COST,
+    classify_prana_class,
 )
 from config import get_config
 
@@ -314,7 +315,7 @@ class Pokedex:
                     jiva.cell.prana,
                     jiva.cell.age,
                     1 if jiva.cell.is_alive else 0,
-                    "standard",
+                    classify_prana_class(jiva.cell.prana),
                 ),
             )
 
@@ -367,7 +368,7 @@ class Pokedex:
                 jiva.cell.prana,
                 jiva.cell.age,
                 1 if jiva.cell.is_alive else 0,
-                "standard",
+                classify_prana_class(jiva.cell.prana),
             ),
         )
         self._record_event(name, "discover", None, "discovered", json.dumps(moltbook_profile or {}))
