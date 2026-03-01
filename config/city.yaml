@@ -14,7 +14,7 @@ mayor:
   feed_scan_limit: 20
 
 economy:
-  genesis_grant: 100
+  genesis_grant: 108  # MALA = MAHAJANA_COUNT × NAVA (12 × 9)
   zone_tax_percent: 10
 
 governance:

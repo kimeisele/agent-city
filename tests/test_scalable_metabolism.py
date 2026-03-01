@@ -160,7 +160,7 @@ def test_metabolize_all_increments_cycle(tmp_path):
 
 
 def test_metabolize_all_kills_zero_prana(tmp_path):
-    """Agents with prana <= 0 after metabolize must be archived."""
+    """Agents with prana <= 0 after metabolize become dormant (frozen), not archived."""
     pkdx = _make_pokedex(tmp_path)
     _discover_and_register(pkdx, "agent-dying")
     pkdx.activate("agent-dying")
@@ -174,11 +174,11 @@ def test_metabolize_all_kills_zero_prana(tmp_path):
     assert "agent-dying" in dead
 
     agent = pkdx.get("agent-dying")
-    assert agent["status"] == "archived"
+    assert agent["status"] == "frozen"
 
 
 def test_metabolize_all_kills_max_age(tmp_path):
-    """Agents at MAX_AGE_CYCLES (432) must be archived."""
+    """Agents at MAX_AGE_CYCLES (432) become dormant (frozen), not archived."""
     pkdx = _make_pokedex(tmp_path)
     _discover_and_register(pkdx, "agent-old")
     pkdx.activate("agent-old")

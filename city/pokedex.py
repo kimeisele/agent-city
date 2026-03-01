@@ -36,13 +36,23 @@ from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
 from city.identity import generate_identity
 from city.jiva import derive_jiva
 
+from city.seed_constants import (
+    GENESIS_GRANT as _SEED_GENESIS_GRANT,
+    GENESIS_PRANA_EPHEMERAL,
+    GENESIS_PRANA_RESILIENT,
+    GENESIS_PRANA_STANDARD,
+    MAX_AGE_EPHEMERAL,
+    MAX_AGE_RESILIENT,
+    MAX_AGE_STANDARD,
+    METABOLIC_COST,
+)
 from config import get_config
 
 logger = logging.getLogger("AGENT_CITY.POKEDEX")
 
-# Economy — sourced from config/city.yaml
+# Economy — sourced from config/city.yaml, validated by seed_constants.py
 _econ_cfg = get_config().get("economy", {})
-GENESIS_GRANT: int = _econ_cfg.get("genesis_grant", 100)
+GENESIS_GRANT: int = _econ_cfg.get("genesis_grant", _SEED_GENESIS_GRANT)
 
 # Zone treasury accounts (one per quarter)
 ZONE_TREASURIES = {
@@ -76,9 +86,9 @@ class Pokedex:
 
         # Load agent_classes from config (variable prana classes — Issue #17)
         self._agent_classes = get_config().get("agent_classes", {
-            "ephemeral": {"genesis_prana": 1370, "metabolic_cost": 3, "max_age": 108},
-            "standard": {"genesis_prana": 13700, "metabolic_cost": 3, "max_age": 432},
-            "resilient": {"genesis_prana": 137000, "metabolic_cost": 3, "max_age": 4320},
+            "ephemeral": {"genesis_prana": GENESIS_PRANA_EPHEMERAL, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_EPHEMERAL},
+            "standard": {"genesis_prana": GENESIS_PRANA_STANDARD, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_STANDARD},
+            "resilient": {"genesis_prana": GENESIS_PRANA_RESILIENT, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_RESILIENT},
             "immortal": {"genesis_prana": -1, "metabolic_cost": 0, "max_age": -1},
         })
 
@@ -200,6 +210,18 @@ class Pokedex:
             cur.execute("ALTER TABLE agents ADD COLUMN claim_level INTEGER DEFAULT 0")
             cur.execute("ALTER TABLE agents ADD COLUMN claim_verified_at TEXT")
             self._conn.commit()
+
+        # Issue tracking (Issue #19 — Watertight persistence)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS issue_cells (
+                issue_number INTEGER PRIMARY KEY,
+                issue_type TEXT NOT NULL,
+                cell_bytes BLOB NOT NULL,
+                mission_id TEXT,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        self._conn.commit()
 
         # Migration: Scalable Metabolism columns (Issue #17 — S1a)
         # prana + cell_cycle + cell_active as SQL-native columns for O(1) metabolize
@@ -593,7 +615,8 @@ class Pokedex:
         Uses pure SQL UPDATE statements instead of per-agent BLOB deserialization.
         Active agents gain energy (+10), all living agents pay metabolic cost.
         Variable costs per prana_class from config/city.yaml.
-        Returns list of agents that died (prana exhaustion or age limit → archived).
+        Returns list of agents that went dormant (prana exhaustion or age limit → frozen).
+        Agents are NEVER archived by metabolism — they become dormant and can be revived.
         """
         active_agents = active_agents or set()
         dead: list[str] = []
@@ -671,13 +694,16 @@ class Pokedex:
 
             self._conn.commit()
 
-        # 5. Archive dead agents (outside the batch — needs event ledger)
+        # 5. Freeze exhausted agents as dormant (NOT archive — agents don't die from inactivity)
         seen = set()
         for name in prana_dead:
             if name not in seen:
                 seen.add(name)
                 dead.append(name)
-                self.archive(name, "prana_exhaustion")
+                try:
+                    self.freeze(name, "dormant:prana_exhaustion")
+                except Exception as e:
+                    logger.warning("metabolize_all: failed to freeze %s: %s", name, e)
 
         return dead
 
@@ -1022,3 +1048,47 @@ class Pokedex:
         if row["cell_active"] is not None:
             cell.lifecycle.is_active = bool(row["cell_active"])
         return cell
+
+    # ── Issue Persistence (Watertight) ────────────────────────────────
+
+    def save_issue_cell(
+        self,
+        number: int,
+        issue_type: str,
+        cell: MahaCellUnified,
+        mission_id: str | None = None,
+    ) -> None:
+        """Persist an issue's living cell and metadata."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT OR REPLACE INTO issue_cells 
+                (issue_number, issue_type, cell_bytes, mission_id, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (number, issue_type, cell.to_bytes(), mission_id, now),
+            )
+            self._conn.commit()
+
+    def delete_issue_cell(self, number: int) -> None:
+        """Remove an issue's persistence (e.g. after closing)."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("DELETE FROM issue_cells WHERE issue_number = ?", (number,))
+            self._conn.commit()
+
+    def load_all_issue_cells(self) -> dict[int, dict]:
+        """Load all persisted issue cells and metadata."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT * FROM issue_cells")
+        results = {}
+        for row in cur.fetchall():
+            cell, _ = MahaCellUnified.from_bytes(row["cell_bytes"])
+            results[row["issue_number"]] = {
+                "issue_type": row["issue_type"],
+                "cell": cell,
+                "mission_id": row["mission_id"],
+            }
+        return results

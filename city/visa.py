@@ -161,9 +161,19 @@ class Visa:
     status: VisaStatus
     restrictions: VisaRestrictions
     visa_id: str = ""  # SHA-256 of (agent_name, issued_at, sponsor)
-    sponsor_visa_id: str | None = None  # Cryptographic link to sponsor's visa
+    sponsor_visa_id: str = MAHAMANTRA_VISA_ID  # Cryptographic link to sponsor's visa
     lineage_depth: int = 0  # 0 = Mahajan, N = N hops from founding agent
     remarks: str = ""  # Administrative notes (rejection reason, etc.)
+
+    def __post_init__(self) -> None:
+        """Automate visa_id generation if not provided."""
+        if not self.visa_id:
+            # visa_id is deterministic: same inputs → same ID (auditable, reproducible)
+            # We use object.__setattr__ because the dataclass is frozen=True
+            vid = hashlib.sha256(
+                f"{self.agent_name}:{self.issued_at.isoformat()}:{self.sponsor}".encode()
+            ).hexdigest()[:16]
+            object.__setattr__(self, "visa_id", vid)
 
     def is_valid(self, now: datetime | None = None) -> bool:
         """Check if visa is currently valid."""
@@ -193,6 +203,23 @@ class Visa:
             "remarks": self.remarks,
             "restrictions": self.restrictions.to_dict(),
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Visa:
+        """Restore a Visa from a dictionary."""
+        return cls(
+            agent_name=data["agent_name"],
+            visa_class=VisaClass(data["visa_class"]),
+            issued_at=datetime.fromisoformat(data["issued_at"]),
+            expires_at=datetime.fromisoformat(data["expires_at"]),
+            sponsor=data["sponsor"],
+            status=VisaStatus(data["status"]),
+            restrictions=VisaRestrictions(**data["restrictions"]),
+            visa_id=data.get("visa_id", ""),
+            sponsor_visa_id=data.get("sponsor_visa_id", MAHAMANTRA_VISA_ID),
+            lineage_depth=data.get("lineage_depth", 0),
+            remarks=data.get("remarks", ""),
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -225,8 +252,6 @@ def issue_visa(
     Returns:
         A new Visa instance with parampara chain embedded.
     """
-    import hashlib
-
     issued_at = issued_at or datetime.now(timezone.utc)
 
     _duration_map = {
@@ -242,11 +267,6 @@ def issue_visa(
     status = VisaStatus.REVOKED if visa_class == VisaClass.REVOKED else VisaStatus.ACTIVE
     restrictions = VISA_RESTRICTIONS.get(visa_class, VisaRestrictions())
 
-    # visa_id is deterministic: same inputs → same ID (auditable, reproducible)
-    visa_id = hashlib.sha256(
-        f"{agent_name}:{issued_at.isoformat()}:{sponsor}".encode()
-    ).hexdigest()[:16]
-
     return Visa(
         agent_name=agent_name,
         visa_class=visa_class,
@@ -255,8 +275,7 @@ def issue_visa(
         sponsor=sponsor,
         status=status,
         restrictions=restrictions,
-        visa_id=visa_id,
-        sponsor_visa_id=sponsor_visa_id,
+        sponsor_visa_id=sponsor_visa_id or MAHAMANTRA_VISA_ID,
         lineage_depth=lineage_depth,
         remarks=remarks,
     )

@@ -345,10 +345,10 @@ def _build_executor(ctx: BuildContext) -> object:
     return IntentExecutor(_cwd=Path.cwd())
 
 
-def _build_issues() -> object:
+def _build_issues(ctx: BuildContext) -> object:
     from city.issues import CityIssueManager
 
-    return CityIssueManager()
+    return CityIssueManager(_pokedex=ctx.pokedex)
 
 
 def _build_council(ctx: BuildContext) -> object:

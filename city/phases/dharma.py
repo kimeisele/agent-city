@@ -15,6 +15,7 @@ import time
 
 from city.missions import create_healing_mission, create_issue_mission
 from city.phases import PhaseContext
+from city.seed_constants import HIBERNATION_THRESHOLD, PRANA_NORM_MAX
 
 logger = logging.getLogger("AGENT_CITY.PHASES.DHARMA")
 
@@ -23,9 +24,8 @@ def execute(ctx: PhaseContext) -> list[str]:
     """DHARMA: Cell homeostasis, governance, contracts, issues."""
     actions: list[str] = []
 
-    # Auto-hibernation: freeze low-prana agents BEFORE metabolize kills them
-    _HIBERNATION_THRESHOLD = 1000  # ~7% of GENESIS_PRANA (13700)
-    hibernated = _hibernate_low_prana(ctx, _HIBERNATION_THRESHOLD)
+    # Auto-hibernation: freeze low-prana agents BEFORE metabolize freezes them
+    hibernated = _hibernate_low_prana(ctx, HIBERNATION_THRESHOLD)
     for name in hibernated:
         actions.append(f"hibernated:{name}:low_prana")
 
@@ -34,8 +34,8 @@ def execute(ctx: PhaseContext) -> list[str]:
     dead = ctx.pokedex.metabolize_all(active_agents=ctx.active_agents)
     _metabolize_ms = (time.monotonic() - _t0) * 1000
     for name in dead:
-        actions.append(f"archived:{name}:prana_exhaustion")
-        logger.info("DHARMA: Agent %s archived (prana exhaustion)", name)
+        actions.append(f"dormant:{name}:prana_exhaustion")
+        logger.info("DHARMA: Agent %s dormant (prana exhaustion)", name)
 
     # Feed CityReactor with metabolize timing + death count (Issue #17 S2b)
     from city.registry import SVC_REACTOR
@@ -196,12 +196,12 @@ def _get_election_candidates(ctx: PhaseContext) -> list[dict]:
         cell = ctx.pokedex.get_cell(c["name"])
         if cell is not None and cell.is_alive:
             position = c["classification"]["position"]
-            prana_norm = cell.prana / 21600  # Normalize to 0-1
+            prana_norm = cell.prana / PRANA_NORM_MAX  # COSMIC_FRAME (21600)
 
             if guna_available:
                 try:
                     guna = get_guna_by_position(position)
-                    integrity = getattr(cell, "membrane_integrity", cell.prana) / 21600
+                    integrity = getattr(cell, "membrane_integrity", cell.prana) / PRANA_NORM_MAX
                     # Composite: 50% prana + 40% integrity + 10% guna bonus
                     rank_score = prana_norm * 0.5 + integrity * 0.4
                     if guna == Guna.SATTVA:
