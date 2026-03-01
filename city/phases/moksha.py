@@ -185,10 +185,10 @@ def execute(ctx: PhaseContext) -> dict:
     if terminal_missions:
         reflection["mission_results_terminal"] = terminal_missions
 
-    # Sanjivani Protocol: evaluate dormant agents for treasury-funded revival
-    sanjivani_results = _sanjivani_evaluate(ctx)
-    if sanjivani_results:
-        reflection["sanjivani"] = sanjivani_results
+    # Evaluate dormant agents for treasury-funded revival
+    revival_results = _evaluate_dormant_revival(ctx)
+    if revival_results:
+        reflection["revival"] = revival_results
 
     # Layer 6: Federation Nadi — emit city state + flush outbox
     if ctx.federation_nadi is not None:
@@ -541,27 +541,26 @@ def _build_city_report(ctx: PhaseContext, reflection: dict) -> object:
     )
 
 
-def _sanjivani_evaluate(ctx: PhaseContext) -> dict | None:
-    """Sanjivani Protocol — evaluate dormant agents for treasury-funded revival.
+def _evaluate_dormant_revival(ctx: PhaseContext) -> dict | None:
+    """Evaluate dormant agents for treasury-funded revival.
 
     Runs during MOKSHA (reflection phase).  Selects frozen agents who lived
     long enough to have proven value (cell_cycle > threshold) and revives
-    them with a SANJIVANI_DOSE funded from the zone treasury.
+    them with a REVIVE_DOSE funded from the zone treasury.
 
     Rate-limited: at most 1 revive per MOKSHA cycle to prevent treasury drain.
-    Cooldown tracked per agent via event ledger (SANJIVANI_COOLDOWN_CYCLES).
     """
-    from city.seed_constants import SANJIVANI_COOLDOWN_CYCLES, SANJIVANI_DOSE
+    from city.seed_constants import REVIVE_COOLDOWN_CYCLES, REVIVE_DOSE
 
     dormant = ctx.pokedex.list_dormant()
     if not dormant:
         return None
 
-    # Eligibility: agent must have lived at least SANJIVANI_COOLDOWN_CYCLES
+    # Eligibility: agent must have lived at least REVIVE_COOLDOWN_CYCLES
     # heartbeats before going dormant (proof of prior value)
     eligible = [
         d for d in dormant
-        if d["cell_cycle"] >= SANJIVANI_COOLDOWN_CYCLES
+        if d["cell_cycle"] >= REVIVE_COOLDOWN_CYCLES
         and d["prana_class"] != "immortal"
     ]
 
@@ -587,20 +586,20 @@ def _sanjivani_evaluate(ctx: PhaseContext) -> dict | None:
     try:
         ctx.pokedex.revive(
             candidate["name"],
-            prana_dose=SANJIVANI_DOSE,
+            prana_dose=REVIVE_DOSE,
             sponsor=treasury_account,
-            reason=f"sanjivani:moksha_auto:cycle_{ctx.heartbeat_count}",
+            reason=f"revive:moksha_auto:cycle_{ctx.heartbeat_count}",
         )
         revived.append(candidate["name"])
         logger.info(
-            "SANJIVANI: Revived %s (cycle=%d, zone=%s, dose=%d)",
+            "MOKSHA: Revived %s (cycle=%d, zone=%s, dose=%d)",
             candidate["name"],
             candidate["cell_cycle"],
             zone,
-            SANJIVANI_DOSE,
+            REVIVE_DOSE,
         )
     except Exception as e:
-        logger.warning("SANJIVANI: Failed to revive %s: %s", candidate["name"], e)
+        logger.warning("MOKSHA: Failed to revive %s: %s", candidate["name"], e)
 
     return {
         "dormant_count": len(dormant),
