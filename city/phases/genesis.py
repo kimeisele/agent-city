@@ -73,10 +73,16 @@ def execute(ctx: PhaseContext) -> list[str]:
                     ctx.pokedex.discover(author, moltbook_profile={})
                     discovered.append(author)
 
+            # Create Sankalpa mission from code signals (agent participation)
+            if signal.get("code_signals") and ctx.sankalpa is not None:
+                mission_id = _create_signal_mission(ctx, signal)
+                if mission_id:
+                    discovered.append(f"submolt_mission:{mission_id}")
+
             # Enqueue code signals for KARMA processing
             if signal.get("code_signals"):
                 _enqueue_item(ctx, {
-                    "source": "submolt",
+                    "source": signal.get("source", "submolt"),
                     "text": signal["title"],
                     "post_id": signal["post_id"],
                     "code_signals": signal["code_signals"],
@@ -205,6 +211,23 @@ def _poll_dm_inbox(ctx: PhaseContext) -> list[str]:
             _seen_message_ids.pop()
 
     return results
+
+
+def _create_signal_mission(ctx: PhaseContext, signal: dict) -> str | None:
+    """Create a Sankalpa mission from a submolt code signal.
+
+    External agents participate by posting to m/agent-city.
+    Structured [Signal] posts get HIGH priority. Normal word-match gets MEDIUM.
+    """
+    from city.missions import create_signal_mission
+    return create_signal_mission(
+        ctx,
+        signal_keywords=signal.get("code_signals", []),
+        post_id=signal.get("post_id", ""),
+        author=signal.get("author", ""),
+        title=signal.get("title", ""),
+        structured=signal.get("structured", False),
+    )
 
 
 def _enqueue_item(ctx: PhaseContext, item: dict) -> None:
