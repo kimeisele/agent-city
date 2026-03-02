@@ -12,10 +12,8 @@ and discussions_inbox composition/dispatch.
 
 from __future__ import annotations
 
-import time
 from unittest.mock import patch
 
-import pytest
 
 from city.discussions_bridge import DiscussionsBridge
 
@@ -258,8 +256,10 @@ def test_create_discussion_gh_failure(mock_gql):
 
 def test_rate_limit_per_cycle():
     bridge = _make_bridge()
-    # Default max is 3 per cycle
-    for i in range(3):
+    # Config max_agent_comments_per_cycle (default 5 in city.yaml)
+    from city.discussions_bridge import _MAX_COMMENTS_PER_CYCLE
+
+    for i in range(_MAX_COMMENTS_PER_CYCLE):
         bridge.record_response(i + 1)
     assert bridge.can_respond(99) is False
 
@@ -278,7 +278,9 @@ def test_rate_limit_per_thread_cooldown():
 
 
 def test_is_own_comment():
-    assert DiscussionsBridge.is_own_comment("github-actions[bot]") is True
+    from city.discussions_bridge import _SKIP_OWN_USERNAME
+
+    assert DiscussionsBridge.is_own_comment(_SKIP_OWN_USERNAME) is True
     assert DiscussionsBridge.is_own_comment("alice") is False
 
 
