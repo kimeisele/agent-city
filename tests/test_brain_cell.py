@@ -1,4 +1,4 @@
-"""BrainCell + BrainMemory v2 Tests — MahaCellUnified wrapping, TTL decay, prana cost."""
+"""BrainCell + BrainMemory v2 Tests — MahaCellUnified wrapping, soft decay, prana cost."""
 
 import tempfile
 from pathlib import Path
@@ -7,9 +7,10 @@ from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
 from city.brain import Thought, BrainIntent, ThoughtKind
 from city.brain_cell import (
     BRAIN_CALL_COST,
-    BRAIN_CELL_TTL,
+    BRAIN_CELL_HALFLIFE,
     BRAIN_HEALTH_COST,
     BrainCellPayload,
+    cell_relevance,
     create_brain_cell,
     create_brain_cell_from_dict,
     get_cell_prana_cost,
@@ -89,28 +90,44 @@ def test_create_brain_cell_from_dict():
     assert get_cell_prana_cost(cell) == 0  # external = free
 
 
-# ── Cell Lifecycle (TTL) ─────────────────────────────────────────────
+# ── Cell Lifecycle (Soft Decay) ──────────────────────────────────────
 
 
-def test_cell_alive_within_ttl():
-    """Cell is alive within its TTL window."""
+def test_cell_always_alive():
+    """Brain cells are always alive — knowledge never dies."""
     thought = Thought()
     cell = create_brain_cell(thought, heartbeat=10)
     assert is_cell_alive(cell, current_heartbeat=10) is True
-    assert is_cell_alive(cell, current_heartbeat=10 + BRAIN_CELL_TTL - 1) is True
+    assert is_cell_alive(cell, current_heartbeat=10 + 1000) is True
 
 
-def test_cell_dead_after_ttl():
-    """Cell is dead after TTL expires."""
+def test_cell_relevance_full_at_birth():
+    """New cells have relevance 1.0."""
     thought = Thought()
     cell = create_brain_cell(thought, heartbeat=10)
-    assert is_cell_alive(cell, current_heartbeat=10 + BRAIN_CELL_TTL) is False
-    assert is_cell_alive(cell, current_heartbeat=10 + BRAIN_CELL_TTL + 100) is False
+    assert cell_relevance(cell, current_heartbeat=10) == 1.0
 
 
-def test_cell_ttl_is_nava_times_trinity():
-    """BRAIN_CELL_TTL = NAVA × TRINITY = 27."""
-    assert BRAIN_CELL_TTL == 27
+def test_cell_relevance_halves_at_halflife():
+    """Relevance halves after BRAIN_CELL_HALFLIFE heartbeats."""
+    thought = Thought()
+    cell = create_brain_cell(thought, heartbeat=0)
+    r = cell_relevance(cell, current_heartbeat=BRAIN_CELL_HALFLIFE)
+    assert abs(r - 0.5) < 0.01
+
+
+def test_cell_relevance_decays_but_never_zero():
+    """Relevance decays toward 0 but never reaches it."""
+    thought = Thought()
+    cell = create_brain_cell(thought, heartbeat=0)
+    r = cell_relevance(cell, current_heartbeat=BRAIN_CELL_HALFLIFE * 10)
+    assert r > 0.0
+    assert r < 0.01
+
+
+def test_cell_halflife_is_nava_times_trinity():
+    """BRAIN_CELL_HALFLIFE = NAVA × TRINITY = 27."""
+    assert BRAIN_CELL_HALFLIFE == 27
 
 
 # ── BrainMemory v2 ──────────────────────────────────────────────────
@@ -144,29 +161,30 @@ def test_memory_cell_count():
     assert mem.cell_count == 2
 
 
-def test_memory_decay_reaps_old_cells():
-    """decay() removes cells past their TTL."""
+def test_memory_decay_preserves_all_cells():
+    """decay() never kills cells — soft decay only."""
     mem = BrainMemory(max_entries=10)
     mem.record(Thought(), heartbeat=1)
     mem.record(Thought(), heartbeat=2)
     mem.record(Thought(), heartbeat=50)  # young cell
 
-    # At heartbeat 50, cells from hb=1 and hb=2 are > 27 beats old
+    # At heartbeat 50, old cells still exist (soft decay)
     reaped = mem.decay(current_heartbeat=50)
-    assert reaped == 2
-    assert mem.cell_count == 1
-    assert len(mem.recent()) == 1
-
-
-def test_memory_decay_keeps_young_cells():
-    """decay() keeps cells within TTL."""
-    mem = BrainMemory(max_entries=10)
-    mem.record(Thought(), heartbeat=10)
-    mem.record(Thought(), heartbeat=11)
-
-    reaped = mem.decay(current_heartbeat=15)
     assert reaped == 0
-    assert mem.cell_count == 2
+    assert mem.cell_count == 3
+
+
+def test_memory_decay_reranks_by_relevance():
+    """decay() reorders cells so most relevant come first."""
+    mem = BrainMemory(max_entries=10)
+    mem.record(Thought(confidence=0.1), heartbeat=1)   # old, low relevance
+    mem.record(Thought(confidence=0.9), heartbeat=50)  # new, high relevance
+
+    mem.decay(current_heartbeat=50)
+    # Most relevant cell (hb=50) should be first after decay reranking
+    entries = mem.recent(10)
+    assert entries[0]["heartbeat"] == 50
+    assert entries[1]["heartbeat"] == 1
 
 
 def test_memory_backward_compat_recent():

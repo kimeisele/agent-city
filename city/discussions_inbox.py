@@ -144,80 +144,38 @@ def _compose_response(
     semantic_signal: object | None = None,
     brain_thought: Thought | None = None,
 ) -> str:
-    """Compose agent response from spec + neuro-symbolic semantic layer.
+    """Compose agent response as clean human-readable prose.
 
-    The semantic layer translates raw Mahamantra resonance into Agent City
-    language: element frames + extracted concepts + agent perspective.
-    Deterministic, no LLM. Language IS routing.
-
-    When semantic_signal (SemanticSignal) is provided, uses the signal protocol
-    for the reading (decode through agent's Jiva lens). Falls back to
-    translate_for_agent() when None.
+    No raw internal state. No routing metadata. No word-salad signals.
+    Identity + perspective + brain thought (if available) + city stats.
     """
-    from city.semantic import translate_for_agent
-
-    parts = [_agent_signature(spec, gateway_result)]
+    name = spec.get("name", "Unknown")
+    domain = spec.get("domain", "general")
+    role = spec.get("role", "agent")
+    guna = spec.get("guna", "")
 
     function = gateway_result.get("buddhi_function", "")
-    guna = spec.get("guna", "")
-    domain = spec.get("domain", "")
-    role = spec.get("role", "")
-    caps = spec.get("capabilities", [])
-
     verb = _FUNCTION_VERB.get(function, "observe")
     frame = _GUNA_FRAME.get(guna, "Note")
 
-    # Buddhi cognitive output
+    # Identity line
+    parts = [f"**{name}** — {role} ({domain})"]
+
+    # Perspective: what this agent brings to the discussion
     perspective = gateway_result.get("buddhi_perspective", "")
-    approach = gateway_result.get("buddhi_approach", "")
-
-    # Perspective line: chapter-derived context for this topic
     if perspective:
-        parts.append(f"\n**{frame}**: {perspective} — I can {verb} this from the {domain} domain.")
+        parts.append(f"\n**{frame}**: {perspective}")
     else:
-        parts.append(f"\n**{frame}**: As {role}, I can {verb} this from the {domain} domain.")
-
-    # Semantic layer: signal-decoded or translated resonance
-    reading = None
-    if semantic_signal is not None:
-        try:
-            from city.semantic import compose_prose_for_agent
-            from city.signal_decoder import decode_signal
-            from city.jiva import derive_jiva
-
-            agent_jiva = derive_jiva(spec.get("name", ""))
-            decoded = decode_signal(semantic_signal, agent_jiva)
-            reading = compose_prose_for_agent(decoded)
-        except Exception:
-            reading = None
-
-    if reading is None:
-        reading = translate_for_agent(signal.body or signal.title, spec)
-
-    if reading:
-        parts.append(f"**Reading**: {reading}")
+        parts.append(f"\n**{frame}**: I can {verb} this from the {domain} perspective.")
 
     # Brain comprehension (LLM cognition, when available)
     if brain_thought is not None:
         parts.append(brain_thought.format_for_post())
 
-    # Approach context (which phase of thinking this maps to)
-    if approach:
-        parts.append(f"**Approach**: {approach}")
-
-    # Capabilities (what the agent brings to the table)
-    if caps:
-        parts.append(f"\n**Capabilities**: {', '.join(caps[:6])}")
-
-    # Provenance: does this agent have real cartridge data?
-    spec_source = spec.get("spec_source", "")
-    if spec_source == "jiva_fallback":
-        parts.append("*spec: jiva-derived (cartridge YAML incomplete)*")
-
-    # Live city data (structure, not prose)
+    # City stats (concise)
     alive = stats.get("active", 0) + stats.get("citizen", 0)
     total = stats.get("total", 0)
-    parts.append(f"**City**: {alive}/{total} agents active")
+    parts.append(f"\n*{alive}/{total} agents active*")
 
     return "\n".join(parts)
 
@@ -298,26 +256,38 @@ def build_agent_intro(spec: dict) -> str:
 # -- Action Report (Outbound Cognitive Posts) --------------------------------
 
 
+# Internal operation names → human-readable descriptions
+_OPERATION_PROSE: dict[str, str] = {
+    "council_propose": "submitted a governance proposal",
+    "create_mission": "created a new mission",
+    "emit_observation": "shared an observation",
+    "nadi_dispatch": "relayed a signal to other agents",
+    "trigger_audit": "triggered a code audit",
+    "trigger_heal": "initiated a healing action",
+}
+
+
 def build_action_report(
     spec: dict,
     cognitive_action: dict,
     mission_id: str,
 ) -> str:
-    """Build structured report when agent executes a cognitive action."""
-    sig = _agent_signature(spec)
+    """Build human-readable report when agent executes a cognitive action.
 
-    function = cognitive_action.get("function", "?")
-    operation = cognitive_action.get("_operation", "?")
-    composed = cognitive_action.get("composed", "")
-    chapter = cognitive_action.get("chapter", 0)
-    prana = cognitive_action.get("prana", 0)
-    integrity = cognitive_action.get("integrity", 0)
+    No raw internal state. No word-salad signals. Just clear prose
+    describing what the agent did and why.
+    """
+    name = spec.get("name", "Unknown")
+    domain = spec.get("domain", "general")
+    role = spec.get("role", "agent")
 
-    lines = [sig, ""]
-    lines.append(f"**Action**: {function} -> {operation}")
-    lines.append(f"**Mission**: `{mission_id}`")
-    if composed:
-        lines.append(f"**Signal**: {composed}")
-    lines.append(f"**Vitals**: prana={prana} integrity={integrity:.2f} ch.{chapter}")
+    operation = cognitive_action.get("_operation", "")
+    action_desc = _OPERATION_PROSE.get(operation, f"performed action: {operation}")
+    mission_short = mission_id.replace("_", " ").replace("mission ", "")
+
+    lines = [
+        f"**{name}** ({role}, {domain}) {action_desc}.",
+        f"Mission: *{mission_short}*",
+    ]
 
     return "\n".join(lines)

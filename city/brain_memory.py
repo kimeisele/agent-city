@@ -1,9 +1,10 @@
 """
 BRAIN MEMORY — MahaCellUnified Population for Brain Thoughts.
 
-Phase 6B: BrainMemory is now a cell population with TTL-based decay.
-Each thought is a MahaCellUnified[BrainCellPayload] with prana cost
-and integrity-based lifespan. Dead cells are reaped on decay().
+Phase 6B+7: BrainMemory is a cell population with soft relevance decay.
+Each thought is a MahaCellUnified[BrainCellPayload] with prana cost.
+Knowledge persists forever — only relevance ranking decays over time.
+FIFO eviction (hard cap) is the only way cells are removed.
 
 Backward-compatible API: record(), recent(), pattern_summary(),
 flush(), load() all work identically to the flat FIFO.
@@ -29,8 +30,8 @@ class BrainMemory:
     """MahaCellUnified population for brain thoughts.
 
     Each entry is backed by a BrainCell (MahaCellUnified[BrainCellPayload]).
-    TTL-based decay: cells die after BRAIN_CELL_TTL heartbeats.
-    FIFO eviction when len > max_entries (hard cap).
+    Soft relevance decay: knowledge persists, ranking changes over time.
+    FIFO eviction when len > max_entries (hard cap, only removal path).
 
     Backward-compatible: record/recent/pattern_summary/flush/load
     all return the same dict format as the original flat FIFO.
@@ -107,33 +108,34 @@ class BrainMemory:
             self._entries.pop(0)
 
     def decay(self, current_heartbeat: int) -> int:
-        """Reap dead cells whose TTL has expired.
+        """Soft relevance decay — knowledge persists, ranking changes.
 
-        Returns the number of cells reaped.
-        Called in MOKSHA phase to prune stale thoughts.
+        Reorders cells by relevance score (newest + most relevant first).
+        No cells are killed. Only FIFO eviction (hard cap) removes cells.
+        Returns 0 (no cells reaped — kept for backward compat).
         """
-        from city.brain_cell import is_cell_alive
+        from city.brain_cell import cell_relevance
 
-        alive_cells = []
-        alive_entries = []
-        reaped = 0
+        if not self._cells:
+            return 0
 
-        for cell, entry in zip(self._cells, self._entries):
-            if is_cell_alive(cell, current_heartbeat):
-                alive_cells.append(cell)
-                alive_entries.append(entry)
-            else:
-                reaped += 1
+        # Score each cell by relevance
+        scored = [
+            (cell_relevance(cell, current_heartbeat), i, cell, entry)
+            for i, (cell, entry) in enumerate(zip(self._cells, self._entries))
+        ]
+        # Sort by relevance descending, then by original order (stable)
+        scored.sort(key=lambda x: (-x[0], x[1]))
 
-        self._cells = alive_cells
-        self._entries = alive_entries
+        self._cells = [s[2] for s in scored]
+        self._entries = [s[3] for s in scored]
 
-        if reaped:
-            logger.debug(
-                "BrainMemory: decayed %d cells, %d alive",
-                reaped, len(self._cells),
-            )
-        return reaped
+        lowest = scored[-1][0] if scored else 1.0
+        logger.debug(
+            "BrainMemory: decay pass, %d cells, lowest relevance=%.3f",
+            len(self._cells), lowest,
+        )
+        return 0
 
     def recent(self, n: int = 6) -> list[dict]:
         """Return the N most recent entries (newest last)."""
