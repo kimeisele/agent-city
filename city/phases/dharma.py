@@ -1,8 +1,10 @@
 """
-DHARMA Phase — Governance, Elections, Contracts, Issue Lifecycle.
+DHARMA Phase — Thin Dispatcher + Hook Registration.
 
-Cell homeostasis, zone health, council elections, quality contracts,
-and issue lifecycle processing.
+All domain logic lives in city.hooks.dharma.* plugins.
+This file builds the hook registry and dispatches hooks in priority order.
+
+Phase 6A: God Object → Plugin Architecture.
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
@@ -11,356 +13,60 @@ and issue lifecycle processing.
 from __future__ import annotations
 
 import logging
-import time
 
-from city.missions import create_healing_mission, create_issue_mission
 from city.phases import PhaseContext
-from city.seed_constants import HIBERNATION_THRESHOLD, PRANA_NORM_MAX
 
 logger = logging.getLogger("AGENT_CITY.PHASES.DHARMA")
 
 
-def execute(ctx: PhaseContext) -> list[str]:
-    """DHARMA: Cell homeostasis, governance, contracts, issues."""
-    actions: list[str] = []
-
-    # Auto-hibernation: freeze low-prana agents BEFORE metabolize freezes them
-    hibernated = _hibernate_low_prana(ctx, HIBERNATION_THRESHOLD)
-    for name in hibernated:
-        actions.append(f"hibernated:{name}:low_prana")
-
-    # Populate active_agents BEFORE metabolize — feeds +10 prana bonus.
-    # Must happen here (not KARMA) because ctx._active_agents is lost
-    # between GitHub Actions runs (Mayor recreated each cron invocation).
-    from city.registry import SVC_SPAWNER
-
-    spawner = ctx.registry.get(SVC_SPAWNER)
-    if spawner is not None:
-        spawner.mark_citizens_active(ctx.active_agents)
-
-    # Metabolize all living agents (hibernated agents are frozen, won't be processed)
-    _t0 = time.monotonic()
-    dead = ctx.pokedex.metabolize_all(active_agents=ctx.active_agents)
-    _metabolize_ms = (time.monotonic() - _t0) * 1000
-    for name in dead:
-        actions.append(f"dormant:{name}:prana_exhaustion")
-        logger.info("DHARMA: Agent %s dormant (prana exhaustion)", name)
-
-    # Feed CityReactor with metabolize timing + death count (Issue #17 S2b)
-    from city.registry import SVC_REACTOR
-
-    reactor = ctx.registry.get(SVC_REACTOR)
-    if reactor is not None:
-        reactor.record("metabolize_all", duration_ms=_metabolize_ms, success=True)
-        if dead:
-            reactor.record("agent_deaths", count=len(dead))
-
-    # Immune scan: diagnose why agents died
-    if ctx.immune is not None and dead:
-        for name in dead:
-            diagnosis = ctx.immune.diagnose(f"agent_death:{name}:prana_exhaustion")
-            if diagnosis.healable:
-                result = ctx.immune.heal(diagnosis)
-                if result.success:
-                    actions.append(f"immune_healed:{name}:{diagnosis.rule_id}")
-
-    # Clear active set for next cycle
-    ctx.active_agents.clear()
-
-    # Auto-promote: discovered → citizen → network-registered
-    spawner = ctx.registry.get(SVC_SPAWNER)
-    if spawner is not None:
-        promoted = spawner.promote_eligible(ctx.heartbeat_count)
-        for name in promoted:
-            actions.append(f"promoted:{name}:citizen")
-
-    # Zone health check
-    stats = ctx.pokedex.stats()
-    zones = stats.get("zones", {})
-    for zone, count in zones.items():
-        if count == 0:
-            actions.append(f"warning:zone_{zone}_empty")
-            logger.warning("DHARMA: Zone %s has 0 agents", zone)
-
-    # Feed zone population into reactor + process pain (Issue #17 S2b)
-    if reactor is not None:
-        if zones:
-            reactor.record("zone_population", zones=zones)
-        # Detect pain and route via CityAttention
-        from city.registry import SVC_ATTENTION
-
-        attention = ctx.registry.get(SVC_ATTENTION)
-        pain_intents = reactor.detect_pain()
-        for intent in pain_intents:
-            handler = attention.route(intent.signal) if attention else None
-            actions.append(f"pain:{intent.signal}:{intent.priority}")
-            logger.warning(
-                "DHARMA PAIN: %s (priority=%s, handler=%s, ctx=%s)",
-                intent.signal,
-                intent.priority,
-                handler,
-                intent.context,
-            )
-
-    # Layer 5: Council Election (before contracts, so proposals have a council)
-    if ctx.council is not None:
-        if ctx.council.election_due(ctx.heartbeat_count):
-            candidates = _get_election_candidates(ctx)
-            if candidates:
-                result = ctx.council.run_election(
-                    candidates,
-                    ctx.heartbeat_count,
-                )
-                if result["elected_mayor"]:
-                    actions.append(f"election:mayor={result['elected_mayor']}")
-                actions.append(f"election:seats={len(result['council_seats'])}")
-
-                # Council compensation (idempotent per election heartbeat)
-                from city.seed_constants import WORKER_VISA_STIPEND
-
-                stipend_key = f"_stipend_paid_{ctx.heartbeat_count}"
-                if not getattr(ctx.council, stipend_key, False):
-                    for _seat_idx, member_name in result["council_seats"].items():
-                        try:
-                            ctx.pokedex._bank.transfer(
-                                "MINT",
-                                member_name,
-                                WORKER_VISA_STIPEND,
-                                "council_stipend",
-                                "governance",
-                            )
-                            actions.append(
-                                f"council_stipend:{member_name}:{WORKER_VISA_STIPEND}",
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "DHARMA: Stipend failed for %s: %s",
-                                member_name,
-                                e,
-                            )
-                    setattr(ctx.council, stipend_key, True)
-
-    # Cognition: constraint checking via KnowledgeGraph
-    if ctx.knowledge_graph is not None:
-        from city.cognition import check_constraints
-
-        violations = check_constraints(
-            "governance_cycle",
-            {
-                "heartbeat": ctx.heartbeat_count,
-                "dead_agents": len(dead),
-                "empty_zones": [z for z, c in zones.items() if c == 0],
-            },
-        )
-        for v in violations:
-            actions.append(f"constraint_violated:{v}")
-            logger.warning("DHARMA: Constraint violated — %s", v)
-
-    # Expire stale proposals (Phase 8)
-    if ctx.council is not None:
-        expired = ctx.council.expire_proposals(ctx.heartbeat_count)
-        if expired:
-            actions.append(f"proposals_expired:{expired}")
-
-    # Layer 3: Quality Contracts
-    if ctx.contracts is not None:
-        results = ctx.contracts.check_all()
-        for r in results:
-            if r.status.value == "failing":
-                actions.append(f"contract_failing:{r.name}:{r.message}")
-                create_healing_mission(ctx, r)
-                _submit_contract_proposal(ctx, r)
-
-    # Layer 3: Issue lifecycle intents
-    if ctx.issues is not None:
-        issue_actions = ctx.issues.metabolize_issues()
-        actions.extend(issue_actions)
-
-        # Consume structured IssueDirectives (replaces string parsing)
-        if ctx.sankalpa is not None:
-            for directive in ctx.issues.directives:
-                _process_issue_directive(ctx, directive)
-
-    # Moltbook Assistant: strategic planning for KARMA
-    if ctx.moltbook_assistant is not None:
-        ctx.moltbook_assistant.on_dharma(ctx.heartbeat_count)
-
-    # P8: Community triage — plan which threads need attention this cycle
-    if ctx.thread_state is not None:
-        from city.community_triage import triage_threads
-
-        seed_threads = {}
-        if ctx.discussions is not None and hasattr(ctx.discussions, "_seed_threads"):
-            seed_threads = ctx.discussions._seed_threads
-
-        triage_items = triage_threads(
-            ctx.thread_state,
-            ctx.pokedex,
-            seed_threads=seed_threads,
-        )
-        if triage_items:
-            ctx._triage_items = triage_items  # type: ignore[attr-defined]
-
-    if actions:
-        logger.info("DHARMA: %d governance actions", len(actions))
-    return actions
-
-
-def _hibernate_low_prana(ctx: PhaseContext, threshold: int) -> list[str]:
-    """Freeze agents whose prana dropped below threshold.
-
-    Uses existing freeze() infrastructure (pokedex + CivicBank).
-    Agents can be revived later via unfreeze() when energy is injected.
-    """
-    hibernated: list[str] = []
-    for agent in ctx.pokedex.list_citizens():
-        name = agent["name"]
-        cell = ctx.pokedex.get_cell(name)
-        if cell is None or not cell.is_alive:
-            continue
-        if cell.prana < threshold:
-            try:
-                ctx.pokedex.freeze(name, "auto_hibernation:low_prana")
-                hibernated.append(name)
-                logger.info(
-                    "DHARMA: Agent %s hibernated (prana=%d < %d)",
-                    name,
-                    cell.prana,
-                    threshold,
-                )
-            except Exception as e:
-                logger.warning("DHARMA: Failed to hibernate %s: %s", name, e)
-    return hibernated
-
-
-def _get_election_candidates(ctx: PhaseContext) -> list[dict]:
-    """Build candidate list from living citizens with multi-dimensional ranking.
-
-    Composite rank_score: 50% prana + 40% integrity + 10% guna bonus.
-    Falls back to prana-only if steward-protocol modules unavailable.
-    """
-    # Try to load Guna module for multi-dimensional ranking
-    try:
-        from vibe_core.mahamantra.substrate.core.guna import Guna, get_guna_by_position
-
-        guna_available = True
-    except Exception:
-        guna_available = False
-
-    citizens = ctx.pokedex.list_citizens()
-    candidates = []
-    for c in citizens:
-        cell = ctx.pokedex.get_cell(c["name"])
-        if cell is not None and cell.is_alive:
-            position = c["classification"]["position"]
-            prana_norm = cell.prana / PRANA_NORM_MAX  # COSMIC_FRAME (21600)
-
-            if guna_available:
-                try:
-                    guna = get_guna_by_position(position)
-                    integrity = getattr(cell, "membrane_integrity", cell.prana) / PRANA_NORM_MAX
-                    # Composite: 50% prana + 40% integrity + 10% guna bonus
-                    rank_score = prana_norm * 0.5 + integrity * 0.4
-                    if guna == Guna.SATTVA:
-                        rank_score += 0.1
-                    elif guna == Guna.RAJAS:
-                        rank_score += 0.05
-                except Exception:
-                    rank_score = prana_norm
-            else:
-                rank_score = prana_norm
-
-            candidates.append(
-                {
-                    "name": c["name"],
-                    "prana": cell.prana,
-                    "guardian": c["classification"]["guardian"],
-                    "position": position,
-                    "rank_score": rank_score,
-                }
-            )
-    return candidates
-
-
-def _submit_contract_proposal(ctx: PhaseContext, contract_result: object) -> None:
-    """Submit a failing contract as a council proposal for democratic vote.
-
-    Integrity contract violations require CONSTITUTIONAL supermajority (67%)
-    because they affect protected core files. All other contracts use POLICY (50%).
-    """
-    if ctx.council is None or ctx.council.member_count == 0:
-        return
-
-    proposer = ctx.council.elected_mayor
-    if proposer is None:
-        return
-
-    from city.council import ProposalType
-
-    is_integrity = contract_result.name == "integrity"
-
-    prefix = "Integrity violation" if is_integrity else "Heal contract"
-    ptype = ProposalType.CONSTITUTIONAL if is_integrity else ProposalType.POLICY
-    ctx.council.propose(
-        title=f"{prefix}: {contract_result.name}",
-        description=f"Contract failing: {contract_result.message}",
-        proposer=proposer,
-        proposal_type=ptype,
-        action={
-            "type": "integrity" if is_integrity else "heal",
-            "contract": contract_result.name,
-            "files": contract_result.details if is_integrity else [],
-            "params": {"details": contract_result.details},
-        },
-        timestamp=time.time(),
-        heartbeat=ctx.heartbeat_count,
+def _build_registry():
+    """Build PhaseHookRegistry with all DHARMA hooks."""
+    from city.phase_hook import PhaseHookRegistry
+    from city.hooks.dharma.metabolism import (
+        HibernationHook,
+        MetabolizeHook,
+        PromotionHook,
+        ZoneHealthHook,
+    )
+    from city.hooks.dharma.governance import (
+        CognitionConstraintsHook,
+        ElectionHook,
+        ProposalExpiryHook,
+    )
+    from city.hooks.dharma.contracts_issues import (
+        CommunityTriageHook,
+        ContractsHook,
+        IssueLifecycleHook,
+        MoltbookAssistantDharmaHook,
     )
 
+    registry = PhaseHookRegistry()
+    registry.register(HibernationHook())              # pri=0   freeze first
+    registry.register(MetabolizeHook())                # pri=5   metabolize
+    registry.register(PromotionHook())                 # pri=10  promote
+    registry.register(ZoneHealthHook())                # pri=15  zone health
+    registry.register(ElectionHook())                  # pri=20  elections
+    registry.register(CognitionConstraintsHook())      # pri=25  constraints
+    registry.register(ProposalExpiryHook())            # pri=30  expire
+    registry.register(ContractsHook())                 # pri=40  contracts
+    registry.register(IssueLifecycleHook())            # pri=45  issues
+    registry.register(MoltbookAssistantDharmaHook())   # pri=50  assistant
+    registry.register(CommunityTriageHook())           # pri=60  triage
 
-def _process_issue_directive(ctx: PhaseContext, directive: object) -> None:
-    """Consume an IssueDirective and create a bound Sankalpa mission.
-
-    Only actionable directives (intent_needed, contract_check) produce missions.
-    Informational (ashrama, closed) are skipped.
-    """
-    if directive.action not in ("intent_needed", "contract_check"):
-        return
-
-    mission_type = "audit_needed" if directive.action == "contract_check" else "intent_needed"
-    mission_id = create_issue_mission(ctx, directive.issue_number, directive.title, mission_type)
-
-    # Bind mission↔issue for lifecycle tracking
-    if mission_id is not None and ctx.issues is not None:
-        ctx.issues.bind_mission(directive.issue_number, mission_id)
+    return registry
 
 
-def _process_issue_action(ctx: PhaseContext, action: str) -> None:
-    """Legacy string parser — kept for backward compatibility.
+def execute(ctx: PhaseContext) -> list[str]:
+    """DHARMA: Dispatch hooks in priority order."""
+    actions: list[str] = []
 
-    Prefer _process_issue_directive() for new code.
-    """
-    parts = action.split(":")
-    if len(parts) < 2:
-        return
+    from city.phase_hook import DHARMA
+    registry = _build_registry()
+    registry.dispatch(DHARMA, ctx, actions)
 
-    action_type = parts[0]
-    issue_ref = parts[1] if len(parts) > 1 else ""
-
-    if action_type not in ("intent_needed", "contract_check"):
-        return
-
-    if not issue_ref.startswith("#"):
-        return
-    try:
-        issue_number = int(issue_ref[1:])
-    except ValueError:
-        return
-
-    title = f"Issue #{issue_number}"
-    if ctx.issues is not None:
-        cell = ctx.issues._issue_cells.get(issue_number)
-        if cell is not None:
-            title = getattr(cell, "name", title)
-
-    mission_type = "audit_needed" if action_type == "contract_check" else "intent_needed"
-    create_issue_mission(ctx, issue_number, title, mission_type)
+    if actions:
+        logger.info(
+            "DHARMA: %d governance actions via %d hooks",
+            len(actions), registry.hook_count(DHARMA),
+        )
+    return actions

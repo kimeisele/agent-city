@@ -103,7 +103,7 @@ def test_dharma_process_issue_action_intent():
         mock_sankalpa.registry = MagicMock()
         ctx = _make_ctx(tmp, sankalpa=mock_sankalpa)
 
-        from city.phases.dharma import _process_issue_action
+        from city.hooks.dharma.contracts_issues import _process_issue_action
         _process_issue_action(ctx, "intent_needed:#42:low_prana")
 
         mock_sankalpa.registry.add_mission.assert_called_once()
@@ -121,7 +121,7 @@ def test_dharma_process_issue_action_contract_check():
         mock_sankalpa.registry = MagicMock()
         ctx = _make_ctx(tmp, sankalpa=mock_sankalpa)
 
-        from city.phases.dharma import _process_issue_action
+        from city.hooks.dharma.contracts_issues import _process_issue_action
         _process_issue_action(ctx, "contract_check:#7:audit_needed")
 
         mission = mock_sankalpa.registry.add_mission.call_args[0][0]
@@ -138,7 +138,7 @@ def test_dharma_process_issue_action_ignores_informational():
         mock_sankalpa.registry = MagicMock()
         ctx = _make_ctx(tmp, sankalpa=mock_sankalpa)
 
-        from city.phases.dharma import _process_issue_action
+        from city.hooks.dharma.contracts_issues import _process_issue_action
         _process_issue_action(ctx, "ashrama:#42:brahmachari")
         _process_issue_action(ctx, "closed:#42:prana_exhaustion")
 
@@ -155,7 +155,7 @@ def test_dharma_process_issue_action_malformed():
         mock_sankalpa.registry = MagicMock()
         ctx = _make_ctx(tmp, sankalpa=mock_sankalpa)
 
-        from city.phases.dharma import _process_issue_action
+        from city.hooks.dharma.contracts_issues import _process_issue_action
         # No crash on these
         _process_issue_action(ctx, "")
         _process_issue_action(ctx, "x")
