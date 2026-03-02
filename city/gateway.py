@@ -65,6 +65,10 @@ class GatewayResult(TypedDict):
     buddhi_mode: str
     buddhi_prana: int
     buddhi_is_alive: bool
+    buddhi_composed: str  # resonant vocabulary (4-7 English words)
+    buddhi_perspective: str  # chapter significance context
+    buddhi_approach: str  # GENESIS/DHARMA/KARMA/MOKSHA
+    buddhi_integrity: float  # 0.0-1.0 membrane state
     compressed_size: int
     input_size: int
 
@@ -112,6 +116,10 @@ class CityGateway:
             "buddhi_mode": cognition.mode,
             "buddhi_prana": cognition.prana,
             "buddhi_is_alive": cognition.is_alive,
+            "buddhi_composed": cognition.composed,
+            "buddhi_perspective": cognition.perspective,
+            "buddhi_approach": cognition.approach,
+            "buddhi_integrity": cognition.integrity,
             "compressed_size": compressed.output_size,
             "input_size": compressed.input_size,
         }
