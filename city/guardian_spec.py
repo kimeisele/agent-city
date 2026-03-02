@@ -89,6 +89,9 @@ class AgentSpec(TypedDict, total=False):
     # Merged capabilities (element + guardian + tier — the FULL set)
     capabilities: list[str]
 
+    # Provenance: where domain + capabilities came from
+    spec_source: str  # "cartridge" | "jiva_fallback"
+
     # Optional: WordNet semantic affinity (when steward-protocol available)
     semantic_affinity: dict[str, float]
 
@@ -447,6 +450,8 @@ def build_agent_spec(
         "tier_capabilities": tier_caps,
         # Merged capabilities
         "capabilities": merged,
+        # Provenance
+        "spec_source": "cartridge" if cartridge_caps else "jiva_fallback",
     }
 
     # ── Optional: WordNet semantic affinity ──

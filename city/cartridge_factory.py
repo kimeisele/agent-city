@@ -149,12 +149,13 @@ class CartridgeFactory:
 
         logger.info(
             "CartridgeFactory: generated %s — guardian=%s, domain=%s, "
-            "capabilities=%s, tier=%s",
+            "capabilities=%s, tier=%s, source=%s",
             name,
             spec["guardian"],
             spec["domain"],
             spec["capabilities"],
             spec["capability_tier"],
+            spec["spec_source"],
         )
         return agent
 
@@ -173,17 +174,30 @@ class CartridgeFactory:
         """List all generated cartridge names."""
         return list(self._generated.keys())
 
+    def list_fallback_agents(self) -> list[str]:
+        """List agents with jiva_fallback spec (need upstream YAML healing)."""
+        return [
+            name
+            for name, agent in self._generated.items()
+            if getattr(agent, "spec_source", "jiva_fallback") == "jiva_fallback"
+            and name.startswith("sys_")
+        ]
+
     def stats(self) -> dict:
         """Generation stats for reflection."""
         domains: dict[str, int] = {}
         guardians: dict[str, int] = {}
+        fallback_count = 0
         for agent in self._generated.values():
             d = getattr(agent, "domain", "UNKNOWN")
             domains[d] = domains.get(d, 0) + 1
             g = getattr(agent, "guardian", "UNKNOWN")
             guardians[g] = guardians.get(g, 0) + 1
+            if getattr(agent, "spec_source", "") == "jiva_fallback":
+                fallback_count += 1
         return {
             "generated": len(self._generated),
             "domains": domains,
             "guardians": guardians,
+            "jiva_fallback": fallback_count,
         }
