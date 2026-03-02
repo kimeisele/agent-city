@@ -204,7 +204,8 @@ class TestBuildSchema:
     def test_comprehension_schema(self):
         schema = build_schema("comprehension")
         assert "comprehension" in schema
-        assert "action_hint" not in schema
+        # 6C-5: comprehension now includes action_hint for NL intent→action
+        assert "action_hint" in schema
 
     def test_unknown_kind_falls_back(self):
         schema = build_schema("nonexistent_kind")
