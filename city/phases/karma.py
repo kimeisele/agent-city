@@ -43,11 +43,13 @@ def _build_dispatcher():
     from city.karma_handlers.heal import HealHandler
     from city.karma_handlers.council import CouncilHandler
     from city.karma_handlers.assistant import AssistantHandler
+    from city.karma_handlers.triage import TriageHandler
     from city.karma_handlers.diw_bridge import VenuDispatcher
 
     registry = KarmaHandlerRegistry()
     registry.register(BrainHealthHandler())
     registry.register(GatewayHandler())
+    registry.register(TriageHandler())
     registry.register(SankalpaHandler())
     registry.register(CognitionHandler())
     registry.register(SignalHandler())
