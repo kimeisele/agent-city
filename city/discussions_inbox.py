@@ -141,24 +141,49 @@ def _compose_response(
     stats: dict,
     gateway_result: dict,
 ) -> str:
-    """Compose agent response from spec + cognition. Zero templates."""
+    """Compose agent response from spec + cognition. Zero templates.
+
+    Uses buddhi cognitive output (composed, perspective, approach) to
+    relate response to the actual discussion topic. Not just spec dumps.
+    """
     parts = [_agent_signature(spec, gateway_result)]
 
     function = gateway_result.get("buddhi_function", "")
-    domain = spec.get("domain", "")
     guna = spec.get("guna", "")
+    domain = spec.get("domain", "")
     role = spec.get("role", "")
     caps = spec.get("capabilities", [])
 
     verb = _FUNCTION_VERB.get(function, "observe")
     frame = _GUNA_FRAME.get(guna, "Note")
 
-    # One-line perspective (role + domain + verb = unique per agent)
-    parts.append(f"\n**{frame}**: As {role}, I can {verb} this from the {domain} domain.")
+    # Buddhi cognitive output (relates to the actual discussion topic)
+    perspective = gateway_result.get("buddhi_perspective", "")
+    composed = gateway_result.get("buddhi_composed", "")
+    approach = gateway_result.get("buddhi_approach", "")
+
+    # Perspective line: chapter-derived context for this topic
+    if perspective:
+        parts.append(f"\n**{frame}**: {perspective} — I can {verb} this from the {domain} domain.")
+    else:
+        parts.append(f"\n**{frame}**: As {role}, I can {verb} this from the {domain} domain.")
+
+    # Cognitive signal: buddhi's resonant vocabulary for this input
+    if composed:
+        parts.append(f"**Signal**: {composed}")
+
+    # Approach context (which phase of thinking this maps to)
+    if approach:
+        parts.append(f"**Approach**: {approach}")
 
     # Capabilities (what the agent brings to the table)
     if caps:
         parts.append(f"\n**Capabilities**: {', '.join(caps[:6])}")
+
+    # Provenance: does this agent have real cartridge data?
+    spec_source = spec.get("spec_source", "")
+    if spec_source == "jiva_fallback":
+        parts.append("*spec: jiva-derived (cartridge YAML incomplete)*")
 
     # Live city data (structure, not prose)
     alive = stats.get("active", 0) + stats.get("citizen", 0)
