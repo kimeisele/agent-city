@@ -428,12 +428,18 @@ def test_triage_handler_gate(mock_ctx):
 # ── Action Hint Execution Tests ─────────────────────────────────────
 
 
+def _make_citizen(mock_ctx, name="CitizenUser"):
+    """Register a citizen in mock_ctx.pokedex so authorization passes."""
+    mock_ctx.pokedex.register(name)
+
+
 def test_action_hint_create_mission(mock_ctx):
     """Brain action_hint create_mission: creates Sankalpa mission."""
     from city.karma_handlers.gateway import _execute_action_hint
     from tests.conftest import MockSankalpa
 
     mock_ctx.sankalpa = MockSankalpa()
+    _make_citizen(mock_ctx)
 
     thought = MagicMock()
     thought.action_hint = "create_mission:Improve test coverage"
@@ -441,7 +447,10 @@ def test_action_hint_create_mission(mock_ctx):
     thought.intent.value = "propose"
 
     operations = []
-    _execute_action_hint(mock_ctx, thought, 42, "TestAgent", operations)
+    _execute_action_hint(
+        mock_ctx, thought, 42, "TestAgent", operations,
+        comment_author="CitizenUser",
+    )
     assert any("brain_hint_mission" in op for op in operations)
 
 
@@ -451,6 +460,7 @@ def test_action_hint_investigate(mock_ctx):
     from tests.conftest import MockSankalpa
 
     mock_ctx.sankalpa = MockSankalpa()
+    _make_citizen(mock_ctx)
 
     thought = MagicMock()
     thought.action_hint = "investigate:immune system edge cases"
@@ -458,7 +468,10 @@ def test_action_hint_investigate(mock_ctx):
     thought.intent.value = "inquiry"
 
     operations = []
-    _execute_action_hint(mock_ctx, thought, 42, "TestAgent", operations)
+    _execute_action_hint(
+        mock_ctx, thought, 42, "TestAgent", operations,
+        comment_author="CitizenUser",
+    )
     assert any("brain_hint_investigate" in op for op in operations)
 
 
@@ -466,11 +479,16 @@ def test_action_hint_unknown_logged(mock_ctx):
     """Unknown action_hint is logged but doesn't crash."""
     from city.karma_handlers.gateway import _execute_action_hint
 
+    _make_citizen(mock_ctx)
+
     thought = MagicMock()
     thought.action_hint = "unknown_hint:something"
 
     operations = []
-    _execute_action_hint(mock_ctx, thought, 42, "TestAgent", operations)
+    _execute_action_hint(
+        mock_ctx, thought, 42, "TestAgent", operations,
+        comment_author="CitizenUser",
+    )
     assert any("brain_hint_unknown" in op for op in operations)
 
 
@@ -484,3 +502,88 @@ def test_action_hint_empty_noop(mock_ctx):
     operations = []
     _execute_action_hint(mock_ctx, thought, 42, "TestAgent", operations)
     assert len(operations) == 0
+
+
+def test_action_hint_denied_for_unknown_user(mock_ctx):
+    """6C-8: State-mutating hint denied for non-citizen/non-operator."""
+    from city.karma_handlers.gateway import _execute_action_hint
+
+    # Real Pokedex returns None for unknown users — no setup needed
+
+    thought = MagicMock()
+    thought.action_hint = "create_mission:hack the system"
+    thought.intent = MagicMock()
+    thought.intent.value = "propose"
+
+    operations = []
+    _execute_action_hint(
+        mock_ctx, thought, 42, "TestAgent", operations,
+        comment_author="RandomUser",
+    )
+    assert any("brain_hint_denied" in op for op in operations)
+    assert not any("brain_hint_mission" in op for op in operations)
+
+
+def test_action_hint_readonly_allowed_for_anyone(mock_ctx):
+    """6C-8: Read-only hints pass without authorization."""
+    from city.karma_handlers.gateway import _execute_action_hint
+
+    # Real Pokedex returns None for unknown users — no setup needed
+
+    thought = MagicMock()
+    thought.action_hint = "run_status"
+
+    operations = []
+    _execute_action_hint(
+        mock_ctx, thought, 42, "TestAgent", operations,
+        comment_author="AnyoneAtAll",
+    )
+    assert any("brain_hint_run_status" in op for op in operations)
+    assert not any("denied" in op for op in operations)
+
+
+def test_action_hint_edit_dedup(mock_ctx):
+    """6C-9: Same hint for same comment_id is skipped on re-fire."""
+    from city.karma_handlers.gateway import _execute_action_hint, _executed_hints
+    from tests.conftest import MockSankalpa
+
+    mock_ctx.sankalpa = MockSankalpa()
+    _make_citizen(mock_ctx)
+
+    thought = MagicMock()
+    thought.action_hint = "create_mission:Build something"
+    thought.intent = MagicMock()
+    thought.intent.value = "propose"
+
+    # Clear dedup state
+    _executed_hints.clear()
+
+    # First fire: should execute
+    ops1 = []
+    _execute_action_hint(
+        mock_ctx, thought, 42, "TestAgent", ops1,
+        comment_author="CitizenUser", comment_id="comment_abc",
+    )
+    assert any("brain_hint_mission" in op for op in ops1)
+
+    # Second fire with same comment_id + same hint: should dedup
+    ops2 = []
+    _execute_action_hint(
+        mock_ctx, thought, 42, "TestAgent", ops2,
+        comment_author="CitizenUser", comment_id="comment_abc",
+    )
+    assert any("brain_hint_dedup" in op for op in ops2)
+    assert not any("brain_hint_mission" in op for op in ops2)
+
+    # Third fire with same comment_id + DIFFERENT hint: should execute (not dedup)
+    thought2 = MagicMock()
+    thought2.action_hint = "investigate:something else"
+    thought2.intent = MagicMock()
+    thought2.intent.value = "inquiry"
+    ops3 = []
+    _execute_action_hint(
+        mock_ctx, thought2, 42, "TestAgent", ops3,
+        comment_author="CitizenUser", comment_id="comment_abc",
+    )
+    assert any("brain_hint_investigate" in op for op in ops3)
+    assert not any("dedup" in op for op in ops3)
