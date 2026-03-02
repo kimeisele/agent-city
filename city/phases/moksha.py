@@ -284,6 +284,19 @@ def execute(ctx: PhaseContext) -> dict:
                 reflection["brain_cells_decayed"] = reaped
         ctx.brain_memory.flush()
 
+    # P8: Decay thread energy (discussion lifecycle)
+    if ctx.thread_state is not None:
+        thread_decay = ctx.thread_state.decay_all()
+        if thread_decay.get("cooled") or thread_decay.get("archived"):
+            reflection["thread_decay"] = thread_decay
+        # Repetition alerts → pain signal
+        alerts = ctx.thread_state.repetition_alerts()
+        if alerts:
+            reflection["thread_repetition_alerts"] = [
+                {"number": a.discussion_number, "title": a.title}
+                for a in alerts
+            ]
+
     # Layer 6: Federation Nadi — emit city state + flush outbox
     if ctx.federation_nadi is not None:
         nadi_payload = {

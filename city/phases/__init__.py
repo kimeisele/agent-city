@@ -39,6 +39,7 @@ from city.registry import (
     SVC_LEARNING,
     SVC_DISCUSSIONS,
     SVC_MOLTBOOK_ASSISTANT,
+    SVC_THREAD_STATE,
     SVC_MOLTBOOK_BRIDGE,
     SVC_MOLTBOOK_CLIENT,
     SVC_REFLECTION,
@@ -228,3 +229,7 @@ class PhaseContext:
     @property
     def brain_memory(self) -> object | None:
         return self.registry.get(SVC_BRAIN_MEMORY)
+
+    @property
+    def thread_state(self) -> object | None:
+        return self.registry.get(SVC_THREAD_STATE)

@@ -191,6 +191,7 @@ def default_definitions(
         SVC_PATHOGEN_INDEX,
         SVC_DIAGNOSTICS,
         SVC_DISCUSSIONS,
+        SVC_THREAD_STATE,
         SVC_WIKI_PORTAL,
     )
 
@@ -318,6 +319,10 @@ def default_definitions(
             ServiceDefinition(
                 name=SVC_DISCUSSIONS,
                 factory=lambda ctx: _build_discussions(ctx),
+            ),
+            ServiceDefinition(
+                name=SVC_THREAD_STATE,
+                factory=lambda ctx: _build_thread_state(ctx),
             ),
             ServiceDefinition(
                 name=SVC_DIAGNOSTICS,
@@ -557,6 +562,14 @@ def _build_event_bus() -> object | None:
     from city.cognition import get_city_bus
 
     return get_city_bus()
+
+
+def _build_thread_state(ctx: BuildContext) -> object | None:
+    from city.thread_state import ThreadStateEngine
+
+    engine = ThreadStateEngine(db_path=str(ctx.db_path))
+    logger.info("ThreadStateEngine wired (db=%s)", ctx.db_path)
+    return engine
 
 
 def _build_discussions(ctx: BuildContext) -> object | None:
