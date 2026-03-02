@@ -104,9 +104,9 @@ class WikiPortal:
 
         # Render official registry
         registry_lines = ["## 🏆 Verified Registry", "| Agent | Status | Karma |", "| :--- | :--- | :--- |"]
-        for a in sorted(agents, key=lambda x: -(x.get("moltbook", {}).get("karma") or 0))[:10]:
+        for a in sorted(agents, key=lambda x: -((x.get("moltbook") or {}).get("karma") or 0))[:10]:
             name_link = f"[{a['name']}](Agent_{a['address']})"
-            karma = a.get("moltbook", {}).get("karma", 0)
+            karma = (a.get("moltbook") or {}).get("karma", 0)
             registry_lines.append(f"| {name_link} | {a['status']} | {karma} |")
         
         updated_content = self._replace_block(
