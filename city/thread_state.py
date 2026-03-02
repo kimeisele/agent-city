@@ -433,6 +433,57 @@ class ThreadStateEngine:
             reply_comment_id=None,
         )
 
+    def reingest_comment(
+        self,
+        comment_id: str,
+        body: str,
+    ) -> CommentEntry | None:
+        """Re-ingest an edited comment. Updates body_hash and resets status.
+
+        Returns the updated entry, or None if comment_id is not in the ledger.
+        """
+        now = time.time()
+        new_hash = hashlib.sha256(body.encode()).hexdigest()[:16]
+
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT comment_id, discussion_number, author, body_hash,
+                          source, status, seen_at, enqueued_at, replied_at,
+                          reply_comment_id
+                   FROM comment_ledger WHERE comment_id = ?""",
+                (comment_id,),
+            ).fetchone()
+            if row is None:
+                return None  # not previously ingested
+
+            old_hash = row[3]  # body_hash column
+            if old_hash == new_hash:
+                return None  # body unchanged, no re-ingestion needed
+
+            # Reset to SEEN so it gets re-processed
+            new_status = CommentStatus.SEEN
+            self._conn.execute(
+                """UPDATE comment_ledger
+                   SET body_hash = ?, status = ?, seen_at = ?,
+                       enqueued_at = NULL, replied_at = NULL, reply_comment_id = NULL
+                   WHERE comment_id = ?""",
+                (new_hash, new_status, now, comment_id),
+            )
+            self._conn.commit()
+
+        return CommentEntry(
+            comment_id=comment_id,
+            discussion_number=row[1],
+            author=row[2],
+            body_hash=new_hash,
+            source=row[4],
+            status=new_status,
+            seen_at=now,
+            enqueued_at=None,
+            replied_at=None,
+            reply_comment_id=None,
+        )
+
     def is_comment_seen(self, comment_id: str) -> bool:
         """Check if a comment has already been ingested."""
         with self._lock:

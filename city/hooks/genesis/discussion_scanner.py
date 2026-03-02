@@ -31,7 +31,7 @@ _BRAIN_JSON_SUFFIX = "-->"
 
 def _parse_brain_json(body: str) -> dict | None:
     """Extract hidden JSON from HTML comment in a [Brain] post."""
-    if "[Brain]" not in body:
+    if "[Brain]" not in body and "[Brain \U0001f9e0]" not in body:
         return None
     start = body.find(_BRAIN_JSON_PREFIX)
     if start == -1:
@@ -125,18 +125,27 @@ class DiscussionScannerHook(BasePhaseHook):
                 comment_author = comment.get("author", "")
                 body = comment.get("body", "")
                 is_own = ctx.discussions.is_own_comment(comment_author)
+                is_edited = comment.get("edited", False)
 
                 # Ingest ALL comments into the ledger — no front-door discrimination
                 if ctx.thread_state is not None and comment_id:
-                    entry = ctx.thread_state.ingest_comment(
-                        comment_id,
-                        signal["number"],
-                        comment_author,
-                        body,
-                        is_own=is_own,
-                    )
+                    if is_edited:
+                        # 6C-3/6C-7: Re-ingest edited comment for re-processing
+                        entry = ctx.thread_state.reingest_comment(comment_id, body)
+                        if entry is not None:
+                            operations.append(
+                                f"disc_edit_reingested:{comment_id[:12]}:#{signal['number']}"
+                            )
+                    else:
+                        entry = ctx.thread_state.ingest_comment(
+                            comment_id,
+                            signal["number"],
+                            comment_author,
+                            body,
+                            is_own=is_own,
+                        )
                     if entry is None:
-                        continue  # already ingested (idempotent)
+                        continue  # already ingested and unchanged
 
                 # Self-posts: parse Brain feedback, but don't enqueue for response
                 if is_own:
