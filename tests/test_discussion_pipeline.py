@@ -777,3 +777,32 @@ def test_cartridge_cognition_in_response():
     assert "sys_kapila" in response_plain
     assert "sys_kapila" in response_cog
 
+
+def test_routing_transparency_in_response():
+    """7D-2: Response includes routing score + intent when available."""
+    from city.discussions_inbox import DiscussionSignal, _compose_response
+
+    spec = {
+        "name": "sys_vyasa",
+        "domain": "DISCOVERY",
+        "role": "System oversight",
+        "guna": "RAJAS",
+        "element": "akasha",
+        "capability_protocol": "parse",
+    }
+
+    signal = DiscussionSignal(42, "Test", "input", "user", [])
+    stats = {"active": 5, "total": 10}
+
+    # With routing info
+    gateway_with = {"seed": 42, "routing_score": 0.73, "routing_intent": "analyze"}
+    response = _compose_response(spec, signal, stats, gateway_with)
+    assert "Routed:" in response
+    assert "0.73" in response
+    assert "analyze" in response
+
+    # Without routing info (direct mention, no routing)
+    gateway_without = {"seed": 42}
+    response_no_route = _compose_response(spec, signal, stats, gateway_without)
+    assert "Routed:" not in response_no_route
+

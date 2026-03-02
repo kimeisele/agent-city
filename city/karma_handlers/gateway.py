@@ -274,9 +274,12 @@ def _handle_discussion_item(
             )
     else:
         intent = classify_discussion_intent(result)
-        agent_name, agent_spec = _route_discussion_to_agent(
+        agent_name, agent_spec, routing_score = _route_discussion_to_agent(
             ctx, intent, all_specs, all_inventories, discussion_text=item.get("text", ""),
         )
+        if routing_score > 0:
+            result["routing_score"] = round(routing_score, 2)
+            result["routing_intent"] = intent
 
     if agent_name is None or agent_spec is None:
         operations.append(f"disc_no_agent:#{discussion_number}")
@@ -641,4 +644,4 @@ def _route_discussion_to_agent(
             "KARMA: Discussion routed to %s (score=%.2f, intent=%s)",
             best_name, best_score, intent,
         )
-    return best_name, best_spec
+    return best_name, best_spec, best_score
