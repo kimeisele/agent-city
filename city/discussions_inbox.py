@@ -107,24 +107,6 @@ _GUNA_FRAME: dict[str, str] = {
     "TAMAS": "Assessment",
 }
 
-# capability_protocol -> how the agent approaches a problem
-_PROTOCOL_APPROACH: dict[str, str] = {
-    "parse": "breaking this down into components",
-    "validate": "checking this against established rules",
-    "infer": "analyzing patterns and drawing conclusions",
-    "route": "connecting this to the right resources",
-    "enforce": "ensuring this meets quality standards",
-}
-
-# element -> sensory framing of the agent's perspective
-_ELEMENT_LENS: dict[str, str] = {
-    "akasha": "From the space of awareness",
-    "vayu": "Moving through the channels",
-    "agni": "Through the lens of transformation",
-    "jala": "Flowing with the connections",
-    "prithvi": "Grounded in structure",
-}
-
 
 def _agent_signature(spec: dict, gateway_result: dict | None = None) -> str:
     """Rich agent identity block. Derived from spec, zero hardcode."""
@@ -191,14 +173,10 @@ def _compose_response(
     perspective = gateway_result.get("buddhi_perspective", "")
     if perspective:
         parts.append(f"\n**{frame}**: {perspective}")
+    elif protocol and element:
+        parts.append(f"\n**{frame}**: `{element}` · `{protocol}` — I can {verb} this from the {domain} perspective.")
     else:
-        # Spec-driven perspective: element lens + protocol approach
-        lens = _ELEMENT_LENS.get(element, "")
-        approach = _PROTOCOL_APPROACH.get(protocol, "")
-        if lens and approach:
-            parts.append(f"\n**{frame}**: {lens}, {approach}.")
-        else:
-            parts.append(f"\n**{frame}**: I can {verb} this from the {domain} perspective.")
+        parts.append(f"\n**{frame}**: I can {verb} this from the {domain} perspective.")
 
     # Capabilities block: what this agent specifically brings
     if guardian_caps or element_caps:

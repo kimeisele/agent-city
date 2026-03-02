@@ -711,13 +711,11 @@ def test_different_agents_produce_different_responses():
     assert "build" in response_b or "maintain" in response_b
     assert "yoga of renunciation" in response_b
 
-    # Element lens must differ
-    assert "awareness" in response_a  # akasha
-    assert "structure" in response_b  # prithvi
-
-    # Protocol approach must differ
-    assert "components" in response_a  # parse
-    assert "quality standards" in response_b  # enforce
+    # Element + protocol must appear in response (raw spec values, not hardcoded prose)
+    assert "akasha" in response_a
+    assert "parse" in response_a
+    assert "prithvi" in response_b
+    assert "enforce" in response_b
 
 
 def test_minimal_spec_still_produces_response():
@@ -778,3 +776,4 @@ def test_cartridge_cognition_in_response():
     # Both must have agent identity
     assert "sys_kapila" in response_plain
     assert "sys_kapila" in response_cog
+
