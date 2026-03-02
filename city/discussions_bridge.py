@@ -49,7 +49,7 @@ query($owner:String!, $repo:String!, $limit:Int!) {
         number title createdAt
         author { login }
         comments(last:10) {
-          nodes { id body author { login } createdAt }
+          nodes { id body author { login } createdAt lastEditedAt }
         }
       }
     }
@@ -137,6 +137,9 @@ class DiscussionsBridge:
 
     # Persistent state
     _seen_discussion_numbers: set[int] = field(default_factory=set)
+    # comment_id → body_hash (detect edits via hash change)
+    _seen_comment_hashes: dict[str, str] = field(default_factory=dict)
+    # Legacy compat alias (some code may still reference _seen_comment_ids)
     _seen_comment_ids: set[str] = field(default_factory=set)
     _last_report_hb: int = 0
     _ops: dict = field(default_factory=lambda: {
@@ -227,17 +230,40 @@ class DiscussionsBridge:
             author = (node.get("author") or {}).get("login", "")
             comments = (node.get("comments") or {}).get("nodes", [])
 
-            # Collect unseen comments
+            # Collect unseen + edited comments
             new_comments: list[dict] = []
             for c in comments:
                 cid = c.get("id", "")
-                if cid and cid not in self._seen_comment_ids:
+                if not cid:
+                    continue
+                body = c.get("body", "")
+                body_hash = hashlib.sha256(body.encode()).hexdigest()[:16]
+                c_author = (c.get("author") or {}).get("login", "")
+
+                prev_hash = self._seen_comment_hashes.get(cid)
+                if prev_hash is None:
+                    # Brand-new comment
+                    self._seen_comment_hashes[cid] = body_hash
                     self._seen_comment_ids.add(cid)
                     new_comments.append({
                         "id": cid,
-                        "body": c.get("body", ""),
-                        "author": (c.get("author") or {}).get("login", ""),
+                        "body": body,
+                        "author": c_author,
+                        "edited": False,
                     })
+                elif prev_hash != body_hash:
+                    # Edited comment — re-emit for re-processing
+                    self._seen_comment_hashes[cid] = body_hash
+                    new_comments.append({
+                        "id": cid,
+                        "body": body,
+                        "author": c_author,
+                        "edited": True,
+                    })
+                    logger.info(
+                        "DISCUSSIONS: edit detected on comment %s in #%d",
+                        cid[:12], number,
+                    )
 
             is_new = number not in self._seen_discussion_numbers
             self._seen_discussion_numbers.add(number)
@@ -738,9 +764,14 @@ class DiscussionsBridge:
 
     def snapshot(self) -> dict:
         """Serialize state for persistence across ephemeral restarts."""
+        # Trim comment hashes to last 500 entries (bounded memory)
+        trimmed_hashes = dict(
+            sorted(self._seen_comment_hashes.items())[-500:]
+        )
         return {
             "seen_discussion_numbers": sorted(self._seen_discussion_numbers),
             "seen_comment_ids": sorted(self._seen_comment_ids)[-500:],
+            "seen_comment_hashes": trimmed_hashes,
             "last_report_hb": self._last_report_hb,
             "ops": dict(self._ops),
             "responded_discussions": {
@@ -754,7 +785,10 @@ class DiscussionsBridge:
     def restore(self, data: dict) -> None:
         """Restore from persisted snapshot."""
         self._seen_discussion_numbers = set(data.get("seen_discussion_numbers", []))
+        self._seen_comment_hashes = dict(data.get("seen_comment_hashes", {}))
         self._seen_comment_ids = set(data.get("seen_comment_ids", []))
+        # Backfill _seen_comment_ids from hashes for backward compat
+        self._seen_comment_ids.update(self._seen_comment_hashes.keys())
         self._last_report_hb = data.get("last_report_hb", 0)
         ops = data.get("ops", {})
         self._ops = {
