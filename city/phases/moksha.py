@@ -243,10 +243,21 @@ def execute(ctx: PhaseContext) -> dict:
     # Brain reflection on cycle (1 optional call per MOKSHA)
     brain = ctx.brain
     if brain is not None and hasattr(brain, "reflect_on_cycle"):
-        from city.brain_context import build_context_snapshot
+        from city.brain_context import (
+            build_context_snapshot,
+            diff_snapshots,
+            load_before_snapshot,
+        )
 
         snapshot = build_context_snapshot(ctx)
-        cycle_thought = brain.reflect_on_cycle(snapshot, reflection)
+        # Fix #1: Load before_snapshot from disk for outcome diffing
+        before_snapshot = load_before_snapshot(ctx.state_path.parent)
+        if before_snapshot is not None:
+            outcome_diff = diff_snapshots(before_snapshot, snapshot)
+            reflection["outcome_diff"] = outcome_diff
+        cycle_thought = brain.reflect_on_cycle(
+            snapshot, reflection, memory=ctx.brain_memory,
+        )
         if cycle_thought is not None:
             reflection["brain_reflection"] = cycle_thought.to_dict()
             if ctx.brain_memory is not None:

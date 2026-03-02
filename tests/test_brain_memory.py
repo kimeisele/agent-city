@@ -88,3 +88,41 @@ class TestBrainMemory:
         mem.record(_make_thought(), heartbeat=1, posted=True)
         entry = mem.recent(1)[0]
         assert entry["posted"] is True
+
+
+# ── External Feedback Tests (Phase 5) ────────────────────────────────
+
+
+class TestRecordExternal:
+    def test_record_external_basic(self):
+        mem = BrainMemory(max_entries=24)
+        feedback = {
+            "comprehension": "System stable",
+            "intent": "observe",
+            "confidence": 0.8,
+            "heartbeat": 5,
+        }
+        mem.record_external(feedback)
+        recent = mem.recent(1)
+        assert len(recent) == 1
+        assert recent[0]["source"] == "external"
+        assert recent[0]["heartbeat"] == 5
+        assert recent[0]["posted"] is True
+
+    def test_record_external_eviction(self):
+        mem = BrainMemory(max_entries=2)
+        mem.record_external({"heartbeat": 1})
+        mem.record_external({"heartbeat": 2})
+        mem.record_external({"heartbeat": 3})
+        recent = mem.recent(10)
+        assert len(recent) == 2
+        assert recent[0]["heartbeat"] == 2
+
+    def test_mixed_internal_external(self):
+        mem = BrainMemory(max_entries=24)
+        mem.record(_make_thought("internal"), heartbeat=1)
+        mem.record_external({"comprehension": "external", "heartbeat": 2})
+        recent = mem.recent(10)
+        assert len(recent) == 2
+        assert "source" not in recent[0]  # internal has no source
+        assert recent[1]["source"] == "external"
