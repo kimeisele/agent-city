@@ -314,10 +314,12 @@ def _handle_discussion_item(
                 f":intent={brain_thought.intent.value}"
                 f":confidence={brain_thought.confidence:.2f}"
             )
-            # Phase 6B: Act on brain action_hints from discussion comprehension
+            # Phase 6B+6C-8: Act on brain action_hints (authorization-gated)
             if brain_thought.action_hint:
                 _execute_action_hint(
-                    ctx, brain_thought, discussion_number, agent_name, operations,
+                    ctx, brain_thought, discussion_number, agent_name,
+                    operations, comment_author=comment_author,
+                    comment_id=comment_id,
                 )
 
     # Build response
@@ -410,24 +412,91 @@ def _handle_agent_intro(
             operations.append(f"intro_rate_limited:{agent_name}")
 
 
+# 6C-8: Action hints that mutate state require citizen/operator access.
+# Read-only hints are allowed from anyone.
+_READ_ONLY_HINTS = frozenset({"run_status"})
+_READ_ONLY_PREFIXES = ("check_health:",)
+
+
+def _authorize_action_hint(
+    ctx: PhaseContext, hint: str, author: str,
+) -> bool:
+    """Check if comment author is authorized to trigger this action_hint.
+
+    Read-only hints (run_status, check_health) → always allowed.
+    State-mutating hints (create_mission, assign_agent, escalate, etc.) →
+    requires the author to be a registered citizen OR operator.
+    """
+    # Read-only hints pass unconditionally
+    if hint in _READ_ONLY_HINTS:
+        return True
+    for prefix in _READ_ONLY_PREFIXES:
+        if hint.startswith(prefix):
+            return True
+
+    # State-mutating: author must be a citizen or registered operator
+    if not author:
+        return False
+    # Check citizen status
+    agent_data = ctx.pokedex.get(author)
+    if agent_data and agent_data.get("status") in ("citizen", "active"):
+        return True
+    # Check operator table
+    operator = ctx.pokedex.get_operator(author)
+    if operator is not None:
+        return True
+    return False
+
+
+# 6C-9: Track executed action_hints per comment_id to prevent duplicate fires on edits.
+_executed_hints: dict[str, str] = {}  # comment_id → last executed hint
+_EXECUTED_HINTS_MAX = 500
+
+
 def _execute_action_hint(
     ctx: PhaseContext,
     thought: object,
     discussion_number: int,
     agent_name: str,
     operations: list[str],
+    *,
+    comment_author: str = "",
+    comment_id: str = "",
 ) -> None:
     """Act on a Brain action_hint from discussion comprehension.
 
-    Hint vocabulary (from brain.py Thought):
-      "" — no action
-      "create_mission:<description>" — create Sankalpa mission
-      "investigate:<topic>" — create investigation mission
-      "flag_bottleneck:<domain>" — emit pain signal
+    6C-8: Authorization-gated — state-mutating hints require citizen/operator.
+    6C-9: Edit-dedup — same hint for same comment_id is skipped.
     """
     hint = thought.action_hint
     if not hint:
         return
+
+    # 6C-8: Authorization gate
+    if not _authorize_action_hint(ctx, hint, comment_author):
+        operations.append(
+            f"brain_hint_denied:{hint[:30]}:@{comment_author}:#{discussion_number}"
+        )
+        logger.info(
+            "KARMA: action_hint '%s' denied for @%s (not citizen/operator)",
+            hint[:40], comment_author,
+        )
+        return
+
+    # 6C-9: Edit dedup — skip if same hint already executed for this comment
+    if comment_id:
+        prev_hint = _executed_hints.get(comment_id)
+        if prev_hint == hint:
+            operations.append(
+                f"brain_hint_dedup:{hint[:30]}:{comment_id[:12]}:#{discussion_number}"
+            )
+            return
+        # Track this execution (bounded dict)
+        if len(_executed_hints) >= _EXECUTED_HINTS_MAX:
+            # Evict oldest entries (first 100)
+            for old_key in list(_executed_hints)[:100]:
+                del _executed_hints[old_key]
+        _executed_hints[comment_id] = hint
 
     if hint.startswith("create_mission:"):
         desc = hint[len("create_mission:"):].strip()
