@@ -143,6 +143,7 @@ class AgentSpawner:
 
         Called once at boot to catch citizens promoted in previous runs
         who don't have cartridges or physical directories yet.
+        Also ensures claim_level >= 1 for citizens (migration for pre-fix agents).
         """
         count = 0
         for agent in self._pokedex.list_citizens():
@@ -150,6 +151,11 @@ class AgentSpawner:
             cell = self._pokedex.get_cell(name)
             if cell is None or not cell.is_alive:
                 continue
+
+            # Ensure citizens are at least claim_level 1 (contributor)
+            if self._pokedex.get_claim_level(name) < 1:
+                self._pokedex.update_claim_level(name, 1)
+                logger.info("Migrated %s to claim_level=1 (contributor)", name)
 
             # Generate cartridge if not already cached
             if self._cartridge_factory is not None:

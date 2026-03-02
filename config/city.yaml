@@ -67,6 +67,7 @@ discussions:
   max_agent_comments_per_cycle: 3
   response_cooldown_s: 600
   skip_own_username: "github-actions[bot]"
+  max_action_posts_per_cycle: 1
   pulse_every_n_moksha: 2
 
 pr_lifecycle:

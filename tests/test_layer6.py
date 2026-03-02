@@ -874,7 +874,7 @@ class _MockSankalpa:
     def __init__(self):
         self.registry = _MockSankalpaRegistry()
 
-    def think(self) -> list:
+    def think(self, **kwargs) -> list:
         return []
 
 
