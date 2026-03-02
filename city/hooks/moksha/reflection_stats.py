@@ -276,6 +276,15 @@ class BrainReflectionHook(BasePhaseHook):
                 })()
                 create_improvement_mission(ctx, proposal)
 
+            # 6C-1: Post reflection to Brainstream discussion thread
+            if ctx.discussions is not None and not ctx.offline_mode:
+                outcome_diff = reflection.get("outcome_diff")
+                posted = ctx.discussions.post_brainstream_reflection(
+                    cycle_thought, ctx.heartbeat_count, outcome_diff,
+                )
+                if posted:
+                    operations.append(f"brainstream_reflection:#{ctx.heartbeat_count}")
+
         # Decay stale brain cells, then flush to disk
         if ctx.brain_memory is not None:
             if hasattr(ctx.brain_memory, "decay"):
