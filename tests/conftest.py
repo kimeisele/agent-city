@@ -269,6 +269,9 @@ class MockSankalpaRegistry:
     def get_all_missions(self) -> list:
         return self.missions
 
+    def get_active_missions(self) -> list:
+        return [m for m in self.missions if getattr(m, "status", None) and m.status.value == "active"]
+
 
 class MockSankalpa:
     """Minimal SankalpaOrchestrator mock for tests."""
