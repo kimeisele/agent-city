@@ -169,116 +169,17 @@ def execute(ctx: PhaseContext) -> list[str]:
         for name in followed:
             discovered.append(f"followed:{name}")
 
-    # GitHub Discussions: seed threads + scan + @mention extraction + agent spawning
-    if ctx.discussions is not None and not ctx.offline_mode:
-        # Seed idempotent threads on first run
-        seeded = ctx.discussions.seed_discussions()
-        for key, number in seeded.items():
-            if number:
-                discovered.append(f"disc_seed:{key}:#{number}")
+    # GitHub Discussions + Agent Intros — dispatched via PhaseHook
+    from city.phase_hook import GENESIS as _GENESIS_PHASE, PhaseHookRegistry
+    from city.hooks.genesis.discussion_scanner import (
+        AgentIntroHook,
+        DiscussionScannerHook,
+    )
 
-        from city.discussions_inbox import extract_mentions
-
-        disc_signals = ctx.discussions.scan()
-        for signal in disc_signals:
-            discovered.append(f"discussion:{signal['number']}")
-
-            # New threads → create discussion mission
-            if signal.get("is_new") and ctx.sankalpa is not None:
-                from city.missions import create_discussion_mission
-
-                create_discussion_mission(
-                    ctx, signal["number"], signal.get("title", ""), "observe",
-                )
-
-            for comment in signal.get("new_comments", []):
-                comment_id = comment.get("id", "")
-                comment_author = comment.get("author", "")
-                body = comment.get("body", "")
-                is_own = ctx.discussions.is_own_comment(comment_author)
-
-                # Ingest ALL comments into the ledger — no front-door discrimination
-                if ctx.thread_state is not None and comment_id:
-                    entry = ctx.thread_state.ingest_comment(
-                        comment_id,
-                        signal["number"],
-                        comment_author,
-                        body,
-                        is_own=is_own,
-                    )
-                    if entry is None:
-                        continue  # already ingested (idempotent)
-
-                # Self-posts: parse Brain feedback, but don't enqueue for response
-                if is_own:
-                    _ingest_brain_feedback(ctx, body)
-                    continue
-
-                # External comment: update thread lifecycle + enqueue for processing
-                if ctx.thread_state is not None:
-                    ctx.thread_state.record_human_comment(
-                        signal["number"],
-                        comment_author,
-                        title=signal.get("title", ""),
-                        category="",
-                    )
-
-                mentions = extract_mentions(body)
-
-                # Build enqueue payload
-                enqueue_base = {
-                    "source": "discussion",
-                    "text": body,
-                    "from_agent": comment_author,
-                    "discussion_number": signal["number"],
-                    "discussion_title": signal.get("title", ""),
-                    "comment_id": comment_id,
-                }
-
-                if mentions:
-                    # @mention routing: one enqueue per mentioned agent
-                    for mention in mentions:
-                        existing = ctx.pokedex.get(mention)
-                        if not existing:
-                            ctx.pokedex.discover(mention, moltbook_profile={})
-                            discovered.append(f"disc_spawn:{mention}")
-                            logger.info(
-                                "GENESIS: Discussion @mention spawned agent %s",
-                                mention,
-                            )
-                        _enqueue_item(ctx, {**enqueue_base, "direct_agent": mention})
-                        discovered.append(f"disc_mention:{mention}:#{signal['number']}")
-                else:
-                    # No mentions → general discussion enqueue
-                    _enqueue_item(ctx, enqueue_base)
-
-                # Mark as enqueued in ledger
-                if ctx.thread_state is not None and comment_id:
-                    ctx.thread_state.mark_enqueued(comment_id)
-
-    # Drip-feed agent introductions (Pokedex SSOT, NOT discovered list)
-    if ctx.discussions is not None and not ctx.offline_mode:
-        max_intros = get_config().get("discussions", {}).get(
-            "max_agent_comments_per_cycle", 3,
-        )
-        all_agents = ctx.pokedex.list_all()
-        queued = 0
-        for agent in all_agents:
-            if queued >= max_intros:
-                break
-            name = agent.get("name", "")
-            if not name:
-                continue
-            if ctx.pokedex.has_asset(name, "word_token", "introduced"):
-                continue
-            _enqueue_item(ctx, {
-                "source": "agent_intro",
-                "text": f"New agent: {name}",
-                "agent_name": name,
-            })
-            queued += 1
-        if queued:
-            logger.info("GENESIS: Queued %d agent introductions", queued)
+    _hook_registry = PhaseHookRegistry()
+    _hook_registry.register(DiscussionScannerHook())
+    _hook_registry.register(AgentIntroHook())
+    _hook_registry.dispatch(_GENESIS_PHASE, ctx, discovered)
 
     return discovered
 
