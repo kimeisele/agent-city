@@ -89,16 +89,20 @@ class MoltbookOutboundHook(BasePhaseHook):
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         reflection = getattr(ctx, "_reflection", {})
 
-        # Mission result posts
+        # Mission result posts (always — terminal missions are inherently events)
         mission_results = reflection.get("mission_results_terminal", [])
         if mission_results:
             results_posted = ctx.moltbook_bridge.post_mission_results(mission_results)
             reflection["mission_results_posted"] = results_posted
 
-        # City update post
-        post_data = _build_post_data(ctx, reflection)
-        posted = ctx.moltbook_bridge.post_city_update(post_data)
-        reflection["moltbook_update_posted"] = posted
+        # Smart Heartbeat: skip city update when nothing happened
+        delta = _count_rotation_delta(reflection)
+        if delta > 0:
+            post_data = _build_post_data(ctx, reflection)
+            posted = ctx.moltbook_bridge.post_city_update(post_data)
+            reflection["moltbook_update_posted"] = posted
+        else:
+            operations.append("moltbook_outbound_skipped:no_delta")
 
         # Moltbook Assistant: reflect on engagement metrics
         if ctx.moltbook_assistant is not None:
@@ -127,24 +131,28 @@ class DiscussionsOutboundHook(BasePhaseHook):
         reflection = getattr(ctx, "_reflection", {})
 
         if not ctx.offline_mode:
-            report_posted = ctx.discussions.post_city_report(
-                ctx.heartbeat_count,
-                reflection,
-            )
-            reflection["discussions_report_posted"] = report_posted
-
-            mission_results = reflection.get("mission_results_terminal", [])
-            if mission_results:
-                crossposted = ctx.discussions.cross_post_mission_results(mission_results)
-                reflection["discussions_crossposted"] = crossposted
-
-            # Delta-gated pulse: only fire when something happened this rotation
+            # Smart Heartbeat: only post when something actually happened
             delta = _count_rotation_delta(reflection)
+
             if delta > 0:
+                report_posted = ctx.discussions.post_city_report(
+                    ctx.heartbeat_count,
+                    reflection,
+                )
+                reflection["discussions_report_posted"] = report_posted
+
+                mission_results = reflection.get("mission_results_terminal", [])
+                if mission_results:
+                    crossposted = ctx.discussions.cross_post_mission_results(mission_results)
+                    reflection["discussions_crossposted"] = crossposted
+
+                # Pulse to welcome thread
                 pulse_stats = reflection.get("city_stats", {})
                 pulsed = ctx.discussions.post_pulse(ctx.heartbeat_count, pulse_stats)
                 reflection["discussions_pulse_posted"] = pulsed
                 reflection["discussions_pulse_delta"] = delta
+            else:
+                operations.append("disc_outbound_skipped:no_delta")
 
         reflection["discussions"] = ctx.discussions.stats()
 
