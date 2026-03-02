@@ -40,7 +40,7 @@ jobs:
         with:
           repository: kimeisele/steward-protocol
           path: steward-protocol
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.FEDERATION_PAT }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -82,7 +82,7 @@ jobs:
       - name: Run heartbeat
         env:
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
-          GH_TOKEN: ${{ secrets.FEDERATION_PAT || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           CYCLES=${{ github.event.inputs.cycles || '4' }}
