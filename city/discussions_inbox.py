@@ -141,11 +141,14 @@ def _compose_response(
     stats: dict,
     gateway_result: dict,
 ) -> str:
-    """Compose agent response from spec + cognition. Zero templates.
+    """Compose agent response from spec + neuro-symbolic semantic layer.
 
-    Uses buddhi cognitive output (composed, perspective, approach) to
-    relate response to the actual discussion topic. Not just spec dumps.
+    The semantic layer translates raw Mahamantra resonance into Agent City
+    language: element frames + extracted concepts + agent perspective.
+    Deterministic, no LLM. Language IS routing.
     """
+    from city.semantic import translate_for_agent
+
     parts = [_agent_signature(spec, gateway_result)]
 
     function = gateway_result.get("buddhi_function", "")
@@ -157,9 +160,8 @@ def _compose_response(
     verb = _FUNCTION_VERB.get(function, "observe")
     frame = _GUNA_FRAME.get(guna, "Note")
 
-    # Buddhi cognitive output (relates to the actual discussion topic)
+    # Buddhi cognitive output
     perspective = gateway_result.get("buddhi_perspective", "")
-    composed = gateway_result.get("buddhi_composed", "")
     approach = gateway_result.get("buddhi_approach", "")
 
     # Perspective line: chapter-derived context for this topic
@@ -168,9 +170,10 @@ def _compose_response(
     else:
         parts.append(f"\n**{frame}**: As {role}, I can {verb} this from the {domain} domain.")
 
-    # Cognitive signal: buddhi's resonant vocabulary for this input
-    if composed:
-        parts.append(f"**Signal**: {composed}")
+    # Semantic layer: translated resonance (Agent City language)
+    reading = translate_for_agent(signal.body or signal.title, spec)
+    if reading:
+        parts.append(f"**Reading**: {reading}")
 
     # Approach context (which phase of thinking this maps to)
     if approach:

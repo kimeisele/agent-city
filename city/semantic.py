@@ -1,0 +1,411 @@
+"""
+SEMANTIC LAYER — Agent City Language Translation
+==================================================
+
+Glättungsschicht between raw Mahamantra resonance and Agent City communication.
+
+Goes INTO the coordinates and graph values of resonant words to form statements.
+Element transitions = verbs. Concepts = nouns. Walk direction = mode.
+Basin overlap = relationships. Varga = quality.
+
+No LLM. Pure graph mathematics + element semantics = Agent City Sprache.
+
+    Hare Krishna Hare Krishna Krishna Krishna Hare Hare
+    Hare Rama   Hare Rama   Rama   Rama   Hare Hare
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from functools import lru_cache
+
+logger = logging.getLogger("AGENT_CITY.SEMANTIC")
+
+# ── Element Semantics ─────────────────────────────────────────────────
+# Each element = a semantic domain. These ARE the grammar of Agent City.
+# Derived from Pancha Mahabhuta (BG 7.4), verified against guardian_spec.py.
+
+ELEMENT_DOMAIN: dict[str, str] = {
+    "akasha": "awareness",
+    "vayu": "communication",
+    "agni": "transformation",
+    "jala": "integration",
+    "prithvi": "foundation",
+}
+
+_ELEM_INT: dict[str, int] = {
+    "akasha": 0, "vayu": 1, "agni": 2, "jala": 3, "prithvi": 4,
+}
+_INT_ELEM: dict[int, str] = {v: k for k, v in _ELEM_INT.items()}
+
+# ── Element Transitions = VERBS ──────────────────────────────────────
+# Each transition between elements is a deterministic verb.
+# 20 directed transitions (5×5 minus 5 self-loops).
+# Self-loops = "deepens" (same element reinforces).
+
+_TRANSITION_VERB: dict[tuple[int, int], str] = {
+    # FROM akasha (awareness)
+    (0, 1): "expands into",       # awareness → communication
+    (0, 2): "ignites",            # awareness → transformation
+    (0, 3): "flows into",         # awareness → integration
+    (0, 4): "grounds",            # awareness → foundation
+    # FROM vayu (communication)
+    (1, 0): "opens",              # communication → awareness
+    (1, 2): "kindles",            # communication → transformation
+    (1, 3): "converges with",     # communication → integration
+    (1, 4): "settles into",       # communication → foundation
+    # FROM agni (transformation)
+    (2, 0): "illuminates",        # transformation → awareness
+    (2, 1): "drives",             # transformation → communication
+    (2, 3): "dissolves into",     # transformation → integration
+    (2, 4): "forges",             # transformation → foundation
+    # FROM jala (integration)
+    (3, 0): "reflects",           # integration → awareness
+    (3, 1): "carries",            # integration → communication
+    (3, 2): "fuels",              # integration → transformation
+    (3, 4): "nourishes",          # integration → foundation
+    # FROM prithvi (foundation)
+    (4, 0): "rises to",           # foundation → awareness
+    (4, 1): "releases",           # foundation → communication
+    (4, 2): "transforms through", # foundation → transformation
+    (4, 3): "melts into",         # foundation → integration
+}
+
+# ── Varga Quality ────────────────────────────────────────────────────
+# Dominant varga of resonant words = quality of the statement.
+# svara(0) = vowels = contemplative. sparsha(1) = stops = active.
+# shesha(2) = continuants = flowing/ongoing.
+
+_VARGA_QUALITY: dict[int, str] = {
+    0: "contemplative",
+    1: "active",
+    2: "flowing",
+}
+
+# ── Stop Words ───────────────────────────────────────────────────────
+
+_STOP_WORDS = frozenset(
+    "a an the of in on at to for by with from and or but is are was were "
+    "be been being have has had do does did will would shall should may might "
+    "can could that this these those it its he she they his her their our my "
+    "your who whom which what when where how all no not so very such as also "
+    "than too into each every some any many much more most other another".split()
+)
+
+
+# ── Concept Extraction ───────────────────────────────────────────────
+
+
+def _extract_concepts(meanings: list[str]) -> list[str]:
+    """Extract key concept phrases from resonant word meanings.
+
+    Keeps meaningful phrases (not individual words). Filters noise
+    like proper names and articles. Deduplicates by stem overlap.
+    """
+    seen_stems: set[str] = set()
+    concepts: list[str] = []
+
+    for meaning in meanings:
+        # Strip leading articles/prepositions
+        cleaned = re.sub(
+            r"^(the|a|an|of|in|on|at|to|for|by|with|from)\s+", "", meaning.lower()
+        )
+        # Strip trailing articles/prepositions
+        cleaned = re.sub(r"\s+(of|the|a|an|in|on|at|to|for|by|with|from)$", "", cleaned)
+        cleaned = cleaned.strip()
+        if not cleaned or len(cleaned) < 4:
+            continue
+
+        # Skip proper names and vocative addresses
+        if "sons of" in cleaned or "daughter" in cleaned:
+            continue
+        if cleaned.startswith("o ") and ("of" in cleaned or "killer" in cleaned):
+            continue
+
+        # Extract stem for dedup (first 2 significant words)
+        words = [w for w in cleaned.split() if w not in _STOP_WORDS and len(w) >= 3]
+        if not words:
+            continue
+        stem = " ".join(words[:2])
+        if stem in seen_stems:
+            continue
+        seen_stems.add(stem)
+
+        concepts.append(cleaned)
+
+    return concepts
+
+
+# ── Coordinate Analysis ──────────────────────────────────────────────
+
+
+def _element_transitions(element_walk: list[str]) -> list[str]:
+    """Extract unique element transitions as verb phrases.
+
+    Each transition between different elements = a deterministic verb.
+    Returns human-readable transition phrases.
+    """
+    if len(element_walk) < 2:
+        return []
+
+    ints = [_ELEM_INT.get(e, 4) for e in element_walk]
+    seen: set[tuple[int, int]] = set()
+    phrases: list[str] = []
+
+    for i in range(len(ints) - 1):
+        a, b = ints[i], ints[i + 1]
+        if a == b:
+            continue  # self-loop = deepening, skip in output
+        pair = (a, b)
+        if pair in seen:
+            continue
+        seen.add(pair)
+
+        verb = _TRANSITION_VERB.get(pair, "moves to")
+        from_domain = ELEMENT_DOMAIN.get(_INT_ELEM.get(a, "prithvi"), "foundation")
+        to_domain = ELEMENT_DOMAIN.get(_INT_ELEM.get(b, "prithvi"), "foundation")
+        phrases.append(f"{from_domain} {verb} {to_domain}")
+
+    return phrases
+
+
+def _walk_direction(element_walk: list[str]) -> str:
+    """Compute walk direction from element walk.
+
+    Ascending = evolving (akasha→prithvi direction, consciousness manifesting)
+    Descending = resolving (prithvi→akasha direction, matter returning to source)
+    Steady = maintaining
+    """
+    if len(element_walk) < 2:
+        return "steady"
+    ints = [_ELEM_INT.get(e, 4) for e in element_walk]
+    direction = sum(ints[i + 1] - ints[i] for i in range(len(ints) - 1))
+    if direction > 1:
+        return "manifesting"
+    if direction < -1:
+        return "resolving"
+    return "steady"
+
+
+def _dominant_element(elements: list[str]) -> str:
+    """Find the dominant element from an element walk."""
+    if not elements:
+        return "prithvi"
+    counts: dict[str, int] = {}
+    for e in elements:
+        counts[e] = counts.get(e, 0) + 1
+    return max(counts, key=counts.get)  # type: ignore[arg-type]
+
+
+def _basin_groups(meanings: list[str]) -> list[list[str]]:
+    """Group concepts by shared basin sets from the semantic index.
+
+    Words that share basins in RAMA space are semantically related.
+    Returns groups of cleaned concept phrases that are basin-connected.
+    """
+    try:
+        from vibe_core.mahamantra.substrate.encoding.semantic_index import get_index
+
+        idx = get_index()
+    except Exception:
+        return []
+
+    # Filter meanings through concept extraction first
+    valid_concepts = set(_extract_concepts(meanings))
+
+    # Look up each meaning in the index to get basin sets
+    meaning_basins: list[tuple[str, frozenset[int]]] = []
+    seen_tokens: set[str] = set()
+    for meaning in meanings:
+        cleaned = re.sub(
+            r"^(the|a|an|of|in|on|at|to|for|by|with|from)\s+", "", meaning.lower()
+        ).strip()
+        if cleaned not in valid_concepts:
+            continue
+
+        # Find LexiconWord by first significant token
+        tokens = meaning.lower().split()
+        for t in tokens:
+            if len(t) >= 4 and t not in _STOP_WORDS and t not in seen_tokens:
+                results = idx.by_meaning(t)
+                if results:
+                    seen_tokens.add(t)
+                    meaning_basins.append((cleaned, results[0].basin_set))
+                    break
+
+    if len(meaning_basins) < 2:
+        return []
+
+    # Find pairs with shared basins (Jaccard > 0.5)
+    groups: list[list[str]] = []
+    used: set[int] = set()
+    for i in range(len(meaning_basins)):
+        if i in used:
+            continue
+        group = [meaning_basins[i][0]]
+        basins_i = meaning_basins[i][1]
+        for j in range(i + 1, len(meaning_basins)):
+            if j in used:
+                continue
+            if meaning_basins[j][0] == meaning_basins[i][0]:
+                used.add(j)
+                continue  # skip exact duplicate concepts
+            basins_j = meaning_basins[j][1]
+            if not basins_i or not basins_j:
+                continue
+            intersection = len(basins_i & basins_j)
+            union = len(basins_i | basins_j)
+            if union > 0 and intersection / union > 0.5:
+                group.append(meaning_basins[j][0])
+                used.add(j)
+        if len(group) > 1:
+            used.add(i)
+            groups.append(group)
+
+    return groups
+
+
+def _varga_quality(meanings: list[str]) -> str:
+    """Determine the dominant varga quality from resonant word lookups."""
+    try:
+        from vibe_core.mahamantra.substrate.encoding.semantic_index import get_index
+
+        idx = get_index()
+    except Exception:
+        return ""
+
+    varga_counts: dict[int, int] = {0: 0, 1: 0, 2: 0}
+    for meaning in meanings[:5]:
+        tokens = meaning.lower().split()
+        for t in tokens:
+            if len(t) >= 4 and t not in _STOP_WORDS:
+                results = idx.by_meaning(t)
+                if results:
+                    lw = results[0]
+                    for v in lw.varga_walk[:3]:
+                        varga_counts[v] = varga_counts.get(v, 0) + 1
+                break
+
+    if not any(varga_counts.values()):
+        return ""
+    dominant = max(varga_counts, key=varga_counts.get)  # type: ignore[arg-type]
+    return _VARGA_QUALITY.get(dominant, "")
+
+
+# ── Core Translation ──────────────────────────────────────────────────
+
+
+@lru_cache(maxsize=128)
+def translate(text: str) -> str | None:
+    """Translate input text into Agent City language.
+
+    Coordinate-aware deterministic pipeline:
+      text → resonate() → coordinate analysis → composition
+
+    Element transitions = verbs. Concepts = nouns.
+    Walk direction = mode. Basin overlap = relationships.
+    Varga = quality. Guardian = routing context.
+
+    Returns None if resonance infrastructure unavailable.
+    """
+    try:
+        from vibe_core.mahamantra.substrate.encoding.maha_llm_kernel import resonate
+
+        r = resonate(text, top_n=5)
+    except Exception:
+        return None
+
+    # Extract English meanings (NO Sanskrit)
+    meanings = [w.meanings[0] for w in r.words if w.meanings and w.meanings[0]]
+    if not meanings:
+        return None
+
+    concepts = _extract_concepts(meanings)
+    if not concepts:
+        return None
+
+    # ── Coordinate Analysis ──
+    elements = list(r.element_walk[:8]) if r.element_walk else []
+    dominant = _dominant_element(elements)
+    domain = ELEMENT_DOMAIN.get(dominant, "foundation")
+
+    # Walk direction (manifesting/resolving/steady)
+    direction = _walk_direction(elements)
+
+    # Element transitions → verb phrases
+    transitions = _element_transitions(elements)
+
+    # Basin grouping → related concept clusters
+    basin_groups = _basin_groups(meanings)
+
+    # Varga quality (contemplative/active/flowing)
+    quality = _varga_quality(meanings)
+
+    # Guardian context
+    guardian = r.guardian_name or ""
+    guardian_fn = r.guardian_function or ""
+
+    # ── Compose Agent City Statement ──
+    # Format: [mode] [domain]: [concepts] | [transitions] | [relationships]
+
+    # Opening: direction + dominant domain + concepts
+    mode_tag = f"[{direction}]" if direction != "steady" else ""
+    concept_phrase = ", ".join(concepts[:5])
+    opening = f"{mode_tag} {domain}: {concept_phrase}".strip()
+    parts = [opening]
+
+    # Flow: element transitions as verb phrases (max 3)
+    if transitions:
+        flow = " → ".join(transitions[:3])
+        parts.append(f"Flow: {flow}")
+
+    # Relationships: basin-connected concept groups
+    if basin_groups:
+        for group in basin_groups[:2]:
+            cleaned = [_clean_concept(c) for c in group[:4]]
+            if len(set(cleaned)) > 1:  # skip if all concepts collapse to same stem
+                parts.append(f"Connected: {' ↔ '.join(dict.fromkeys(cleaned))}")
+
+    # Quality tag if detected
+    if quality:
+        parts.append(f"Quality: {quality}")
+
+    # Guardian routing context
+    if guardian:
+        parts.append(f"Route: {guardian}/{guardian_fn}" if guardian_fn else f"Route: {guardian}")
+
+    return " | ".join(parts)
+
+
+def _clean_concept(text: str) -> str:
+    """Shorten a concept phrase for compact display."""
+    words = [w for w in text.lower().split() if w not in _STOP_WORDS and len(w) >= 3]
+    return " ".join(words[:3]) if words else text[:20]
+
+
+def element_reading(elements: list[str]) -> str:
+    """Translate element walk into English semantic reading."""
+    if not elements:
+        return ""
+    unique = list(dict.fromkeys(elements[:4]))
+    domains = [ELEMENT_DOMAIN.get(e, "foundation") for e in unique]
+    return " → ".join(domains)
+
+
+def translate_for_agent(text: str, spec: dict) -> str | None:
+    """Translate text through an agent's semantic lens.
+
+    Same translation, but the agent's element determines which transition
+    relationships are highlighted — the agent SEES the flow through its
+    own elemental perspective.
+    """
+    base = translate(text)
+    if base is None:
+        return None
+
+    agent_element = spec.get("element", "prithvi")
+    agent_domain = ELEMENT_DOMAIN.get(agent_element, "foundation")
+    agent_role = spec.get("role", "")
+
+    return f"{base} | Lens: {agent_domain} ({agent_role})"
