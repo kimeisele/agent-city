@@ -41,7 +41,8 @@ def execute(ctx: PhaseContext) -> list[str]:
             try:
                 feed = ctx.moltbook_client.sync_get_feed(limit=limit)
                 for post in feed:
-                    author = post.get("author", {}).get("username")
+                    author_obj = post.get("author") or {}
+                    author = author_obj.get("name") or author_obj.get("username")
                     if not author:
                         continue
                     existing = ctx.pokedex.get(author)
@@ -49,8 +50,8 @@ def execute(ctx: PhaseContext) -> list[str]:
                         ctx.pokedex.discover(
                             author,
                             moltbook_profile={
-                                "karma": post.get("author", {}).get("karma"),
-                                "follower_count": post.get("author", {}).get("follower_count"),
+                                "karma": author_obj.get("karma"),
+                                "follower_count": author_obj.get("followerCount") or author_obj.get("follower_count"),
                             },
                         )
                         discovered.append(author)
