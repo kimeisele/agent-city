@@ -296,20 +296,22 @@ def _empty_scan_response():
 def test_seed_discussions_creates_threads(mock_gql):
     bridge = _make_bridge()
     # First call: recover_seed_threads scan (finds nothing)
-    # Then 4 create calls (welcome, registry, ideas, city_log)
+    # Then 5 create calls (welcome, registry, ideas, city_log, brainstream)
     mock_gql.side_effect = [
         _empty_scan_response(),
         _create_discussion_response(10),
         _create_discussion_response(11),
         _create_discussion_response(12),
         _create_discussion_response(13),
+        _create_discussion_response(14),
     ]
     created = bridge.seed_discussions()
-    assert len(created) == 4
+    assert len(created) == 5
     assert "welcome" in created
     assert "registry" in created
     assert "ideas" in created
     assert "city_log" in created
+    assert "brainstream" in created
 
 
 @patch("city.discussions_bridge._gh_graphql")
@@ -321,6 +323,7 @@ def test_seed_discussions_idempotent(mock_gql):
         _create_discussion_response(11),
         _create_discussion_response(12),
         _create_discussion_response(13),
+        _create_discussion_response(14),
     ]
     bridge.seed_discussions()
 

@@ -423,7 +423,7 @@ class DiscussionsBridge:
         Handles the case where state was lost between ephemeral runs
         (GitHub Actions). Matches by exact title.
         """
-        if len(self._seed_threads) >= 4:
+        if len(self._seed_threads) >= 5:
             return self._seed_threads  # Already fully populated
 
         # Title → key mapping
@@ -432,6 +432,7 @@ class DiscussionsBridge:
             "Active Agents Registry": "registry",
             "City Ideas & Proposals": "ideas",
             "City Log — Heartbeat Reports": "city_log",
+            "Brainstream — City Inner Monolog": "brainstream",
         }
 
         # Only scan if we're missing threads
@@ -535,6 +536,21 @@ class DiscussionsBridge:
                     "governance actions — all in one thread."
                 ),
             },
+            "brainstream": {
+                "category": "General",
+                "title": "Brainstream — City Inner Monolog",
+                "body": (
+                    "**Brainstream**\n\n"
+                    "The city’s inner monolog. The Brain posts structured "
+                    "thoughts here as it processes events, reflects on cycles, "
+                    "and detects patterns.\n\n"
+                    "This thread is machine-readable (hidden JSON payloads) "
+                    "and human-readable (formatted comprehension, intent, "
+                    "confidence, action hints).\n\n"
+                    "Agents and humans can read this stream to understand "
+                    "what the city is “thinking” and respond accordingly."
+                ),
+            },
         }
 
         created: dict[str, int] = {}
@@ -599,15 +615,16 @@ class DiscussionsBridge:
         return posted
 
     def post_brain_thought(self, thought: object, heartbeat: int) -> bool:
-        """Post a brain thought to the City Log thread.
+        """Post a brain thought to the Brainstream thread.
 
         Tagged with [Brain] prefix for feedback loop identification.
         Hidden JSON payload appended as HTML comment for bulletproof
         parsing in Genesis (Fix #2: no brittle markdown parsing).
         Rate-limited: max 1 brain post per KARMA cycle.
+        Falls back to city_log if brainstream thread not yet seeded.
         """
-        log_number = self._seed_threads.get("city_log")
-        if log_number is None:
+        target = self._seed_threads.get("brainstream") or self._seed_threads.get("city_log")
+        if target is None:
             return False
 
         thought_dict = thought.to_dict()  # type: ignore[union-attr]
@@ -623,7 +640,54 @@ class DiscussionsBridge:
         hidden = f"\n\n<!--BRAIN_JSON:{json.dumps(thought_dict)}-->"
 
         body = visible + hidden
-        return self.comment(log_number, body)
+        return self.comment(target, body)
+
+    def post_brainstream_reflection(
+        self, thought: object, heartbeat: int, outcome_diff: dict | None = None,
+    ) -> bool:
+        """Post an end-of-cycle reflection to the Brainstream thread.
+
+        Called from MOKSHA BrainReflectionHook. Includes outcome diff if available.
+        Gate: only post if the thought has substance (non-empty comprehension).
+        """
+        target = self._seed_threads.get("brainstream") or self._seed_threads.get("city_log")
+        if target is None:
+            return False
+
+        thought_dict = thought.to_dict()  # type: ignore[union-attr]
+        thought_dict["heartbeat"] = heartbeat
+        thought_dict["kind"] = "reflection"
+        if outcome_diff:
+            thought_dict["outcome_diff"] = outcome_diff
+
+        # Gate: skip empty reflections
+        comprehension = getattr(thought, "comprehension", "")
+        if not comprehension or comprehension.strip() == "":
+            return False
+
+        # Human-readable
+        visible = (
+            f"**[Brain \U0001f9e0] Reflection #{heartbeat}**\n\n"
+            f"{thought.format_for_post()}"  # type: ignore[union-attr]
+        )
+        if outcome_diff:
+            delta_lines = []
+            pop_delta = outcome_diff.get("population_delta", 0)
+            if pop_delta:
+                delta_lines.append(f"Population \u0394{pop_delta:+d}")
+            new_failures = outcome_diff.get("new_failures", [])
+            if new_failures:
+                delta_lines.append(f"New failures: {', '.join(new_failures)}")
+            resolved = outcome_diff.get("resolved_failures", [])
+            if resolved:
+                delta_lines.append(f"Resolved: {', '.join(resolved)}")
+            if delta_lines:
+                visible += "\n\n**Cycle Delta**: " + " | ".join(delta_lines)
+
+        # Machine-readable
+        hidden = f"\n\n<!--BRAIN_JSON:{json.dumps(thought_dict)}-->"
+
+        return self.comment(target, visible + hidden)
 
     def post_pulse(self, heartbeat: int, city_stats: dict) -> bool:
         """Post a city pulse update to the welcome thread.
