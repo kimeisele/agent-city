@@ -163,11 +163,16 @@ def execute(ctx: PhaseContext) -> list[str]:
                 )
 
     # Layer 3: Sankalpa strategic thinking
+    # idle_minutes = real wall-clock gap between KARMA executions.
+    # Cron fires every 15min, 4 cycles/run, KARMA = cycle 2 → runs once per 15min.
+    # Accumulates: heartbeat_count / 4 gives completed rotations × 15min.
     if ctx.sankalpa is not None:
-        intents = ctx.sankalpa.think()
+        rotations = ctx.heartbeat_count // 4
+        idle_minutes = rotations * 15
+        intents = ctx.sankalpa.think(idle_minutes=idle_minutes)
         for intent in intents:
             operations.append(f"sankalpa_intent:{intent.title}")
-            logger.info("KARMA: Sankalpa intent — %s", intent.title)
+            logger.info("KARMA: Sankalpa intent — %s (idle=%dmin)", intent.title, idle_minutes)
 
     # Cartridge routing: capability-scored agent dispatch
     _route_to_cartridges(ctx, operations, all_specs, all_inventories)

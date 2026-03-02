@@ -484,6 +484,7 @@ class Pokedex:
                 """
                 UPDATE agents SET
                     status = 'citizen',
+                    claim_level = MAX(claim_level, 1),
                     fingerprint = ?,
                     public_key = ?,
                     seed_hash = ?,
