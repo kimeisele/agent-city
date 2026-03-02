@@ -1,9 +1,15 @@
-"""Discussions Commands Tests — command parsing, conversation state, brain feedback."""
+"""Discussions Commands Tests — command parsing, execution, conversation state, brain feedback."""
+
+import shutil
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock
 
 from city.discussions_commands import (
     ConversationThread,
     ConversationTracker,
     DiscussionCommand,
+    execute_command,
     extract_brain_feedback,
     format_help,
     parse_commands,
@@ -234,3 +240,200 @@ def test_extract_brain_feedback_mixed_command_and_prose():
     )
     assert fb is not None
     assert "test coverage" in fb["comprehension"]
+
+
+# ── Command Execution ───────────────────────────────────────────────
+
+
+def _make_cmd(command: str, args: str = "", author: str = "testuser") -> DiscussionCommand:
+    """Helper to build a DiscussionCommand for testing."""
+    return DiscussionCommand(
+        command=command,
+        args=args,
+        author=author,
+        discussion_number=42,
+        comment_id="test_comment_1",
+        raw_line=f"/{command} {args}".strip(),
+    )
+
+
+def _make_mock_ctx(tmp: Path):
+    """Build a minimal mock PhaseContext for command execution tests."""
+    from city.pokedex import Pokedex
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    bank = CivicBank(db_path=str(tmp / "economy.db"))
+    pokedex = Pokedex(db_path=str(tmp / "city.db"), bank=bank)
+
+    ctx = MagicMock()
+    ctx.pokedex = pokedex
+    ctx.heartbeat_count = 10
+    ctx.council = None
+    ctx.contracts = None
+    ctx.thread_state = None
+    ctx.sankalpa = None
+    ctx.offline_mode = True
+    ctx.state_path = tmp / "mayor_state.json"
+    return ctx
+
+
+def test_exec_help():
+    """/help returns available commands."""
+    cmd = _make_cmd("help")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        result = execute_command(cmd, ctx)
+        assert result is not None
+        assert "Available Commands" in result
+        assert "`/status`" in result
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_exec_status():
+    """/status returns city status."""
+    cmd = _make_cmd("status")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        result = execute_command(cmd, ctx)
+        assert result is not None
+        assert "City Status" in result
+        assert "Heartbeat #10" in result
+        assert "Population" in result
+        assert "Chain integrity" in result
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_exec_agents_empty():
+    """/agents with no citizens returns appropriate message."""
+    cmd = _make_cmd("agents")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        result = execute_command(cmd, ctx)
+        assert result is not None
+        assert "None" in result or "Active Agents" in result
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_exec_agents_with_citizens():
+    """/agents lists registered citizens."""
+    cmd = _make_cmd("agents")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        ctx.pokedex.register("TestAgent")
+        result = execute_command(cmd, ctx)
+        assert result is not None
+        assert "TestAgent" in result
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_exec_ping_found():
+    """/ping existing agent returns info."""
+    cmd = _make_cmd("ping", "TestBot")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        ctx.pokedex.discover("TestBot", moltbook_profile={})
+        result = execute_command(cmd, ctx)
+        assert result is not None
+        assert "TestBot" in result
+        assert "Status" in result
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_exec_ping_not_found():
+    """/ping unknown agent returns not found."""
+    cmd = _make_cmd("ping", "GhostAgent")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        result = execute_command(cmd, ctx)
+        assert result is not None
+        assert "not found" in result
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_exec_ping_no_args():
+    """/ping without args returns usage."""
+    cmd = _make_cmd("ping")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        result = execute_command(cmd, ctx)
+        assert result is not None
+        assert "Usage" in result
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_exec_mission_no_args():
+    """/mission without args returns usage."""
+    cmd = _make_cmd("mission")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        result = execute_command(cmd, ctx)
+        assert result is not None
+        assert "Usage" in result
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_exec_mission_no_sankalpa():
+    """/mission with no sankalpa returns unavailable."""
+    cmd = _make_cmd("mission", "fix tests")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        result = execute_command(cmd, ctx)
+        assert result is not None
+        assert "not available" in result
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_exec_invalid_command():
+    """Invalid command returns None."""
+    cmd = _make_cmd("bogus")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        result = execute_command(cmd, ctx)
+        assert result is None
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_exec_heal_no_args():
+    """/heal without args returns usage."""
+    cmd = _make_cmd("heal")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        result = execute_command(cmd, ctx)
+        assert result is not None
+        assert "Usage" in result
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_exec_heal_no_contracts():
+    """/heal with no contract system returns unavailable."""
+    cmd = _make_cmd("heal", "integrity")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        ctx = _make_mock_ctx(tmp)
+        result = execute_command(cmd, ctx)
+        assert result is not None
+        assert "not available" in result
+    finally:
+        shutil.rmtree(tmp)
