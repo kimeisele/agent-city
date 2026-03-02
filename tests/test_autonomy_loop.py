@@ -283,7 +283,7 @@ def test_execute_code_directive_in_genesis():
                 if self.params is None:
                     self.params = {"contract": "ruff_clean"}
 
-        from city.phases.genesis import _execute_directive
+        from city.hooks.genesis.federation import _execute_directive
         result = _execute_directive(ctx, FakeDirective())
 
         assert result is True
@@ -554,15 +554,15 @@ def test_genesis_creates_signal_missions():
         mock_sankalpa.registry = MagicMock()
         ctx = _make_ctx(tmp, sankalpa=mock_sankalpa)
 
-        from city.phases.genesis import _create_signal_mission
-        signal = {
-            "code_signals": ["deploy", "api"],
-            "post_id": "post_fed12345",
-            "author": "steward",
-            "title": "[Signal] deploy — new api endpoint",
-            "structured": True,
-        }
-        mission_id = _create_signal_mission(ctx, signal)
+        from city.missions import create_signal_mission
+        mission_id = create_signal_mission(
+            ctx,
+            signal_keywords=["deploy", "api"],
+            post_id="post_fed12345",
+            author="steward",
+            title="[Signal] deploy — new api endpoint",
+            structured=True,
+        )
 
         assert mission_id is not None
         assert mission_id.startswith("signal_deploy_api")
