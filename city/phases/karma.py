@@ -926,13 +926,14 @@ def _handle_discussion_item(
                 discussion_number,
             )
     else:
-        # CAPABILITY ROUTING — standard scoring
+        # CAPABILITY ROUTING — neuro-symbolic scoring (semantic affinity)
         intent = classify_discussion_intent(result)
         agent_name, agent_spec = _route_discussion_to_agent(
             ctx,
             intent,
             all_specs,
             all_inventories,
+            discussion_text=item.get("text", ""),
         )
 
     if agent_name is None or agent_spec is None:
@@ -1037,11 +1038,12 @@ def _route_discussion_to_agent(
     intent: str,
     all_specs: dict[str, dict],
     all_inventories: dict[str, list[dict]],
+    discussion_text: str = "",
 ) -> tuple[str | None, dict | None]:
-    """Find the best agent for a discussion intent via capability scoring.
+    """Find the best agent for a discussion intent via neuro-symbolic scoring.
 
-    Hard gate on required_caps from INTENT_REQUIREMENTS, then score via
-    shared score_agent_for_discussion() (city.diagnostics).
+    Hard gate on required_caps, then 4-dimensional scoring:
+    domain + capability + semantic affinity + QoS.
     """
     from city.diagnostics import score_agent_for_discussion
     from city.discussions_inbox import INTENT_REQUIREMENTS
@@ -1068,7 +1070,7 @@ def _route_discussion_to_agent(
         if not check_capability_gate(spec, gate_req, inventory):
             continue
 
-        score = score_agent_for_discussion(spec, intent)
+        score = score_agent_for_discussion(spec, intent, discussion_text)
 
         if score > best_score:
             best_score = score
