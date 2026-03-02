@@ -192,14 +192,29 @@ def execute(ctx: PhaseContext) -> list[str]:
                 )
 
             for comment in signal.get("new_comments", []):
-                # Skip our own comments (self-reply prevention)
+                comment_id = comment.get("id", "")
                 comment_author = comment.get("author", "")
-                if ctx.discussions.is_own_comment(comment_author):
-                    # Feedback loop: parse own [Brain] posts before skipping
-                    _ingest_brain_feedback(ctx, comment.get("body", ""))
+                body = comment.get("body", "")
+                is_own = ctx.discussions.is_own_comment(comment_author)
+
+                # Ingest ALL comments into the ledger — no front-door discrimination
+                if ctx.thread_state is not None and comment_id:
+                    entry = ctx.thread_state.ingest_comment(
+                        comment_id,
+                        signal["number"],
+                        comment_author,
+                        body,
+                        is_own=is_own,
+                    )
+                    if entry is None:
+                        continue  # already ingested (idempotent)
+
+                # Self-posts: parse Brain feedback, but don't enqueue for response
+                if is_own:
+                    _ingest_brain_feedback(ctx, body)
                     continue
 
-                # P8: Record human comment in ThreadState lifecycle engine
+                # External comment: update thread lifecycle + enqueue for processing
                 if ctx.thread_state is not None:
                     ctx.thread_state.record_human_comment(
                         signal["number"],
@@ -208,49 +223,38 @@ def execute(ctx: PhaseContext) -> list[str]:
                         category="",
                     )
 
-                body = comment.get("body", "")
                 mentions = extract_mentions(body)
+
+                # Build enqueue payload
+                enqueue_base = {
+                    "source": "discussion",
+                    "text": body,
+                    "from_agent": comment_author,
+                    "discussion_number": signal["number"],
+                    "discussion_title": signal.get("title", ""),
+                    "comment_id": comment_id,
+                }
 
                 if mentions:
                     # @mention routing: one enqueue per mentioned agent
                     for mention in mentions:
                         existing = ctx.pokedex.get(mention)
-                        if existing:
-                            # Known agent → direct route (bypass scoring)
-                            _enqueue_item(ctx, {
-                                "source": "discussion",
-                                "text": body,
-                                "from_agent": comment_author,
-                                "discussion_number": signal["number"],
-                                "discussion_title": signal.get("title", ""),
-                                "direct_agent": mention,
-                            })
-                            discovered.append(f"disc_mention:{mention}:#{signal['number']}")
-                        else:
-                            # Unknown agent → spawn + enqueue
+                        if not existing:
                             ctx.pokedex.discover(mention, moltbook_profile={})
-                            _enqueue_item(ctx, {
-                                "source": "discussion",
-                                "text": body,
-                                "from_agent": comment_author,
-                                "discussion_number": signal["number"],
-                                "discussion_title": signal.get("title", ""),
-                                "direct_agent": mention,
-                            })
                             discovered.append(f"disc_spawn:{mention}")
                             logger.info(
                                 "GENESIS: Discussion @mention spawned agent %s",
                                 mention,
                             )
+                        _enqueue_item(ctx, {**enqueue_base, "direct_agent": mention})
+                        discovered.append(f"disc_mention:{mention}:#{signal['number']}")
                 else:
                     # No mentions → general discussion enqueue
-                    _enqueue_item(ctx, {
-                        "source": "discussion",
-                        "text": body,
-                        "from_agent": comment_author,
-                        "discussion_number": signal["number"],
-                        "discussion_title": signal.get("title", ""),
-                    })
+                    _enqueue_item(ctx, enqueue_base)
+
+                # Mark as enqueued in ledger
+                if ctx.thread_state is not None and comment_id:
+                    ctx.thread_state.mark_enqueued(comment_id)
 
     # Drip-feed agent introductions (Pokedex SSOT, NOT discovered list)
     if ctx.discussions is not None and not ctx.offline_mode:
