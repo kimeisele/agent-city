@@ -19,7 +19,7 @@ from __future__ import annotations
 import pytest
 
 from city.jiva import derive_jiva
-from city.signal import DecodedSignal, RouteScore, SemanticSignal, SignalCoords
+from city.signal import DecodedSignal, MAX_SIGNAL_HOPS, RouteScore, SemanticSignal, SignalCoords
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -429,3 +429,262 @@ class TestRoundTrip:
             {"element": "agni", "role": "auditor"},
         )
         assert result2 is None or isinstance(result2, str)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PHASE 2: Response Composer
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestResponseComposer:
+    """compose_response_signal closes the A2A loop."""
+
+    def test_compose_response_returns_signal(self, signal_marketplace, jiva_ronin):
+        from city.signal_decoder import decode_signal
+        from city.signal_composer import compose_response_signal
+
+        decoded = decode_signal(signal_marketplace, jiva_ronin)
+        reply = compose_response_signal(decoded, jiva_ronin)
+        assert isinstance(reply, SemanticSignal)
+
+    def test_correlation_id_preserved(self, signal_marketplace, jiva_ronin):
+        from city.signal_decoder import decode_signal
+        from city.signal_composer import compose_response_signal
+
+        decoded = decode_signal(signal_marketplace, jiva_ronin)
+        reply = compose_response_signal(decoded, jiva_ronin)
+        assert reply.correlation_id == signal_marketplace.correlation_id
+
+    def test_hop_count_incremented(self, signal_marketplace, jiva_ronin):
+        from city.signal_decoder import decode_signal
+        from city.signal_composer import compose_response_signal
+
+        decoded = decode_signal(signal_marketplace, jiva_ronin)
+        reply = compose_response_signal(decoded, jiva_ronin)
+        assert reply.hop_count == signal_marketplace.hop_count + 1
+
+    def test_hop_limit_returns_none(self, jiva_hazel, jiva_ronin):
+        """Signals at MAX_SIGNAL_HOPS get no reply — prevents ping-pong."""
+        from dataclasses import replace
+        from city.signal_encoder import encode_signal
+        from city.signal_decoder import decode_signal
+        from city.signal_composer import compose_response_signal
+
+        signal = encode_signal("test hop limit", jiva_hazel, correlation_id="hop-test")
+        # Force hop_count to MAX
+        maxed = replace(signal, hop_count=MAX_SIGNAL_HOPS)
+        decoded = decode_signal(maxed, jiva_ronin)
+        reply = compose_response_signal(decoded, jiva_ronin)
+        assert reply is None
+
+    def test_response_deterministic(self, signal_marketplace, jiva_ronin):
+        from city.signal_decoder import decode_signal
+        from city.signal_composer import compose_response_signal
+
+        decoded = decode_signal(signal_marketplace, jiva_ronin)
+        r1 = compose_response_signal(decoded, jiva_ronin)
+        r2 = compose_response_signal(decoded, jiva_ronin)
+        # Same decoded + same responder → same response (except auto-generated correlation_id
+        # which is preserved from inbound, so they should be equal)
+        assert r1.coords == r2.coords
+        assert r1.concepts == r2.concepts
+        assert r1.hop_count == r2.hop_count
+
+    def test_response_different_from_original(self, signal_marketplace, jiva_ronin):
+        """Response goes through responder's RAMA space — different coords."""
+        from city.signal_decoder import decode_signal
+        from city.signal_composer import compose_response_signal
+
+        decoded = decode_signal(signal_marketplace, jiva_ronin)
+        reply = compose_response_signal(decoded, jiva_ronin)
+        # Different text → different RAMA encoding
+        assert reply.raw_text != signal_marketplace.raw_text
+
+    def test_sender_is_responder(self, signal_marketplace, jiva_ronin):
+        from city.signal_decoder import decode_signal
+        from city.signal_composer import compose_response_signal
+
+        decoded = decode_signal(signal_marketplace, jiva_ronin)
+        reply = compose_response_signal(decoded, jiva_ronin)
+        assert reply.sender_name == "Ronin"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PHASE 2: Hop Counter
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestHopCounter:
+    """Hop counter prevents infinite reply storms."""
+
+    def test_default_hop_count_zero(self, signal_marketplace):
+        assert signal_marketplace.hop_count == 0
+
+    def test_max_signal_hops_constant(self):
+        assert MAX_SIGNAL_HOPS == 3
+
+    def test_reply_chain_stops_at_limit(self, jiva_hazel, jiva_ronin):
+        """Full reply chain: hop 0 → 1 → 2 → 3 (None)."""
+        from city.signal_encoder import encode_signal
+        from city.signal_decoder import decode_signal
+        from city.signal_composer import compose_response_signal
+
+        # Hop 0: origin signal
+        sig = encode_signal("start chain", jiva_hazel, correlation_id="chain-test")
+        assert sig.hop_count == 0
+
+        # Hop 1
+        decoded = decode_signal(sig, jiva_ronin)
+        reply1 = compose_response_signal(decoded, jiva_ronin)
+        assert reply1 is not None
+        assert reply1.hop_count == 1
+
+        # Hop 2
+        decoded2 = decode_signal(reply1, jiva_hazel)
+        reply2 = compose_response_signal(decoded2, jiva_hazel)
+        assert reply2 is not None
+        assert reply2.hop_count == 2
+
+        # Hop 3
+        decoded3 = decode_signal(reply2, jiva_ronin)
+        reply3 = compose_response_signal(decoded3, jiva_ronin)
+        assert reply3 is not None
+        assert reply3.hop_count == 3
+
+        # Hop 4 → None (limit reached)
+        decoded4 = decode_signal(reply3, jiva_hazel)
+        reply4 = compose_response_signal(decoded4, jiva_hazel)
+        assert reply4 is None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PHASE 2: Signal → Mission (Executor Hook)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestSignalMission:
+    """High-affinity signals create Sankalpa missions."""
+
+    def test_create_a2a_signal_mission(self, signal_marketplace, jiva_ronin):
+        from city.signal_decoder import decode_signal
+        from city.missions import create_a2a_signal_mission
+
+        decoded = decode_signal(signal_marketplace, jiva_ronin)
+
+        # Mock ctx with sankalpa
+        class MockRegistry:
+            def __init__(self):
+                self.missions = []
+            def get_active_missions(self):
+                return self.missions
+            def add_mission(self, m):
+                self.missions.append(m)
+
+        class MockSankalpa:
+            def __init__(self):
+                self.registry = MockRegistry()
+
+        class MockCtx:
+            def __init__(self):
+                self.sankalpa = MockSankalpa()
+
+        ctx = MockCtx()
+        result = create_a2a_signal_mission(ctx, decoded, "Ronin")
+        assert result is not None
+        assert len(ctx.sankalpa.registry.missions) == 1
+        mission = ctx.sankalpa.registry.missions[0]
+        assert mission.owner == "Ronin"
+        assert "High-affinity signal" in mission.description
+
+    def test_mission_dedup(self, signal_marketplace, jiva_ronin):
+        from city.signal_decoder import decode_signal
+        from city.missions import create_a2a_signal_mission
+
+        decoded = decode_signal(signal_marketplace, jiva_ronin)
+
+        class MockRegistry:
+            def __init__(self):
+                self.missions = []
+            def get_active_missions(self):
+                return self.missions
+            def add_mission(self, m):
+                self.missions.append(m)
+
+        class MockSankalpa:
+            def __init__(self):
+                self.registry = MockRegistry()
+
+        class MockCtx:
+            def __init__(self):
+                self.sankalpa = MockSankalpa()
+
+        ctx = MockCtx()
+        # First call creates
+        create_a2a_signal_mission(ctx, decoded, "Ronin")
+        assert len(ctx.sankalpa.registry.missions) == 1
+
+        # Second call deduplicates
+        create_a2a_signal_mission(ctx, decoded, "Ronin")
+        assert len(ctx.sankalpa.registry.missions) == 1
+
+    def test_no_mission_without_sankalpa(self, signal_marketplace, jiva_ronin):
+        from city.signal_decoder import decode_signal
+        from city.missions import create_a2a_signal_mission
+
+        decoded = decode_signal(signal_marketplace, jiva_ronin)
+
+        class MockCtx:
+            sankalpa = None
+
+        result = create_a2a_signal_mission(MockCtx(), decoded, "Ronin")
+        assert result is None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PHASE 2: Full A2A Round-Trip via Nadi
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestA2ARoundTrip:
+    """Complete A→B→A signal exchange through AgentNadiManager."""
+
+    def test_full_a2a_exchange(self, jiva_hazel, jiva_ronin):
+        from city.agent_nadi import AgentNadiManager
+        from city.signal_encoder import encode_signal
+        from city.signal_decoder import decode_signal
+        from city.signal_composer import compose_response_signal
+        from city.semantic import compose_prose
+
+        nadi = AgentNadiManager()
+        nadi.register("Hazel_OC")
+        nadi.register("Ronin")
+
+        # A sends signal to B
+        signal_a = encode_signal(
+            "agent marketplace with reputation scoring",
+            jiva_hazel,
+            correlation_id="a2a-test",
+        )
+        nadi.send("Hazel_OC", "Ronin", "test", signal=signal_a)
+
+        # B drains inbox
+        msgs = nadi.drain("Ronin")
+        assert len(msgs) == 1
+        assert msgs[0]["signal"] is signal_a
+
+        # B decodes + composes reply
+        decoded = decode_signal(msgs[0]["signal"], jiva_ronin)
+        reply = compose_response_signal(decoded, jiva_ronin)
+        assert reply is not None
+        assert reply.hop_count == 1
+        assert reply.correlation_id == "a2a-test"
+
+        # B sends reply back to A
+        prose = compose_prose(reply) or ""
+        nadi.send("Ronin", "Hazel_OC", prose, signal=reply)
+
+        # A drains reply
+        replies = nadi.drain("Hazel_OC")
+        assert len(replies) == 1
+        assert replies[0]["signal"].hop_count == 1
+        assert replies[0]["signal"].sender_name == "Ronin"

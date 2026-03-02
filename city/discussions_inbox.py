@@ -140,12 +140,17 @@ def _compose_response(
     signal: DiscussionSignal,
     stats: dict,
     gateway_result: dict,
+    semantic_signal: object | None = None,
 ) -> str:
     """Compose agent response from spec + neuro-symbolic semantic layer.
 
     The semantic layer translates raw Mahamantra resonance into Agent City
     language: element frames + extracted concepts + agent perspective.
     Deterministic, no LLM. Language IS routing.
+
+    When semantic_signal (SemanticSignal) is provided, uses the signal protocol
+    for the reading (decode through agent's Jiva lens). Falls back to
+    translate_for_agent() when None.
     """
     from city.semantic import translate_for_agent
 
@@ -170,8 +175,23 @@ def _compose_response(
     else:
         parts.append(f"\n**{frame}**: As {role}, I can {verb} this from the {domain} domain.")
 
-    # Semantic layer: translated resonance (Agent City language)
-    reading = translate_for_agent(signal.body or signal.title, spec)
+    # Semantic layer: signal-decoded or translated resonance
+    reading = None
+    if semantic_signal is not None:
+        try:
+            from city.semantic import compose_prose_for_agent
+            from city.signal_decoder import decode_signal
+            from city.jiva import derive_jiva
+
+            agent_jiva = derive_jiva(spec.get("name", ""))
+            decoded = decode_signal(semantic_signal, agent_jiva)
+            reading = compose_prose_for_agent(decoded)
+        except Exception:
+            reading = None
+
+    if reading is None:
+        reading = translate_for_agent(signal.body or signal.title, spec)
+
     if reading:
         parts.append(f"**Reading**: {reading}")
 
@@ -204,8 +224,13 @@ def dispatch_discussion(
     gateway_result: GatewayResult,
     agent_spec: dict,
     city_stats: dict,
+    semantic_signal: object | None = None,
 ) -> AgentDiscussionResponse:
-    """Route a discussion signal to spec-driven composition and build response."""
+    """Route a discussion signal to spec-driven composition and build response.
+
+    When semantic_signal (SemanticSignal) is provided, the response composition
+    uses the signal protocol for richer, coordinate-decoded readings.
+    """
     intent = classify_discussion_intent(gateway_result)
 
     logger.info(
@@ -216,7 +241,10 @@ def dispatch_discussion(
         gateway_result.get("buddhi_function", "?"),
     )
 
-    body = _compose_response(agent_spec, signal, city_stats, gateway_result)
+    body = _compose_response(
+        agent_spec, signal, city_stats, gateway_result,
+        semantic_signal=semantic_signal,
+    )
 
     return AgentDiscussionResponse(
         discussion_number=signal.discussion_number,

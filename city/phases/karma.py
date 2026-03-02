@@ -194,6 +194,9 @@ def execute(ctx: PhaseContext) -> list[str]:
     # Cartridge routing: capability-scored agent dispatch
     _route_to_cartridges(ctx, operations, all_specs, all_inventories)
 
+    # A2A Signal Processing: drain agent nadi, decode, reply, create missions
+    _process_agent_signals(ctx, operations)
+
     # Issue-driven missions: process strategyless missions from DHARMA
     if ctx.sankalpa is not None:
         _process_issue_missions(ctx, operations, all_specs, all_inventories)
@@ -859,13 +862,130 @@ def _cognitive_create_mission(ctx: PhaseContext, action: dict, mission: object) 
 
 
 def _cognitive_nadi_dispatch(ctx: PhaseContext, action: dict, agent_name: str) -> bool:
-    """Broadcast observation to AgentNadi for other agents to see."""
+    """Dispatch cognitive observation via AgentNadi with signal protocol.
+
+    Encodes observation as SemanticSignal, routes to top-3 affine agents.
+    Falls back to plain text broadcast when signal encoding fails.
+    """
     composed = action.get("composed", "")
     function = action.get("function", "")
     chapter = action.get("chapter", 0)
     text = f"[{function}] ch.{chapter}: {composed}" if composed else f"[{function}] ch.{chapter}"
+
+    # Signal-enhanced: encode + targeted send to affine agents
+    try:
+        from city.signal_encoder import encode_signal
+        from city.signal_router import route_signal
+        from city.jiva import derive_jiva
+
+        sender_jiva = derive_jiva(agent_name)
+        signal = encode_signal(text, sender_jiva)
+        candidates = _build_candidate_jivas(ctx, exclude=agent_name)
+
+        if candidates:
+            routes = route_signal(signal, candidates, top_n=3)
+            for route in routes:
+                ctx.agent_nadi.send(
+                    agent_name, route.receiver_name, text, signal=signal,
+                )
+            return True
+    except Exception as e:
+        logger.debug("Signal encoding failed for %s, falling back to broadcast: %s", agent_name, e)
+
+    # Fallback: plain text broadcast
     ctx.agent_nadi.broadcast(agent_name, text)
     return True
+
+
+# ── A2A Signal Processing ─────────────────────────────────────────────
+# Constants for signal loop safety
+_SIGNAL_AFFINITY_EXECUTOR_THRESHOLD = 0.8
+_SIGNAL_AFFINITY_MIN = 0.3
+_MAX_SIGNAL_REPLIES_PER_CYCLE = 5
+_MAX_CANDIDATE_JIVAS = 10
+
+
+def _build_candidate_jivas(
+    ctx: PhaseContext, exclude: str = "",
+) -> dict:
+    """Build dict[name, Jiva] for up to _MAX_CANDIDATE_JIVAS active agents."""
+    from city.jiva import derive_jiva
+
+    candidates = {}
+    for name in list(ctx.active_agents)[:_MAX_CANDIDATE_JIVAS + 1]:
+        if name == exclude:
+            continue
+        if len(candidates) >= _MAX_CANDIDATE_JIVAS:
+            break
+        try:
+            candidates[name] = derive_jiva(name)
+        except Exception:
+            continue
+    return candidates
+
+
+def _process_agent_signals(ctx: PhaseContext, operations: list[str]) -> None:
+    """Drain agent nadi inboxes, decode signals, reply or create missions.
+
+    Three gates:
+    - affinity < 0.3 → ignore (noise)
+    - affinity >= 0.8 → create Sankalpa mission (signal → karma)
+    - hop_count >= MAX_SIGNAL_HOPS → no reply (prevents infinite ping-pong)
+    """
+    if ctx.agent_nadi is None:
+        return
+
+    from city.signal import MAX_SIGNAL_HOPS
+    from city.signal_decoder import decode_signal
+    from city.signal_composer import compose_response_signal
+    from city.semantic import compose_prose
+    from city.jiva import derive_jiva
+    from city.missions import create_a2a_signal_mission
+
+    replies_this_cycle = 0
+
+    for agent_name in list(ctx.active_agents)[:_MAX_CANDIDATE_JIVAS]:
+        msgs = ctx.agent_nadi.drain(agent_name)
+        for msg in msgs:
+            sig = msg.get("signal")
+            if sig is None:
+                continue
+
+            try:
+                receiver_jiva = derive_jiva(agent_name)
+                decoded = decode_signal(sig, receiver_jiva)
+            except Exception as e:
+                logger.debug("Signal decode failed for %s: %s", agent_name, e)
+                continue
+
+            # Low affinity → ignore
+            if decoded.affinity < _SIGNAL_AFFINITY_MIN:
+                continue
+
+            # HIGH affinity → create Sankalpa mission (signal → karma)
+            if decoded.affinity >= _SIGNAL_AFFINITY_EXECUTOR_THRESHOLD:
+                create_a2a_signal_mission(ctx, decoded, agent_name)
+                operations.append(
+                    f"signal_mission:{msg['source']}→{agent_name}"
+                    f":affinity={decoded.affinity:.2f}"
+                )
+
+            # Reply (if under hop limit and cycle budget)
+            if (
+                sig.hop_count < MAX_SIGNAL_HOPS
+                and replies_this_cycle < _MAX_SIGNAL_REPLIES_PER_CYCLE
+            ):
+                reply = compose_response_signal(decoded, receiver_jiva)
+                if reply is not None:
+                    prose = compose_prose(reply) or ""
+                    ctx.agent_nadi.send(
+                        agent_name, msg["source"], prose, signal=reply,
+                    )
+                    replies_this_cycle += 1
+                    operations.append(
+                        f"signal_reply:{agent_name}→{msg['source']}"
+                        f":hop{reply.hop_count}"
+                    )
 
 
 def _handle_discussion_item(
@@ -941,9 +1061,29 @@ def _handle_discussion_item(
         _learn(ctx, "discussion", "route", success=False)
         return
 
-    # Build response
+    # Encode semantic signal from discussion text through agent's Jiva lens
+    disc_semantic_signal = None
+    try:
+        from city.signal_encoder import encode_signal
+        from city.jiva import derive_jiva
+
+        agent_jiva = derive_jiva(agent_name)
+        disc_semantic_signal = encode_signal(signal.body or signal.title, agent_jiva)
+    except Exception:
+        pass  # Signal encoding optional — discussion works without it
+
+    # Build response (with signal-enhanced reading when available)
     city_stats = ctx.pokedex.stats()
-    response = dispatch_discussion(signal, result, agent_spec, city_stats)
+    response = dispatch_discussion(
+        signal, result, agent_spec, city_stats,
+        semantic_signal=disc_semantic_signal,
+    )
+
+    # Broadcast signal to agent nadi so other agents see the discussion
+    if disc_semantic_signal is not None and ctx.agent_nadi is not None:
+        ctx.agent_nadi.broadcast(
+            agent_name, response.body[:200], signal=disc_semantic_signal,
+        )
 
     # Rate limit + post
     if ctx.discussions is not None and ctx.discussions.can_respond(discussion_number):

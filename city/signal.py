@@ -16,6 +16,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# Hard limit on reply chain depth — prevents infinite ping-pong storms.
+MAX_SIGNAL_HOPS = 3
+
 
 @dataclass(frozen=True)
 class SignalCoords:
@@ -51,6 +54,7 @@ class SemanticSignal:
     resonant_elements: tuple[str, ...]  # Element names of resonant words
     raw_text: str  # For edge composition ONLY
     priority: int  # Nadi priority (0-3)
+    hop_count: int = 0  # Reply chain depth (0=origin, incremented per reply)
 
 
 @dataclass(frozen=True)

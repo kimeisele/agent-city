@@ -189,6 +189,57 @@ def create_issue_mission(
     return mission_id
 
 
+def create_a2a_signal_mission(
+    ctx: object,
+    decoded: object,
+    receiver_name: str,
+) -> str | None:
+    """Create a Sankalpa mission from a high-affinity A2A signal.
+
+    Signals with affinity > 0.8 represent strong semantic alignment —
+    the receiver agent should ACT on this, not just acknowledge.
+    Deduplicates by correlation_id prefix.
+    """
+    if ctx.sankalpa is None:
+        return None
+
+    from vibe_core.mahamantra.protocols.sankalpa.types import (
+        MissionPriority,
+        MissionStatus,
+        SankalpaMission,
+    )
+
+    corr = decoded.signal.correlation_id
+    prefix = f"a2a_{corr}_"
+    for existing in ctx.sankalpa.registry.get_active_missions():
+        if existing.id.startswith(prefix) and existing.status == MissionStatus.ACTIVE:
+            return existing.id
+
+    concepts = ", ".join(decoded.resonant_concepts[:3]) or "signal response"
+    mission_id = f"a2a_{corr}_{receiver_name}"
+    mission = SankalpaMission(
+        id=mission_id,
+        name=f"A2A Signal: {concepts[:50]}",
+        description=(
+            f"High-affinity signal (score={decoded.affinity:.2f}) from "
+            f"{decoded.signal.sender_name}. Domain: {decoded.receiver_domain}. "
+            f"Concepts: {concepts}. "
+            f"Transitions: {', '.join(decoded.element_transitions[:2])}."
+        ),
+        priority=MissionPriority.HIGH,
+        status=MissionStatus.ACTIVE,
+        owner=receiver_name,
+    )
+    ctx.sankalpa.registry.add_mission(mission)
+    logger.info(
+        "Created A2A signal mission %s (affinity=%.2f, from=%s)",
+        mission_id,
+        decoded.affinity,
+        decoded.signal.sender_name,
+    )
+    return mission_id
+
+
 def create_signal_mission(
     ctx: object,
     signal_keywords: list[str],
