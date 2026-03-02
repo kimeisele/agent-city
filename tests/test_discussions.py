@@ -288,17 +288,19 @@ def test_is_own_comment():
 @patch("city.discussions_bridge._gh_graphql")
 def test_seed_discussions_creates_threads(mock_gql):
     bridge = _make_bridge()
-    # Each seed creates one discussion
+    # Each seed creates one discussion (4 seeds: welcome, registry, ideas, city_log)
     mock_gql.side_effect = [
         _create_discussion_response(10),
         _create_discussion_response(11),
         _create_discussion_response(12),
+        _create_discussion_response(13),
     ]
     created = bridge.seed_discussions()
-    assert len(created) == 3
+    assert len(created) == 4
     assert "welcome" in created
     assert "registry" in created
     assert "ideas" in created
+    assert "city_log" in created
 
 
 @patch("city.discussions_bridge._gh_graphql")
@@ -308,6 +310,7 @@ def test_seed_discussions_idempotent(mock_gql):
         _create_discussion_response(10),
         _create_discussion_response(11),
         _create_discussion_response(12),
+        _create_discussion_response(13),
     ]
     bridge.seed_discussions()
 
@@ -617,7 +620,7 @@ def test_dispatch_returns_response():
             "element": "akasha", "guardian": "shuka", "capability_tier": "contributor",
             "capability_protocol": "observe", "role": "observer",
             "capabilities": ["observe", "report"]}
-    city_stats = {"alive": 5, "total": 10}
+    city_stats = {"active": 3, "citizen": 2, "total": 10}
 
     response = dispatch_discussion(signal, gateway_result, spec, city_stats)
     assert isinstance(response, AgentDiscussionResponse)

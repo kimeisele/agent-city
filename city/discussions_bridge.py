@@ -346,10 +346,12 @@ class DiscussionsBridge:
             return False
 
         stats = reflection.get("city_stats", {})
+        total = stats.get("total", 0)
+        # Pokedex.stats() uses status keys (citizen, active), not "alive"
+        alive = stats.get("active", 0) + stats.get("citizen", 0)
         title = f"City Report \u2014 Heartbeat #{heartbeat}"
         lines = [
-            f"**Population**: {stats.get('total', 0)} agents "
-            f"({stats.get('alive', 0)} alive)",
+            f"**Population**: {total} agents ({alive} alive)",
             f"**Chain integrity**: {'valid' if reflection.get('chain_valid') else 'BROKEN'}",
         ]
 
@@ -375,7 +377,18 @@ class DiscussionsBridge:
                 f"{immune.get('heals_succeeded', 0)} succeeded"
             )
 
-        body = "\n".join(lines)
+        body = f"### {title}\n\n" + "\n".join(lines)
+
+        # Consolidate into city_log thread (comment, not new discussion)
+        log_number = self._seed_threads.get("city_log")
+        if log_number is not None:
+            posted = self.comment(log_number, body)
+            if posted:
+                self._last_report_hb = heartbeat
+                return True
+            return False
+
+        # Fallback: create standalone discussion (pre-seed migration)
         number = self.create_discussion(title, body, category="Announcements")
         if number is not None:
             self._last_report_hb = heartbeat
@@ -431,6 +444,17 @@ class DiscussionsBridge:
                     "*All city members are welcome to contribute.*"
                 ),
             },
+            "city_log": {
+                "category": "Announcements",
+                "title": "City Log — Heartbeat Reports",
+                "body": (
+                    "**City Log**\n\n"
+                    "Consolidated heartbeat reports. Each MOKSHA cycle "
+                    "posts an update as a comment below.\n\n"
+                    "Population, chain integrity, mission outcomes, "
+                    "governance actions — all in one thread."
+                ),
+            },
         }
 
         created: dict[str, int] = {}
@@ -467,6 +491,31 @@ class DiscussionsBridge:
             self.record_response(registry_number)
         return posted
 
+    def post_agent_action(
+        self,
+        spec: dict,
+        cognitive_action: dict,
+        mission_id: str,
+    ) -> bool:
+        """Post a cognitive action report to the Ideas thread.
+
+        Rate-limited separately from regular comments.
+        Called by KARMA after successful cognitive execution.
+        """
+        ideas_number = self._seed_threads.get("ideas")
+        if ideas_number is None:
+            return False
+        if not self.can_respond(ideas_number):
+            return False
+
+        from city.discussions_inbox import build_action_report
+
+        body = build_action_report(spec, cognitive_action, mission_id)
+        posted = self.comment(ideas_number, body)
+        if posted:
+            self.record_response(ideas_number)
+        return posted
+
     def post_pulse(self, heartbeat: int, city_stats: dict) -> bool:
         """Post a city pulse update to the welcome thread.
 
@@ -476,7 +525,7 @@ class DiscussionsBridge:
         if welcome_number is None:
             return False
 
-        alive = city_stats.get("alive", 0)
+        alive = city_stats.get("active", 0) + city_stats.get("citizen", 0)
         total = city_stats.get("total", 0)
         events = city_stats.get("events", 0)
         body = (

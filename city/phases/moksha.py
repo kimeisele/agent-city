@@ -245,7 +245,7 @@ def execute(ctx: PhaseContext) -> dict:
         nadi_payload = {
             "heartbeat": ctx.heartbeat_count,
             "population": stats.get("total", 0),
-            "alive": stats.get("alive", 0),
+            "alive": stats.get("active", 0) + stats.get("citizen", 0),
             "chain_valid": chain_valid,
             "pr_results": reflection.get("pr_results", []),
             "mission_results": reflection.get("mission_results_terminal", []),
@@ -554,7 +554,7 @@ def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
     return {
         "heartbeat": ctx.heartbeat_count,
         "population": stats.get("total", 0),
-        "alive": stats.get("alive", 0),
+        "alive": stats.get("active", 0) + stats.get("citizen", 0),
         "elected_mayor": elected_mayor,
         "council_seats": council_seats,
         "open_proposals": open_proposals,
@@ -573,7 +573,7 @@ def _build_city_report(ctx: PhaseContext, reflection: dict) -> object:
 
     stats = reflection.get("city_stats", {})
     total = stats.get("total", 0)
-    alive = stats.get("alive", 0)
+    alive = stats.get("active", 0) + stats.get("citizen", 0)
 
     elected_mayor = None
     council_seats = 0

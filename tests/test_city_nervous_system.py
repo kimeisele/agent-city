@@ -24,7 +24,6 @@ import pytest
 
 def _make_pokedex(tmpdir: Path):
     """Minimal Pokedex for testing — mocks heavy deps."""
-    from unittest.mock import MagicMock
 
     with patch("city.pokedex.CivicBank") as MockBank:
         MockBank.return_value = MagicMock()
