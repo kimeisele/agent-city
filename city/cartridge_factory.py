@@ -116,8 +116,16 @@ class CartridgeFactory:
     _pokedex: object  # city.pokedex.Pokedex
     _generated: dict[str, object] = field(default_factory=dict)
 
-    def generate(self, name: str) -> object | None:
-        """Generate a cartridge from Pokedex Jiva data.
+    def generate(
+        self,
+        name: str,
+        cartridge_info: dict | None = None,
+    ) -> object | None:
+        """Generate a cartridge from Pokedex Jiva data + optional CartridgeInfo.
+
+        If cartridge_info is provided (system agents from steward-protocol),
+        its declared capabilities and domain are merged into the spec.
+        Jiva gives identity (guardian, guna, element). Cartridge gives abilities.
 
         Returns cached instance if already generated.
         Returns None if agent not found in Pokedex.
@@ -130,7 +138,12 @@ class CartridgeFactory:
             logger.warning("CartridgeFactory: agent %s not in Pokedex", name)
             return None
 
-        spec = build_agent_spec(name, agent_data)
+        spec = build_agent_spec(
+            name,
+            agent_data,
+            cartridge_caps=cartridge_info.get("capabilities") if cartridge_info else None,
+            cartridge_domain=cartridge_info.get("domain") if cartridge_info else None,
+        )
         agent = _make_agent_class(spec)
         self._generated[name] = agent
 

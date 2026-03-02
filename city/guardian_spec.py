@@ -350,10 +350,16 @@ _DOMAIN_KEYWORDS: dict[str, str] = {
 # ── Core Function ────────────────────────────────────────────────────
 
 
-def build_agent_spec(name: str, agent_data: dict) -> AgentSpec:
+def build_agent_spec(
+    name: str,
+    agent_data: dict,
+    cartridge_caps: list[str] | None = None,
+    cartridge_domain: str | None = None,
+) -> AgentSpec:
     """Build full AgentSpec from Pokedex dict.
 
-    Pure function, no side effects. Merges capabilities from 3 sources:
+    Pure function, no side effects. Merges capabilities from up to 4 sources:
+      0. Cartridge (steward-protocol declared) — highest priority
       1. Element (Pancha Mahabhuta) — base capabilities
       2. Guardian (Mahajana/Avatara) — role-specific capabilities
       3. Claim tier — verification-unlocked capabilities
@@ -361,6 +367,8 @@ def build_agent_spec(name: str, agent_data: dict) -> AgentSpec:
     Args:
         name: Agent name.
         agent_data: Dict from Pokedex._row_to_dict().
+        cartridge_caps: Capabilities from steward-protocol CartridgeInfo (YAML).
+        cartridge_domain: Domain override from CartridgeInfo.
 
     Returns:
         Complete AgentSpec with all fields populated.
@@ -368,9 +376,9 @@ def build_agent_spec(name: str, agent_data: dict) -> AgentSpec:
     classification = agent_data.get("classification", {})
     vibration = agent_data.get("vibration", {})
 
-    # ── Domain from quarter ──
+    # ── Domain: cartridge declares > Jiva-derived ──
     quarter = classification.get("quarter", "karma")
-    domain = QUARTER_TO_DOMAIN.get(quarter, "ENGINEERING")
+    domain = cartridge_domain or QUARTER_TO_DOMAIN.get(quarter, "ENGINEERING")
 
     # ── Element capabilities (base) ──
     element = vibration.get("element", "prithvi")
@@ -393,10 +401,12 @@ def build_agent_spec(name: str, agent_data: dict) -> AgentSpec:
     capability_tier = CLAIM_TIER.get(claim_level, "observer")
     tier_caps = list(TIER_CAPABILITIES.get(capability_tier, []))
 
-    # ── Merge capabilities (element + guardian + tier, deduplicated) ──
+    # ── Merge capabilities (cartridge + element + guardian + tier, deduplicated) ──
+    # Cartridge-declared caps come first (steward-protocol knows what it built).
+    # Jiva-derived caps extend (element/guardian/tier add city-native abilities).
     seen: set[str] = set()
     merged: list[str] = []
-    for cap in element_caps + guardian_caps + tier_caps:
+    for cap in (cartridge_caps or []) + element_caps + guardian_caps + tier_caps:
         if cap not in seen:
             seen.add(cap)
             merged.append(cap)
