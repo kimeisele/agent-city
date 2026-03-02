@@ -422,7 +422,10 @@ class TestIntegration:
 
     def test_budget_enforcement(self):
         """Budget gate blocks calls after limit reached."""
-        from city.phases.karma import _brain_budget_ok, _MAX_BRAIN_CALLS_PER_CYCLE
+        from city.karma_handlers.brain_health import (
+            brain_budget_ok as _brain_budget_ok,
+            _MAX_BRAIN_CALLS_PER_CYCLE,
+        )
 
         ctx = MagicMock()
         ctx._brain_calls = 0

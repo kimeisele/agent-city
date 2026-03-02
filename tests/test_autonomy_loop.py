@@ -58,7 +58,7 @@ def test_issue_heal_escalates_to_executor():
 
         ctx = _make_ctx(tmp, immune=mock_immune, executor=mock_executor)
 
-        from city.phases.karma import _execute_issue_heal
+        from city.karma_handlers.sankalpa import _execute_issue_heal
         result = _execute_issue_heal(ctx, 42)
 
         assert result is True
@@ -83,7 +83,7 @@ def test_issue_heal_immune_succeeds_no_executor():
 
         ctx = _make_ctx(tmp, immune=mock_immune, executor=mock_executor)
 
-        from city.phases.karma import _execute_issue_heal
+        from city.karma_handlers.sankalpa import _execute_issue_heal
         result = _execute_issue_heal(ctx, 5)
 
         assert result is True
@@ -112,7 +112,7 @@ def test_issue_heal_creates_pr_and_records_event():
 
         ctx = _make_ctx(tmp, executor=mock_executor)
 
-        from city.phases.karma import _execute_issue_heal
+        from city.karma_handlers.sankalpa import _execute_issue_heal
         result = _execute_issue_heal(ctx, 42)
 
         assert result is True
@@ -131,7 +131,7 @@ def test_issue_heal_no_executor_no_immune():
     try:
         ctx = _make_ctx(tmp)  # no immune, no executor
 
-        from city.phases.karma import _execute_issue_heal
+        from city.karma_handlers.sankalpa import _execute_issue_heal
         result = _execute_issue_heal(ctx, 99)
 
         assert result is False
@@ -325,7 +325,8 @@ def test_exec_mission_processed_in_karma():
 
         ctx = _make_ctx(tmp, sankalpa=mock_sankalpa, executor=mock_executor)
 
-        from city.phases.karma import _process_issue_missions, _get_all_specs, _get_all_inventories
+        from city.karma_handlers.sankalpa import _process_issue_missions
+        from city.karma_handlers.gateway import _get_all_specs, _get_all_inventories
         operations: list[str] = []
         all_specs = _get_all_specs(ctx)
         all_inventories = _get_all_inventories(ctx)
