@@ -130,6 +130,20 @@ class ThreadDecayHook(BasePhaseHook):
                 for a in alerts
             ]
 
+        # 6C-6: TTL cleanup every 10th heartbeat
+        if ctx.heartbeat_count % 10 == 0:
+            purge_stats = ctx.thread_state.purge_stale()
+            # Also prune DiscussionsBridge in-memory rate-limit entries
+            if ctx.discussions is not None and hasattr(ctx.discussions, "prune_stale"):
+                bridge_pruned = ctx.discussions.prune_stale()
+                purge_stats["bridge_pruned"] = bridge_pruned
+            if any(v for v in purge_stats.values()):
+                operations.append(
+                    f"ttl_cleanup:threads={purge_stats['threads_purged']}"
+                    f":comments={purge_stats['comments_purged']}"
+                )
+                reflection["ttl_cleanup"] = purge_stats
+
 
 class DormantRevivalHook(BasePhaseHook):
     """Evaluate dormant agents for treasury-funded revival."""
