@@ -25,7 +25,14 @@ logger = logging.getLogger("AGENT_CITY.PHASES.KARMA")
 # Maps buddhi function × agent capability → existing city operation.
 # No new infrastructure — reuses council, sankalpa, nadi, audit, immune.
 _ACTION_MAP: dict[str, dict[str, str]] = {
+    # BuddhiResult.function uses trinity_function names (source/carrier/deliverer).
+    # Both forms are keyed for compatibility.
     "BRAHMA": {  # Create
+        "propose": "council_propose",
+        "create": "create_mission",
+        "observe": "emit_observation",
+    },
+    "source": {  # source = BRAHMA (trinity_function form)
         "propose": "council_propose",
         "create": "create_mission",
         "observe": "emit_observation",
@@ -35,7 +42,17 @@ _ACTION_MAP: dict[str, dict[str, str]] = {
         "monitor": "emit_observation",
         "relay": "nadi_dispatch",
     },
+    "carrier": {  # carrier = VISHNU (trinity_function form)
+        "observe": "emit_observation",
+        "monitor": "emit_observation",
+        "relay": "nadi_dispatch",
+    },
     "SHIVA": {  # Transform
+        "validate": "trigger_audit",
+        "execute": "trigger_heal",
+        "transform": "trigger_audit",
+    },
+    "deliverer": {  # deliverer = SHIVA (trinity_function form)
         "validate": "trigger_audit",
         "execute": "trigger_heal",
         "transform": "trigger_audit",

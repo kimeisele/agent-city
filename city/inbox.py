@@ -60,11 +60,11 @@ def classify_intent(gateway_result: GatewayResult) -> str:
     """
     function = gateway_result.get("buddhi_function", "")
 
-    if function == "BRAHMA":
+    if function in ("BRAHMA", "source"):
         return "register"
-    if function == "VISHNU":
+    if function in ("VISHNU", "carrier"):
         return "status"
-    if function == "SHIVA":
+    if function in ("SHIVA", "deliverer"):
         return "govern"
     return "help"
 
