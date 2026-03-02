@@ -36,6 +36,12 @@ class ContextSnapshot:
     critical_findings: tuple[str, ...] = ()
     venu_tick: int = 0
     murali_phase: str = ""
+    # 6C-4: Rich context fields
+    agent_roster: tuple[dict, ...] = ()       # [{name, domain, status, prana}]
+    economy_stats: dict = None  # type: ignore[assignment]  # {total_prana, avg_prana, dormant, ...}
+    discussion_activity: dict = None  # type: ignore[assignment]  # {unreplied, total_seen, ...}
+    active_missions: tuple[dict, ...] = ()    # [{id, name, status, owner}]
+    thread_stats: dict = None  # type: ignore[assignment]  # comment ledger stats
 
     def __post_init__(self) -> None:
         # Replace None with empty dicts (frozen workaround)
@@ -45,6 +51,12 @@ class ContextSnapshot:
             object.__setattr__(self, "immune_stats", {})
         if self.council_summary is None:
             object.__setattr__(self, "council_summary", {})
+        if self.economy_stats is None:
+            object.__setattr__(self, "economy_stats", {})
+        if self.discussion_activity is None:
+            object.__setattr__(self, "discussion_activity", {})
+        if self.thread_stats is None:
+            object.__setattr__(self, "thread_stats", {})
 
 
 # ── Snapshot Diffing ──────────────────────────────────────────────────
@@ -100,6 +112,11 @@ def save_before_snapshot(snapshot: ContextSnapshot, state_dir: Path) -> None:
             "critical_findings": list(snapshot.critical_findings),
             "venu_tick": snapshot.venu_tick,
             "murali_phase": snapshot.murali_phase,
+            "agent_roster": list(snapshot.agent_roster),
+            "economy_stats": snapshot.economy_stats,
+            "discussion_activity": snapshot.discussion_activity,
+            "active_missions": list(snapshot.active_missions),
+            "thread_stats": snapshot.thread_stats,
         }
         path.write_text(json.dumps(data, indent=2))
         logger.debug("Saved before_snapshot to %s", path)
@@ -128,6 +145,11 @@ def load_before_snapshot(state_dir: Path) -> ContextSnapshot | None:
             critical_findings=tuple(data.get("critical_findings", [])),
             venu_tick=data.get("venu_tick", 0),
             murali_phase=data.get("murali_phase", ""),
+            agent_roster=tuple(data.get("agent_roster", [])),
+            economy_stats=data.get("economy_stats", {}),
+            discussion_activity=data.get("discussion_activity", {}),
+            active_missions=tuple(data.get("active_missions", [])),
+            thread_stats=data.get("thread_stats", {}),
         )
         # Clean up after loading (one-shot: prevents stale reads)
         path.unlink(missing_ok=True)
@@ -244,6 +266,75 @@ def build_context_snapshot(ctx: object) -> ContextSnapshot:
     except Exception:
         pass
 
+    # 6C-4: Agent roster (top 20 by name, minimal fields)
+    agent_roster: list[dict] = []
+    try:
+        pokedex = ctx.pokedex  # type: ignore[union-attr]
+        if pokedex is not None:
+            citizens = pokedex.list_citizens()
+            for a in citizens[:20]:
+                agent_roster.append({
+                    "name": a.get("name", ""),
+                    "domain": a.get("domain", ""),
+                    "status": a.get("status", ""),
+                    "prana": a.get("prana", 0),
+                    "zone": a.get("zone", ""),
+                })
+    except Exception:
+        pass
+
+    # 6C-4: Economy aggregate stats
+    economy_stats: dict = {}
+    try:
+        pokedex = ctx.pokedex  # type: ignore[union-attr]
+        if pokedex is not None:
+            all_agents = pokedex.list_all()
+            pranas = [a.get("prana", 0) for a in all_agents if a.get("prana") is not None]
+            dormant_count = len([a for a in all_agents if a.get("status") == "frozen"])
+            economy_stats = {
+                "total_prana": sum(pranas),
+                "avg_prana": round(sum(pranas) / max(len(pranas), 1), 1),
+                "min_prana": min(pranas) if pranas else 0,
+                "max_prana": max(pranas) if pranas else 0,
+                "dormant_count": dormant_count,
+            }
+    except Exception:
+        pass
+
+    # 6C-4: Discussion activity from DiscussionsBridge
+    discussion_activity: dict = {}
+    try:
+        discussions = ctx.discussions  # type: ignore[union-attr]
+        if discussions is not None:
+            discussion_activity = discussions.stats()
+    except Exception:
+        pass
+
+    # 6C-4: Active missions from Sankalpa
+    active_missions_data: list[dict] = []
+    try:
+        sankalpa = ctx.sankalpa  # type: ignore[union-attr]
+        if sankalpa is not None and hasattr(sankalpa, "registry"):
+            missions = sankalpa.registry.get_active_missions()
+            for m in missions[:10]:
+                active_missions_data.append({
+                    "id": getattr(m, "id", ""),
+                    "name": getattr(m, "name", ""),
+                    "status": m.status.value if hasattr(m.status, "value") else str(getattr(m, "status", "")),
+                    "owner": getattr(m, "owner", "unknown"),
+                })
+    except Exception:
+        pass
+
+    # 6C-4: Thread state (comment ledger stats)
+    thread_stats: dict = {}
+    try:
+        thread_state = ctx.thread_state  # type: ignore[union-attr]
+        if thread_state is not None:
+            thread_stats = thread_state.comment_stats()
+    except Exception:
+        pass
+
     return ContextSnapshot(
         agent_count=total,
         alive_count=active,
@@ -259,4 +350,9 @@ def build_context_snapshot(ctx: object) -> ContextSnapshot:
         critical_findings=tuple(critical[:5]),
         venu_tick=venu_tick,
         murali_phase=murali_phase,
+        agent_roster=tuple(agent_roster),
+        economy_stats=economy_stats,
+        discussion_activity=discussion_activity,
+        active_missions=tuple(active_missions_data),
+        thread_stats=thread_stats,
     )
