@@ -67,7 +67,7 @@ def test_unknown_directive_type_ignored(tmp_dir):
     # Should have the directive
     if directives:
         # But executing it should be harmless
-        from city.phases.genesis import _execute_directive
+        from city.hooks.genesis.federation import _execute_directive
         from city.phases import PhaseContext
         from city.gateway import CityGateway
         from city.network import CityNetwork
