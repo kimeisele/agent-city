@@ -208,8 +208,13 @@ class DaemonService:
                 failing_c = cs.get("failing", 0)
                 contract_fail = failing_c / total_c if total_c > 0 else 0.0
 
-            # Queue pressure (gateway queue depth)
-            queue_pressure = len(self.mayor._gateway_queue) / 100.0
+            # Queue pressure (nadi pending count + legacy gateway_queue)
+            pending_count = 0
+            nadi = self.mayor._registry.get("city_nadi")
+            if nadi is not None and hasattr(nadi, "pending_count"):
+                pending_count = nadi.pending_count()
+            
+            queue_pressure = (pending_count + len(self.mayor._gateway_queue)) / 100.0
 
             # Pathogen count from immune system
             pathogen_count = 0
