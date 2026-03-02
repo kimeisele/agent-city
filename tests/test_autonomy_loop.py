@@ -159,7 +159,7 @@ def test_pr_results_collected_in_moksha():
             "data": "ignored",
         })
 
-        from city.phases.moksha import _collect_pr_results
+        from city.hooks.moksha.mission_lifecycle import _collect_pr_results
         results = _collect_pr_results(ctx)
 
         assert len(results) == 1
