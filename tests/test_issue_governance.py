@@ -199,7 +199,7 @@ def test_karma_process_issue_audit_mission():
 
         ctx = _make_ctx(tmp, sankalpa=mock_sankalpa, audit=mock_audit)
 
-        from city.phases.karma import _process_issue_missions
+        from city.karma_handlers.sankalpa import _process_issue_missions
         operations: list[str] = []
         ctx.active_agents.add("test_agent")
         specs = {
@@ -243,7 +243,7 @@ def test_karma_process_issue_heal_no_immune():
 
         ctx = _make_ctx(tmp, sankalpa=mock_sankalpa)  # no immune
 
-        from city.phases.karma import _process_issue_missions
+        from city.karma_handlers.sankalpa import _process_issue_missions
         operations: list[str] = []
         ctx.active_agents.add("test_agent")
         specs = {
@@ -287,7 +287,7 @@ def test_karma_skips_non_issue_missions():
 
         ctx = _make_ctx(tmp, sankalpa=mock_sankalpa)
 
-        from city.phases.karma import _process_issue_missions
+        from city.karma_handlers.sankalpa import _process_issue_missions
         operations: list[str] = []
         _process_issue_missions(ctx, operations, {})
 

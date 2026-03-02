@@ -190,7 +190,7 @@ class TestAutoMatching(unittest.TestCase):
 
     def test_auto_list_surplus(self):
         """Agent with qty>1 creates sell order."""
-        from city.phases.karma import _process_marketplace
+        from city.karma_handlers.marketplace import _process_marketplace
 
         pokedex = _make_pokedex()
         _register(pokedex, "agent_a")
@@ -220,7 +220,7 @@ class TestAutoMatching(unittest.TestCase):
         pokedex.create_order("seller", "capability_token", "validate", 1, 36, heartbeat=1)
 
         # Buyer is agni element — domain-aligned caps include validate
-        from city.phases.karma import _process_marketplace
+        from city.karma_handlers.marketplace import _process_marketplace
 
         ctx = self._make_ctx(pokedex, {"buyer"})
         specs = {"buyer": {"capabilities": ["transform", "audit"], "element": "agni"}}
@@ -258,7 +258,7 @@ class TestAutoMatching(unittest.TestCase):
 
         # Rich agent is prithvi element — observe is NOT in prithvi family
         # prithvi = build, maintain, stabilize. Observe is akasha.
-        from city.phases.karma import _process_marketplace
+        from city.karma_handlers.marketplace import _process_marketplace
 
         ctx = self._make_ctx(pokedex, {"rich_agent"})
         specs = {
@@ -288,7 +288,7 @@ class TestAutoMatching(unittest.TestCase):
 
         # Worker is prithvi (build/maintain/stabilize) — audit is NOT domain-aligned
         # BUT there's an active audit_ mission requiring "audit" capability
-        from city.phases.karma import _process_marketplace
+        from city.karma_handlers.marketplace import _process_marketplace
 
         ctx = self._make_ctx(pokedex, {"worker"})
 
