@@ -11,6 +11,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from city.brain import BrainProtocol
 
 from city.gateway import CityGateway
 from city.network import CityNetwork
@@ -18,6 +22,7 @@ from city.pokedex import Pokedex
 from city.registry import (
     SVC_AGENT_NADI,
     SVC_AUDIT,
+    SVC_BRAIN,
     SVC_CITY_NADI,
     SVC_CONTRACTS,
     SVC_COUNCIL,
@@ -214,3 +219,7 @@ class PhaseContext:
     @property
     def moltbook_assistant(self) -> object | None:
         return self.registry.get(SVC_MOLTBOOK_ASSISTANT)
+
+    @property
+    def brain(self) -> BrainProtocol | None:
+        return self.registry.get(SVC_BRAIN)  # type: ignore[return-value]

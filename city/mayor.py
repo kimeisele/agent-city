@@ -33,6 +33,7 @@ from city.pokedex import Pokedex
 from city.registry import (
     SVC_AGENT_NADI,
     SVC_AUDIT,
+    SVC_BRAIN,
     SVC_CITY_NADI,
     SVC_CONTRACTS,
     SVC_COUNCIL,
@@ -170,6 +171,11 @@ class Mayor:
             val = getattr(self, field_name, None)
             if val is not None and not self._registry.has(svc_name):
                 self._registry.register(svc_name, val)
+
+        # Brain in a Jar — LLM cognition organ (lazy provider init)
+        if not self._registry.has(SVC_BRAIN):
+            from city.brain import CityBrain
+            self._registry.register(SVC_BRAIN, CityBrain())
 
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._load_state()
