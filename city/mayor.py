@@ -187,6 +187,24 @@ class Mayor:
             brain_mem.load()
             self._registry.register(SVC_BRAIN_MEMORY, brain_mem)
 
+        # ConversationTracker — persistent discussion thread state
+        from city.registry import SVC_CONVERSATION_TRACKER
+
+        if not self._registry.has(SVC_CONVERSATION_TRACKER):
+            from city.discussions_commands import ConversationTracker
+
+            tracker = ConversationTracker()
+            tracker_path = self._state_path.parent / "conversation_tracker.json"
+            if tracker_path.exists():
+                try:
+                    import json as _json
+                    data = _json.loads(tracker_path.read_text())
+                    if isinstance(data, list):
+                        tracker.restore(data)
+                except (ValueError, OSError) as e:
+                    logger.warning("ConversationTracker load failed: %s", e)
+            self._registry.register(SVC_CONVERSATION_TRACKER, tracker)
+
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._load_state()
         self._wire_event_handlers()
@@ -459,3 +477,13 @@ class Mayor:
             "total_operations": 0,
         }
         self._state_path.write_text(json.dumps(state, indent=2))
+
+        # Persist ConversationTracker alongside mayor state
+        from city.registry import SVC_CONVERSATION_TRACKER
+        tracker = self._registry.get(SVC_CONVERSATION_TRACKER)
+        if tracker is not None and hasattr(tracker, "snapshot"):
+            try:
+                tracker_path = self._state_path.parent / "conversation_tracker.json"
+                tracker_path.write_text(json.dumps(tracker.snapshot(), indent=2))
+            except Exception as e:
+                logger.warning("ConversationTracker save failed: %s", e)

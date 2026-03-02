@@ -219,8 +219,8 @@ def _handle_discussion_item(
     if command_handled:
         return
 
-    # Phase 6D: Track conversation state
-    tracker = getattr(ctx, "_conversation_tracker", None)
+    # Phase 6B: Track conversation state (persistent via registry)
+    tracker = ctx.conversation_tracker
     if tracker is None:
         tracker = ConversationTracker()
         ctx._conversation_tracker = tracker  # type: ignore[attr-defined]

@@ -26,6 +26,7 @@ from city.registry import (
     SVC_BRAIN_MEMORY,
     SVC_CITY_NADI,
     SVC_CONTRACTS,
+    SVC_CONVERSATION_TRACKER,
     SVC_COUNCIL,
     SVC_EVENT_BUS,
     SVC_EXECUTOR,
@@ -233,3 +234,7 @@ class PhaseContext:
     @property
     def thread_state(self) -> object | None:
         return self.registry.get(SVC_THREAD_STATE)
+
+    @property
+    def conversation_tracker(self) -> object | None:
+        return self.registry.get(SVC_CONVERSATION_TRACKER)
