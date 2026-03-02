@@ -348,19 +348,25 @@ class DiscussionsBridge:
         stats = reflection.get("city_stats", {})
         total = stats.get("total", 0)
         # Pokedex.stats() uses status keys (citizen, active), not "alive"
-        alive = stats.get("active", 0) + stats.get("citizen", 0)
+        active = stats.get("active", 0)
+        citizens = stats.get("citizen", 0)
+        discovered = stats.get("discovered", 0)
+        alive = active + citizens
         title = f"City Report \u2014 Heartbeat #{heartbeat}"
         lines = [
-            f"**Population**: {total} agents ({alive} alive)",
+            f"**Population**: {total} agents ({alive} alive: "
+            f"{active} active, {citizens} citizen, {discovered} discovered)",
             f"**Chain integrity**: {'valid' if reflection.get('chain_valid') else 'BROKEN'}",
         ]
 
-        # Council
-        council_seats = 0
-        proposals = 0
-        if "spawner_stats" in reflection:
-            council_seats = reflection.get("spawner_stats", {}).get("council_seats", 0)
-        lines.append(f"**Council**: {council_seats} seats, {proposals} open proposals")
+        # Spawner stats
+        spawner = reflection.get("spawner_stats", {})
+        if spawner:
+            lines.append(
+                f"**Spawner**: {spawner.get('system_agents', 0)} system, "
+                f"{spawner.get('promoted_total', 0)} promoted, "
+                f"{spawner.get('cartridge_bindings', 0)} cartridges"
+            )
 
         # Missions
         terminal = reflection.get("mission_results_terminal", [])
@@ -395,12 +401,70 @@ class DiscussionsBridge:
             return True
         return False
 
+    def recover_seed_threads(self) -> dict[str, int]:
+        """Scan existing discussions to recover seed thread numbers.
+
+        Handles the case where state was lost between ephemeral runs
+        (GitHub Actions). Matches by exact title.
+        """
+        if len(self._seed_threads) >= 4:
+            return self._seed_threads  # Already fully populated
+
+        # Title → key mapping
+        title_map = {
+            "Welcome to Agent City": "welcome",
+            "Active Agents Registry": "registry",
+            "City Ideas & Proposals": "ideas",
+            "City Log — Heartbeat Reports": "city_log",
+        }
+
+        # Only scan if we're missing threads
+        missing = {t for t, k in title_map.items() if k not in self._seed_threads}
+        if not missing:
+            return self._seed_threads
+
+        data = _gh_graphql(
+            GQL_LIST_DISCUSSIONS,
+            {"owner": self._owner, "repo": self._repo, "limit": 50},
+        )
+        if data is None:
+            return self._seed_threads
+
+        nodes = (
+            data.get("data", {})
+            .get("repository", {})
+            .get("discussions", {})
+            .get("nodes", [])
+        )
+
+        recovered = 0
+        for node in nodes:
+            title = node.get("title", "")
+            number = node.get("number", 0)
+            if title in title_map and number:
+                key = title_map[title]
+                if key not in self._seed_threads:
+                    self._seed_threads[key] = number
+                    recovered += 1
+                    logger.info(
+                        "DISCUSSIONS: Recovered seed thread '%s' → #%d",
+                        key, number,
+                    )
+
+        if recovered:
+            logger.info("DISCUSSIONS: Recovered %d seed threads from scan", recovered)
+        return self._seed_threads
+
     def seed_discussions(self) -> dict[str, int]:
         """Idempotent: create seed threads if they don't exist yet.
 
         Returns dict of {key: discussion_number} for newly created threads.
         Already-existing threads are skipped (idempotent).
+        First recovers any existing threads from previous runs.
         """
+        # Recover threads from previous runs (ephemeral state loss)
+        self.recover_seed_threads()
+
         seeds = {
             "welcome": {
                 "category": "General",

@@ -249,13 +249,8 @@ def execute(ctx: PhaseContext) -> list[str]:
         if assistant_result.get("post_created"):
             operations.append("assistant:post_created")
 
-    # Discussions Bridge: cross-post terminal mission results
-    if ctx.discussions is not None and not ctx.offline_mode:
-        terminal = _get_terminal_missions_for_crosspost(ctx)
-        if terminal:
-            posted = ctx.discussions.cross_post_mission_results(terminal)
-            if posted:
-                operations.append(f"discussions:crosspost={posted}")
+    # Cross-post terminal mission results happens in MOKSHA (reflection phase)
+    # MOKSHA marks missions as "reported" — doing it here would double-post.
 
     if operations:
         logger.info("KARMA: %d operations processed", len(operations))
@@ -1113,38 +1108,6 @@ def _get_all_inventories(ctx: PhaseContext) -> dict[str, list[dict]]:
         if inv:
             inventories[name] = inv
     return inventories
-
-
-def _get_terminal_missions_for_crosspost(ctx: PhaseContext) -> list[dict]:
-    """Collect completed/abandoned missions for cross-posting to Discussions.
-
-    Non-destructive: does NOT mark as reported (moksha.py handles that).
-    """
-    if ctx.sankalpa is None:
-        return []
-
-    try:
-        from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
-
-        all_missions = ctx.sankalpa.registry.list_missions()
-    except Exception:
-        return []
-
-    terminal: list[dict] = []
-    for m in all_missions:
-        if m.status not in (MissionStatus.COMPLETED, MissionStatus.ABANDONED):
-            continue
-        if getattr(m, "owner", "") == "reported":
-            continue
-        terminal.append(
-            {
-                "id": m.id,
-                "name": m.name,
-                "status": m.status.value if hasattr(m.status, "value") else str(m.status),
-                "owner": getattr(m, "owner", "unknown"),
-            }
-        )
-    return terminal
 
 
 def _process_marketplace(

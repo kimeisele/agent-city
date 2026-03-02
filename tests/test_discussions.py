@@ -285,11 +285,18 @@ def test_is_own_comment():
 # ── Seed Discussions ──────────────────────────────────────────────────
 
 
+def _empty_scan_response():
+    """Empty discussion scan result (no existing discussions)."""
+    return {"data": {"repository": {"discussions": {"nodes": []}}}}
+
+
 @patch("city.discussions_bridge._gh_graphql")
 def test_seed_discussions_creates_threads(mock_gql):
     bridge = _make_bridge()
-    # Each seed creates one discussion (4 seeds: welcome, registry, ideas, city_log)
+    # First call: recover_seed_threads scan (finds nothing)
+    # Then 4 create calls (welcome, registry, ideas, city_log)
     mock_gql.side_effect = [
+        _empty_scan_response(),
         _create_discussion_response(10),
         _create_discussion_response(11),
         _create_discussion_response(12),
@@ -307,6 +314,7 @@ def test_seed_discussions_creates_threads(mock_gql):
 def test_seed_discussions_idempotent(mock_gql):
     bridge = _make_bridge()
     mock_gql.side_effect = [
+        _empty_scan_response(),  # recovery scan
         _create_discussion_response(10),
         _create_discussion_response(11),
         _create_discussion_response(12),
@@ -314,11 +322,42 @@ def test_seed_discussions_idempotent(mock_gql):
     ]
     bridge.seed_discussions()
 
-    # Second call should not create anything
+    # Second call should not create anything (threads in _seed_threads)
     mock_gql.reset_mock()
     created = bridge.seed_discussions()
     assert len(created) == 0
     mock_gql.assert_not_called()
+
+
+@patch("city.discussions_bridge._gh_graphql")
+def test_recover_seed_threads_from_scan(mock_gql):
+    """recover_seed_threads() finds existing threads by title match."""
+    bridge = _make_bridge()
+    assert len(bridge._seed_threads) == 0
+
+    # Simulate scan returning existing seed threads
+    mock_gql.return_value = {
+        "data": {"repository": {"discussions": {"nodes": [
+            {"number": 24, "title": "Welcome to Agent City",
+             "createdAt": "2026-01-01", "author": {"login": "bot"},
+             "comments": {"nodes": []}},
+            {"number": 25, "title": "Active Agents Registry",
+             "createdAt": "2026-01-01", "author": {"login": "bot"},
+             "comments": {"nodes": []}},
+            {"number": 26, "title": "City Ideas & Proposals",
+             "createdAt": "2026-01-01", "author": {"login": "bot"},
+             "comments": {"nodes": []}},
+            {"number": 41, "title": "City Log — Heartbeat Reports",
+             "createdAt": "2026-01-01", "author": {"login": "bot"},
+             "comments": {"nodes": []}},
+        ]}}}
+    }
+
+    result = bridge.recover_seed_threads()
+    assert result["welcome"] == 24
+    assert result["registry"] == 25
+    assert result["ideas"] == 26
+    assert result["city_log"] == 41
 
 
 # ── Agent Intro ───────────────────────────────────────────────────────
