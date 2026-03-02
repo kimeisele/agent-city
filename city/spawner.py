@@ -68,9 +68,14 @@ class AgentSpawner:
                 self._pokedex.register(agent_name)
                 self._bind_and_register(agent_name, cart_name)
 
-                # Generate cartridge from Jiva data
+                # Get CartridgeInfo (YAML metadata: real domain + capabilities)
+                cartridge_info = None
+                if self._cartridge_loader is not None:
+                    cartridge_info = self._cartridge_loader.get_info(cart_name)
+
+                # Generate cartridge: Jiva identity + CartridgeInfo capabilities
                 if self._cartridge_factory is not None:
-                    self._cartridge_factory.generate(agent_name)
+                    self._cartridge_factory.generate(agent_name, cartridge_info=cartridge_info)
 
                 # Materialize physical agent directory
                 if self._city_builder is not None:

@@ -71,6 +71,43 @@ class CityCartridgeLoader:
         """Wire CartridgeFactory for dynamic cartridge generation."""
         self._factory = factory
 
+    def get_info(self, name: str) -> dict | None:
+        """Get CartridgeInfo metadata (YAML-derived, no instantiation).
+
+        Returns dict with: cartridge_id, name, domain, description,
+        capabilities, version, enabled. Or None if not found/empty.
+        Domain is None if YAML didn't declare one (falls through to Jiva).
+        """
+        try:
+            from vibe_core.cartridge_service import get_cartridge_service
+
+            svc = get_cartridge_service()
+            info = svc.get(name)
+            if info is None:
+                return None
+
+            # Some steward-protocol YAMLs lack agent: section → UNKNOWN domain.
+            # Don't override Jiva-derived domain with garbage.
+            domain = info.domain if info.domain != "UNKNOWN" else None
+            caps = list(info.capabilities) if info.capabilities else []
+
+            if not domain and not caps:
+                # YAML has no useful metadata — skip entirely
+                logger.debug("CartridgeInfo %s: no domain or capabilities in YAML", name)
+                return None
+
+            return {
+                "cartridge_id": info.cartridge_id,
+                "name": info.name,
+                "domain": domain,
+                "description": info.description,
+                "capabilities": caps,
+                "version": info.version,
+                "enabled": info.enabled,
+            }
+        except Exception:
+            return None
+
     def get(self, name: str) -> object | None:
         """Get a cartridge by name.
 
