@@ -311,6 +311,11 @@ def _handle_discussion_item(
                 f":intent={brain_thought.intent.value}"
                 f":confidence={brain_thought.confidence:.2f}"
             )
+            # Phase 6B: Act on brain action_hints from discussion comprehension
+            if brain_thought.action_hint:
+                _execute_action_hint(
+                    ctx, brain_thought, discussion_number, agent_name, operations,
+                )
 
     # Build response
     city_stats = ctx.pokedex.stats()
@@ -400,6 +405,65 @@ def _handle_agent_intro(
             _learn(ctx, "agent_intro", "post", success=True)
         else:
             operations.append(f"intro_rate_limited:{agent_name}")
+
+
+def _execute_action_hint(
+    ctx: PhaseContext,
+    thought: object,
+    discussion_number: int,
+    agent_name: str,
+    operations: list[str],
+) -> None:
+    """Act on a Brain action_hint from discussion comprehension.
+
+    Hint vocabulary (from brain.py Thought):
+      "" — no action
+      "create_mission:<description>" — create Sankalpa mission
+      "investigate:<topic>" — create investigation mission
+      "flag_bottleneck:<domain>" — emit pain signal
+    """
+    hint = thought.action_hint
+    if not hint:
+        return
+
+    if hint.startswith("create_mission:"):
+        desc = hint[len("create_mission:"):].strip()
+        if desc and ctx.sankalpa is not None:
+            from city.missions import create_discussion_mission
+            mission_id = create_discussion_mission(
+                ctx, discussion_number, desc, thought.intent.value,
+            )
+            if mission_id:
+                operations.append(f"brain_hint_mission:{mission_id}:#{discussion_number}")
+            return
+
+    if hint.startswith("investigate:"):
+        topic = hint[len("investigate:"):].strip()
+        if topic and ctx.sankalpa is not None:
+            from city.missions import create_discussion_mission
+            mission_id = create_discussion_mission(
+                ctx, discussion_number, f"Investigate: {topic}", "inquiry",
+            )
+            if mission_id:
+                operations.append(f"brain_hint_investigate:{mission_id}:#{discussion_number}")
+            return
+
+    if hint.startswith("flag_bottleneck:"):
+        domain = hint[len("flag_bottleneck:"):].strip()
+        if hasattr(ctx, "reactor") and ctx.reactor is not None:
+            try:
+                ctx.reactor.emit_pain(
+                    source="brain_discussion",
+                    severity=0.5,
+                    detail=f"Bottleneck flagged in {domain} from #{discussion_number}",
+                )
+                operations.append(f"brain_hint_bottleneck:{domain}:#{discussion_number}")
+            except Exception as e:
+                logger.warning("Brain hint flag_bottleneck failed: %s", e)
+            return
+
+    # Unknown hint — log but don't fail
+    operations.append(f"brain_hint_unknown:{hint[:40]}:#{discussion_number}")
 
 
 def _route_discussion_to_agent(
