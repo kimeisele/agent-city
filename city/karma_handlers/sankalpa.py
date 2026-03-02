@@ -186,17 +186,56 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
     if ctx.executor is None:
         return False
 
+    # 7C-1: Route mission to best agent and run Cartridge process()
+    all_specs = getattr(ctx, "_all_specs", {})
+    all_inventories = getattr(ctx, "_all_inventories", {})
+    agent_name = None
+    cartridge_result = None
+
+    if all_specs:
+        from city.mission_router import route_mission
+        routing = route_mission(mission, all_specs, ctx.active_agents, all_inventories)
+        if routing["agent_name"] is not None:
+            agent_name = routing["agent_name"]
+            # Call Cartridge process() for agent-specific cognition
+            try:
+                from city.registry import SVC_CARTRIDGE_FACTORY
+                factory = ctx.registry.get(SVC_CARTRIDGE_FACTORY)
+                if factory is not None:
+                    cartridge = factory.get(agent_name)
+                    if cartridge is not None and hasattr(cartridge, "process"):
+                        task_desc = getattr(mission, "description", getattr(mission, "name", str(mission)))
+                        cartridge_result = cartridge.process(task_desc)
+                        logger.info(
+                            "KARMA: Agent %s processed mission %s (status=%s)",
+                            agent_name, mission.id,
+                            cartridge_result.get("status", "?") if isinstance(cartridge_result, dict) else "?",
+                        )
+            except Exception as e:
+                logger.debug("Cartridge process() skipped for %s: %s", agent_name, e)
+
     contract = "ruff_clean"
     if mission.name.startswith("Execute: "):
         contract = mission.name[len("Execute: "):]
 
     try:
-        fix = ctx.executor.execute_heal(contract, [f"mission_{mission.id}"])
+        details = [f"mission_{mission.id}"]
+        if agent_name:
+            details.append(f"agent:{agent_name}")
+        if cartridge_result and isinstance(cartridge_result, dict):
+            fn = cartridge_result.get("function", "")
+            if fn:
+                details.append(f"cognitive_function:{fn}")
+
+        fix = ctx.executor.execute_heal(contract, details)
         if fix.success and fix.files_changed:
             pr = ctx.executor.create_fix_pr(fix, ctx.heartbeat_count)
             if pr is not None and pr.success:
-                _record_pr_event(ctx, 0, pr)
-                logger.info("KARMA: Exec mission %s → PR created: %s", mission.id, pr.pr_url)
+                _record_pr_event(ctx, 0, pr, agent_name=agent_name)
+                logger.info(
+                    "KARMA: Exec mission %s → PR created by %s: %s",
+                    mission.id, agent_name or "mayor", pr.pr_url,
+                )
                 return True
             if fix.success:
                 logger.info("KARMA: Exec mission %s fixed (no PR needed)", mission.id)
@@ -206,7 +245,12 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
     return False
 
 
-def _record_pr_event(ctx: PhaseContext, issue_number: int, pr: object) -> None:
+def _record_pr_event(
+    ctx: PhaseContext,
+    issue_number: int,
+    pr: object,
+    agent_name: str | None = None,
+) -> None:
     ctx.recent_events.append({
         "type": "pr_created",
         "issue_number": issue_number,
@@ -214,4 +258,5 @@ def _record_pr_event(ctx: PhaseContext, issue_number: int, pr: object) -> None:
         "branch": pr.branch,
         "commit_hash": pr.commit_hash,
         "heartbeat": ctx.heartbeat_count,
+        "agent_name": agent_name or "mayor",
     })

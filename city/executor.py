@@ -297,8 +297,18 @@ class IntentExecutor:
 
     # ── PR Workflow ──────────────────────────────────────────────────
 
-    def create_fix_pr(self, fix: FixResult, heartbeat_count: int = 0) -> PRResult | None:
+    def create_fix_pr(
+        self,
+        fix: FixResult,
+        heartbeat_count: int = 0,
+        agent_name: str | None = None,
+    ) -> PRResult | None:
         """Create a git branch + commit + PR for a successful fix.
+
+        Args:
+            fix: Successful FixResult with files_changed.
+            heartbeat_count: Current heartbeat for branch naming.
+            agent_name: Routed agent name for attribution (7C-2).
 
         Returns None if fix was not successful or no files changed.
         """
@@ -316,7 +326,8 @@ class IntentExecutor:
                 message="dry_run: PR creation skipped",
             )
 
-        commit_msg = f"fix({fix.contract_name}): auto-heal from Mayor KARMA phase"
+        author = agent_name or "Mayor"
+        commit_msg = f"fix({fix.contract_name}): auto-heal by {author} (KARMA phase)"
 
         try:
             # 1. Create branch
@@ -373,12 +384,14 @@ class IntentExecutor:
                 except Exception:
                     pass
 
+            agent_line = f"**Agent**: {agent_name}\n" if agent_name else ""
             pr_body = (
                 f"## Auto-heal: {fix.contract_name}\n\n"
+                f"{agent_line}"
                 f"**Action**: {fix.action_taken}\n"
                 f"**Files changed**: {', '.join(fix.files_changed)}\n"
                 f"**Message**: {fix.message}\n\n"
-                f"Created by Mayor Agent during KARMA phase (heartbeat #{heartbeat_count})."
+                f"Created by {author} Agent during KARMA phase (heartbeat #{heartbeat_count})."
                 f"{attestation}"
             )
             pr_result = subprocess.run(
