@@ -1,0 +1,345 @@
+"""
+THREAD STATE — Prana-Based Discussion Lifecycle Engine
+========================================================
+
+SQLite-backed state machine for every GitHub Discussion thread.
+Each thread has energy (0.0–1.0) that decays without activity.
+
+States: active → waiting → cooling → archived
+  - active:   human commented, agent hasn't responded yet (unresolved)
+  - waiting:  agent responded, awaiting human follow-up
+  - cooling:  no activity for N heartbeats, energy decaying
+  - archived: energy exhausted, thread deprioritized
+
+Energy mechanics:
+  - New human comment:  energy = 1.0, state = active
+  - Agent response:     state = waiting (energy unchanged)
+  - Each heartbeat:     energy *= DECAY_RATE (soft decay)
+  - Energy < COOL_THRESHOLD: state = cooling
+  - Energy < ARCHIVE_THRESHOLD: state = archived
+
+Stored in city.db (agent state, not transport).
+
+    Hare Krishna Hare Krishna Krishna Krishna Hare Hare
+    Hare Rama   Hare Rama   Rama   Rama   Hare Hare
+"""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+import threading
+import time
+from dataclasses import dataclass
+from enum import StrEnum
+
+logger = logging.getLogger("AGENT_CITY.THREAD_STATE")
+
+# Energy decay per heartbeat (~15min). Thread half-life ≈ 8 heartbeats (~2 hours).
+DECAY_RATE: float = 0.92
+COOL_THRESHOLD: float = 0.3
+ARCHIVE_THRESHOLD: float = 0.05
+
+# Repetition detection: if same author posts N+ times without system change, escalate
+REPETITION_ESCALATION_COUNT: int = 3
+
+
+class ThreadStatus(StrEnum):
+    """Discussion thread lifecycle states."""
+    ACTIVE = "active"
+    WAITING = "waiting"
+    COOLING = "cooling"
+    ARCHIVED = "archived"
+
+
+@dataclass(frozen=True)
+class ThreadSnapshot:
+    """Immutable view of a thread's current state."""
+    discussion_number: int
+    title: str
+    category: str
+    energy: float
+    status: str
+    last_human_comment_at: float
+    last_agent_response_at: float
+    human_comment_count: int
+    response_count: int
+    unresolved: bool
+    created_at: float
+
+    @property
+    def needs_response(self) -> bool:
+        """Thread has unresolved human comment needing agent attention."""
+        return self.unresolved and self.status in (ThreadStatus.ACTIVE, ThreadStatus.WAITING)
+
+    @property
+    def is_alive(self) -> bool:
+        return self.status != ThreadStatus.ARCHIVED
+
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS thread_state (
+    discussion_number INTEGER PRIMARY KEY,
+    title             TEXT NOT NULL DEFAULT '',
+    category          TEXT NOT NULL DEFAULT '',
+    energy            REAL NOT NULL DEFAULT 1.0,
+    status            TEXT NOT NULL DEFAULT 'active',
+    last_human_comment_at   REAL NOT NULL DEFAULT 0.0,
+    last_agent_response_at  REAL NOT NULL DEFAULT 0.0,
+    human_comment_count     INTEGER NOT NULL DEFAULT 0,
+    response_count          INTEGER NOT NULL DEFAULT 0,
+    unresolved              INTEGER NOT NULL DEFAULT 0,
+    created_at              REAL NOT NULL DEFAULT 0.0,
+    last_human_author       TEXT NOT NULL DEFAULT '',
+    consecutive_human_posts  INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+
+class ThreadStateEngine:
+    """Prana-based discussion lifecycle manager.
+
+    Stored in city.db alongside Pokedex. Each heartbeat:
+    1. GENESIS: record_human_comment() on new comments from scan
+    2. KARMA:   record_agent_response() after posting reply
+    3. MOKSHA:  decay_all() to age threads + detect stale ones
+
+    Thread triage: threads_needing_response() for gateway routing.
+    """
+
+    def __init__(self, db_path: str = "data/city.db") -> None:
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._lock = threading.RLock()
+        self._init_schema()
+
+    def _init_schema(self) -> None:
+        with self._lock:
+            self._conn.executescript(_SCHEMA)
+            self._conn.commit()
+
+    # ── Inbound Events ─────────────────────────────────────────────────
+
+    def record_human_comment(
+        self,
+        discussion_number: int,
+        author: str,
+        *,
+        title: str = "",
+        category: str = "",
+    ) -> ThreadSnapshot:
+        """A human (or external agent) posted a comment.
+
+        Energy resets to 1.0, status becomes ACTIVE, unresolved = True.
+        Tracks consecutive posts by same author for repetition detection.
+        """
+        now = time.time()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM thread_state WHERE discussion_number = ?",
+                (discussion_number,),
+            ).fetchone()
+
+            if row is None:
+                # New thread
+                self._conn.execute(
+                    """INSERT INTO thread_state
+                       (discussion_number, title, category, energy, status,
+                        last_human_comment_at, human_comment_count, unresolved,
+                        created_at, last_human_author, consecutive_human_posts)
+                       VALUES (?, ?, ?, 1.0, ?, ?, 1, 1, ?, ?, 1)""",
+                    (discussion_number, title, category,
+                     ThreadStatus.ACTIVE, now, now, author),
+                )
+            else:
+                # Existing thread — reset energy, increment counts
+                prev_author = row["last_human_author"]
+                consecutive = row["consecutive_human_posts"]
+                if author == prev_author:
+                    consecutive += 1
+                else:
+                    consecutive = 1
+
+                self._conn.execute(
+                    """UPDATE thread_state SET
+                       energy = 1.0,
+                       status = ?,
+                       last_human_comment_at = ?,
+                       human_comment_count = human_comment_count + 1,
+                       unresolved = 1,
+                       last_human_author = ?,
+                       consecutive_human_posts = ?,
+                       title = CASE WHEN ? != '' THEN ? ELSE title END,
+                       category = CASE WHEN ? != '' THEN ? ELSE category END
+                       WHERE discussion_number = ?""",
+                    (ThreadStatus.ACTIVE, now, author, consecutive,
+                     title, title, category, category, discussion_number),
+                )
+
+            self._conn.commit()
+
+        logger.info(
+            "THREAD: #%d human comment by @%s → ACTIVE (energy=1.0)",
+            discussion_number, author,
+        )
+        return self.get(discussion_number)  # type: ignore[return-value]
+
+    def record_agent_response(self, discussion_number: int) -> None:
+        """An agent posted a response to this thread.
+
+        Status becomes WAITING, unresolved = False.
+        Energy stays the same (agent response doesn't add energy).
+        Resets consecutive_human_posts (the system responded).
+        """
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                """UPDATE thread_state SET
+                   status = ?,
+                   last_agent_response_at = ?,
+                   response_count = response_count + 1,
+                   unresolved = 0,
+                   consecutive_human_posts = 0
+                   WHERE discussion_number = ?""",
+                (ThreadStatus.WAITING, now, discussion_number),
+            )
+            self._conn.commit()
+
+        logger.debug("THREAD: #%d agent responded → WAITING", discussion_number)
+
+    # ── Decay (MOKSHA) ─────────────────────────────────────────────────
+
+    def decay_all(self) -> dict:
+        """Decay energy for all non-archived threads.
+
+        Called once per heartbeat in MOKSHA.
+        Returns: {"decayed": N, "cooled": N, "archived": N}
+        """
+        stats = {"decayed": 0, "cooled": 0, "archived": 0}
+
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT discussion_number, energy, status FROM thread_state WHERE status != ?",
+                (ThreadStatus.ARCHIVED,),
+            ).fetchall()
+
+            for row in rows:
+                num = row["discussion_number"]
+                new_energy = row["energy"] * DECAY_RATE
+                new_status = row["status"]
+
+                if new_energy < ARCHIVE_THRESHOLD:
+                    new_status = ThreadStatus.ARCHIVED
+                    new_energy = 0.0
+                    stats["archived"] += 1
+                elif new_energy < COOL_THRESHOLD and row["status"] != ThreadStatus.COOLING:
+                    new_status = ThreadStatus.COOLING
+                    stats["cooled"] += 1
+
+                self._conn.execute(
+                    "UPDATE thread_state SET energy = ?, status = ? WHERE discussion_number = ?",
+                    (new_energy, new_status, num),
+                )
+                stats["decayed"] += 1
+
+            self._conn.commit()
+
+        if stats["cooled"] or stats["archived"]:
+            logger.info(
+                "THREAD DECAY: %d decayed, %d cooled, %d archived",
+                stats["decayed"], stats["cooled"], stats["archived"],
+            )
+        return stats
+
+    # ── Queries ────────────────────────────────────────────────────────
+
+    def get(self, discussion_number: int) -> ThreadSnapshot | None:
+        """Get current state of a thread."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM thread_state WHERE discussion_number = ?",
+                (discussion_number,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_snapshot(row)
+
+    def threads_needing_response(self) -> list[ThreadSnapshot]:
+        """Threads with unresolved human comments, ordered by energy (highest first)."""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT * FROM thread_state
+                   WHERE unresolved = 1 AND status != ?
+                   ORDER BY energy DESC""",
+                (ThreadStatus.ARCHIVED,),
+            ).fetchall()
+        return [self._row_to_snapshot(r) for r in rows]
+
+    def active_threads(self) -> list[ThreadSnapshot]:
+        """All non-archived threads, ordered by energy."""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT * FROM thread_state
+                   WHERE status != ?
+                   ORDER BY energy DESC""",
+                (ThreadStatus.ARCHIVED,),
+            ).fetchall()
+        return [self._row_to_snapshot(r) for r in rows]
+
+    def repetition_alerts(self) -> list[ThreadSnapshot]:
+        """Threads where the same human posted N+ times without agent response.
+
+        This is a pain signal — the system is ignoring repeated feedback.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT * FROM thread_state
+                   WHERE consecutive_human_posts >= ? AND status != ?
+                   ORDER BY consecutive_human_posts DESC""",
+                (REPETITION_ESCALATION_COUNT, ThreadStatus.ARCHIVED),
+            ).fetchall()
+        return [self._row_to_snapshot(r) for r in rows]
+
+    def stats(self) -> dict:
+        """Summary statistics for diagnostics."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT status, COUNT(*) as cnt FROM thread_state GROUP BY status",
+            ).fetchall()
+        counts = {r["status"]: r["cnt"] for r in rows}
+        unresolved = 0
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) as cnt FROM thread_state WHERE unresolved = 1 AND status != ?",
+                (ThreadStatus.ARCHIVED,),
+            ).fetchone()
+            if row:
+                unresolved = row["cnt"]
+        return {
+            "by_status": counts,
+            "total": sum(counts.values()),
+            "unresolved": unresolved,
+        }
+
+    # ── Internal ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _row_to_snapshot(row: sqlite3.Row) -> ThreadSnapshot:
+        return ThreadSnapshot(
+            discussion_number=row["discussion_number"],
+            title=row["title"],
+            category=row["category"],
+            energy=row["energy"],
+            status=row["status"],
+            last_human_comment_at=row["last_human_comment_at"],
+            last_agent_response_at=row["last_agent_response_at"],
+            human_comment_count=row["human_comment_count"],
+            response_count=row["response_count"],
+            unresolved=bool(row["unresolved"]),
+            created_at=row["created_at"],
+        )
+
+    def close(self) -> None:
+        """Close the database connection."""
+        self._conn.close()

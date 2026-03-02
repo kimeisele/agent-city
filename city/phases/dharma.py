@@ -185,6 +185,22 @@ def execute(ctx: PhaseContext) -> list[str]:
     if ctx.moltbook_assistant is not None:
         ctx.moltbook_assistant.on_dharma(ctx.heartbeat_count)
 
+    # P8: Community triage — plan which threads need attention this cycle
+    if ctx.thread_state is not None:
+        from city.community_triage import triage_threads
+
+        seed_threads = {}
+        if ctx.discussions is not None and hasattr(ctx.discussions, "_seed_threads"):
+            seed_threads = ctx.discussions._seed_threads
+
+        triage_items = triage_threads(
+            ctx.thread_state,
+            ctx.pokedex,
+            seed_threads=seed_threads,
+        )
+        if triage_items:
+            ctx._triage_items = triage_items  # type: ignore[attr-defined]
+
     if actions:
         logger.info("DHARMA: %d governance actions", len(actions))
     return actions

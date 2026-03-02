@@ -309,6 +309,9 @@ def _handle_discussion_item(
         if posted:
             ctx.discussions.record_response(discussion_number)
             thread.record_response(ctx.heartbeat_count)
+            # P8: Record agent response in ThreadState lifecycle engine
+            if ctx.thread_state is not None:
+                ctx.thread_state.record_agent_response(discussion_number)
             emit_event(
                 "ACTION", agent_name, f"Discussion #{discussion_number} response",
                 {

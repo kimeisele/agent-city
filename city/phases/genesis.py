@@ -199,6 +199,15 @@ def execute(ctx: PhaseContext) -> list[str]:
                     _ingest_brain_feedback(ctx, comment.get("body", ""))
                     continue
 
+                # P8: Record human comment in ThreadState lifecycle engine
+                if ctx.thread_state is not None:
+                    ctx.thread_state.record_human_comment(
+                        signal["number"],
+                        comment_author,
+                        title=signal.get("title", ""),
+                        category="",
+                    )
+
                 body = comment.get("body", "")
                 mentions = extract_mentions(body)
 
