@@ -296,7 +296,7 @@ def _handle_discussion_item(
 
     # Broadcast signal to agent nadi
     if disc_semantic_signal is not None and ctx.agent_nadi is not None:
-        ctx.agent_nadi.broadcast(agent_name, response.body[:200], signal=disc_semantic_signal)
+        ctx.agent_nadi.broadcast(agent_name, response.body[:200])
 
     # Rate limit + post
     if ctx.discussions is not None and ctx.discussions.can_respond(discussion_number):
