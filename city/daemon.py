@@ -196,7 +196,7 @@ class DaemonService:
         try:
             stats = self.mayor._pokedex.stats()
             total = stats.get("total", 0)
-            alive = stats.get("alive", 0)
+            alive = stats.get("active", 0) + stats.get("citizen", 0)
             dead_ratio = (total - alive) / total if total > 0 else 0.0
 
             # Contract failures

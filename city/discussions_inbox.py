@@ -1,10 +1,9 @@
 """
-DISCUSSIONS INBOX — Buddhi-Driven Agent Dispatch for GitHub Discussions.
+DISCUSSIONS INBOX — Spec-Driven Agent Voice for GitHub Discussions.
 
-Mirrors city/inbox.py 1:1. Classifies discussion intent via buddhi.function,
-routes to agents by capability, generates responses from AgentSpec data.
-
-Agents participate AS THEMSELVES — identity header + capability-driven body.
+Each agent sounds different because its spec IS different. Zero hardcoded
+templates. Identity, perspective, and capabilities all derive from AgentSpec
++ buddhi cognition results.
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
@@ -23,7 +22,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("AGENT_CITY.DISCUSSIONS_INBOX")
 
 
-# ── Types ─────────────────────────────────────────────────────────────
+# -- Types -----------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -46,7 +45,7 @@ class AgentDiscussionResponse:
     agent_name: str
 
 
-# ── @Mention Extraction ──────────────────────────────────────────────
+# -- @Mention Extraction ----------------------------------------------------
 
 _MENTION_RE = re.compile(r"@([\w-]+)")
 
@@ -56,7 +55,7 @@ def extract_mentions(text: str) -> list[str]:
     return _MENTION_RE.findall(text)
 
 
-# ── Intent Classification (Buddhi-driven, 0 keywords) ────────────────
+# -- Intent Classification (Buddhi-driven, 0 keywords) ----------------------
 
 
 INTENT_REQUIREMENTS: dict[str, dict] = {
@@ -74,9 +73,6 @@ def classify_discussion_intent(gateway_result: GatewayResult) -> str:
     VISHNU  = sustain   -> inquiry (question, status query)
     SHIVA   = transform -> govern  (policy, vote, change request)
     default             -> observe (general acknowledgement)
-
-    Same mapping as inbox.py:classify_intent — the compression
-    already did the semantic work.
     """
     function = gateway_result.get("buddhi_function", "")
     if function == "BRAHMA":
@@ -88,94 +84,85 @@ def classify_discussion_intent(gateway_result: GatewayResult) -> str:
     return "observe"
 
 
-# ── Agent Identity Header ────────────────────────────────────────────
+# -- Agent Identity ----------------------------------------------------------
 
+# Function -> action verb (what the agent DOES with this discussion)
+_FUNCTION_VERB: dict[str, str] = {
+    "BRAHMA": "contribute to",
+    "VISHNU": "report on",
+    "SHIVA": "review",
+}
 
-def _agent_header(spec: dict) -> str:
-    """Build agent identity header from AgentSpec."""
-    name = spec.get("name", "Unknown")
-    guardian = spec.get("guardian", "unknown").title()
-    domain = spec.get("domain", "?")
-    element = spec.get("element", "?")
-    guna = spec.get("guna", "?")
-    return f"**{name}** | {guardian} ({domain}) | {element} element | {guna} guna"
-
-
-# ── Agent Introduction ───────────────────────────────────────────────
-
-
-def build_agent_intro(spec: dict) -> str:
-    """Build self-introduction for the Agent Registry thread."""
-    header = _agent_header(spec)
-    caps = ", ".join(spec.get("capabilities", [])[:6])
-    role = spec.get("role", "agent")
-    domain = spec.get("domain", "general")
-    guardian = spec.get("guardian", "unknown")
-    return (
-        f"{header}\n\n"
-        f"I am a {role} in the {domain} domain, "
-        f"serving under guardian **{guardian}**.\n\n"
-        f"**Capabilities**: {caps}\n\n"
-        f"Ready to serve the city."
-    )
-
-
-# ── Response Generators ──────────────────────────────────────────────
-
-
-def _respond_propose(spec: dict, signal: DiscussionSignal, stats: dict) -> str:
-    """Handle propose intent — agent offers capabilities for the idea."""
-    caps = ", ".join(spec.get("capabilities", [])[:5])
-    role = spec.get("role", "agent")
-    return (
-        f"{_agent_header(spec)}\n\n"
-        f"Interesting proposal. As a {role}, I can contribute with: {caps}.\n\n"
-        f"The city currently has {stats.get('alive', 0)} active agents. "
-        f"I'll track this thread for developments."
-    )
-
-
-def _respond_inquiry(spec: dict, signal: DiscussionSignal, stats: dict) -> str:
-    """Handle inquiry intent — agent reports from its domain."""
-    domain = spec.get("domain", "general")
-    return (
-        f"{_agent_header(spec)}\n\n"
-        f"From the {domain} domain perspective:\n"
-        f"- City population: {stats.get('total', 0)} agents "
-        f"({stats.get('alive', 0)} alive)\n"
-        f"- My operational status: active\n\n"
-        f"I can provide more detail on topics within my domain."
-    )
-
-
-def _respond_govern(spec: dict, signal: DiscussionSignal, stats: dict) -> str:
-    """Handle govern intent — agent acknowledges governance action."""
-    tier = spec.get("capability_tier", "observer")
-    return (
-        f"{_agent_header(spec)}\n\n"
-        f"Governance action noted. My tier: {tier}.\n"
-        f"This will be reviewed during the next Council session in the KARMA phase."
-    )
-
-
-def _respond_observe(spec: dict, signal: DiscussionSignal, stats: dict) -> str:
-    """Handle observe intent — general acknowledgement."""
-    return (
-        f"{_agent_header(spec)}\n\n"
-        f"Acknowledged. Monitoring this discussion from the "
-        f"{spec.get('domain', 'general')} domain."
-    )
-
-
-_INTENT_HANDLERS = {
-    "propose": _respond_propose,
-    "inquiry": _respond_inquiry,
-    "govern": _respond_govern,
-    "observe": _respond_observe,
+# Guna -> perspective label (HOW the agent frames its response)
+_GUNA_FRAME: dict[str, str] = {
+    "SATTVA": "Analysis",
+    "RAJAS": "Action",
+    "TAMAS": "Assessment",
 }
 
 
-# ── Dispatcher ────────────────────────────────────────────────────────
+def _agent_signature(spec: dict, gateway_result: dict | None = None) -> str:
+    """Rich agent identity block. Derived from spec, zero hardcode."""
+    name = spec.get("name", "Unknown")
+    domain = spec.get("domain", "?")
+    guna = spec.get("guna", "?")
+    element = spec.get("element", "?")
+    guardian = spec.get("guardian", "?").title()
+    tier = spec.get("capability_tier", "observer")
+    protocol = spec.get("capability_protocol", "?")
+
+    sig = f"**{name}** `{domain}` `{guna}` `{element}`\n"
+    sig += f"> {guardian} | {tier} | {protocol}"
+
+    # Cognitive frame (if gateway ran buddhi)
+    if gateway_result:
+        function = gateway_result.get("buddhi_function", "")
+        chapter = gateway_result.get("buddhi_chapter", 0)
+        if function:
+            sig += f" | {function}"
+        if chapter:
+            sig += f" ch.{chapter}"
+
+    return sig
+
+
+# -- Spec-Driven Composition ------------------------------------------------
+
+
+def _compose_response(
+    spec: dict,
+    signal: DiscussionSignal,
+    stats: dict,
+    gateway_result: dict,
+) -> str:
+    """Compose agent response from spec + cognition. Zero templates."""
+    parts = [_agent_signature(spec, gateway_result)]
+
+    function = gateway_result.get("buddhi_function", "")
+    domain = spec.get("domain", "")
+    guna = spec.get("guna", "")
+    role = spec.get("role", "")
+    caps = spec.get("capabilities", [])
+
+    verb = _FUNCTION_VERB.get(function, "observe")
+    frame = _GUNA_FRAME.get(guna, "Note")
+
+    # One-line perspective (role + domain + verb = unique per agent)
+    parts.append(f"\n**{frame}**: As {role}, I can {verb} this from the {domain} domain.")
+
+    # Capabilities (what the agent brings to the table)
+    if caps:
+        parts.append(f"\n**Capabilities**: {', '.join(caps[:6])}")
+
+    # Live city data (structure, not prose)
+    alive = stats.get("active", 0) + stats.get("citizen", 0)
+    total = stats.get("total", 0)
+    parts.append(f"**City**: {alive}/{total} agents active")
+
+    return "\n".join(parts)
+
+
+# -- Dispatcher --------------------------------------------------------------
 
 
 def dispatch_discussion(
@@ -184,11 +171,7 @@ def dispatch_discussion(
     agent_spec: dict,
     city_stats: dict,
 ) -> AgentDiscussionResponse:
-    """Route a discussion signal to the correct handler and build response.
-
-    Uses buddhi.function from gateway_result to classify intent,
-    then delegates to intent-specific response generator.
-    """
+    """Route a discussion signal to spec-driven composition and build response."""
     intent = classify_discussion_intent(gateway_result)
 
     logger.info(
@@ -199,11 +182,72 @@ def dispatch_discussion(
         gateway_result.get("buddhi_function", "?"),
     )
 
-    handler = _INTENT_HANDLERS.get(intent, _respond_observe)
-    body = handler(agent_spec, signal, city_stats)
+    body = _compose_response(agent_spec, signal, city_stats, gateway_result)
 
     return AgentDiscussionResponse(
         discussion_number=signal.discussion_number,
         body=body,
         agent_name=agent_spec.get("name", "unknown"),
     )
+
+
+# -- Agent Introduction (Registry Thread) -----------------------------------
+
+
+def build_agent_intro(spec: dict) -> str:
+    """Structured agent introduction for the Registry thread."""
+    sig = _agent_signature(spec)
+
+    role = spec.get("role", "agent")
+    domain = spec.get("domain", "general")
+    caps = spec.get("capabilities", [])
+    chapter = spec.get("chapter", 0)
+    chapter_sig = spec.get("chapter_significance", "")
+    element_caps = spec.get("element_capabilities", [])
+    guardian_caps = spec.get("guardian_capabilities", [])
+    qos = spec.get("qos", {})
+
+    lines = [sig, ""]
+    lines.append(f"**Role**: {role}")
+    lines.append(f"**Domain**: {domain}")
+    if chapter and chapter_sig:
+        lines.append(f"**Chapter**: {chapter} — {chapter_sig}")
+    lines.append(f"**Capabilities**: {', '.join(caps[:8])}")
+    if element_caps:
+        lines.append(f"**Element skills**: {', '.join(element_caps[:4])}")
+    if guardian_caps:
+        lines.append(f"**Guardian skills**: {', '.join(guardian_caps[:4])}")
+    lines.append(
+        f"**QoS**: latency={qos.get('latency_multiplier', '?')}x, "
+        f"parallel={'yes' if qos.get('parallel') else 'no'}"
+    )
+
+    return "\n".join(lines)
+
+
+# -- Action Report (Outbound Cognitive Posts) --------------------------------
+
+
+def build_action_report(
+    spec: dict,
+    cognitive_action: dict,
+    mission_id: str,
+) -> str:
+    """Build structured report when agent executes a cognitive action."""
+    sig = _agent_signature(spec)
+
+    function = cognitive_action.get("function", "?")
+    operation = cognitive_action.get("_operation", "?")
+    composed = cognitive_action.get("composed", "")
+    chapter = cognitive_action.get("chapter", 0)
+    prana = cognitive_action.get("prana", 0)
+    integrity = cognitive_action.get("integrity", 0)
+
+    lines = [sig, ""]
+    lines.append(f"**Action**: {function} -> {operation}")
+    lines.append(f"**Mission**: `{mission_id}`")
+    if composed:
+        lines.append(f"**Signal**: {composed}")
+    lines.append(f"**Vitals**: prana={prana} integrity={integrity:.2f} ch.{chapter}")
+
+    return "\n".join(lines)

@@ -375,7 +375,7 @@ class MoltbookAssistant:
     def _build_digest(self, hb: int, city_stats: dict) -> tuple[str, str]:
         """City Digest — population, zones, Moltbook presence."""
         total = city_stats.get("total", 0)
-        alive = city_stats.get("alive", 0)
+        alive = city_stats.get("active", 0) + city_stats.get("citizen", 0)
         citizens = city_stats.get("citizen", 0)
         zones = city_stats.get("zones", {})
 

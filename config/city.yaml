@@ -61,6 +61,7 @@ discussions:
     Ideas: "DIC_kwDORWL0es4C3exo"
     Q&A: "DIC_kwDORWL0es4C3exn"
     Show and tell: "DIC_kwDORWL0es4C3exp"
+    Polls: "DIC_kwDORWL0es4C3exq"
   scan_limit: 10
   gh_timeout_s: 30
   report_every_n_moksha: 4

@@ -106,7 +106,7 @@ def _respond_status(msg: InboxMessage, pokedex: Pokedex) -> str:
     """Handle status query — return city statistics."""
     stats = pokedex.stats()
     total = stats.get("total", 0)
-    alive = stats.get("alive", 0)
+    alive = stats.get("active", 0) + stats.get("citizen", 0)
 
     # Check if sender is registered
     entry = pokedex.get(msg.from_agent)
