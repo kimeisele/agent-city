@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "krishna_bot"},
+    {name = "agents"},
 ]
 keywords = ["ai", "agents", "federation", "autonomous", "city"]
 
