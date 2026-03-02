@@ -177,6 +177,16 @@ class Mayor:
             from city.brain import CityBrain
             self._registry.register(SVC_BRAIN, CityBrain())
 
+        # Brain Memory — persistent bounded FIFO for brain thoughts
+        from city.registry import SVC_BRAIN_MEMORY
+
+        if not self._registry.has(SVC_BRAIN_MEMORY):
+            from city.brain_memory import BrainMemory
+
+            brain_mem = BrainMemory(path=self._state_path.parent / "brain_memory.json")
+            brain_mem.load()
+            self._registry.register(SVC_BRAIN_MEMORY, brain_mem)
+
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         self._load_state()
         self._wire_event_handlers()

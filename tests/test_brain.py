@@ -22,6 +22,7 @@ from city.brain import (
     BrainProtocol,
     CityBrain,
     Thought,
+    ThoughtKind,
     _BRAIN_TIMEOUT,
     _MAX_TOKENS,
     _normalize_intent,
@@ -527,3 +528,204 @@ class TestIntegration:
         assert restored.intent is original.intent
         assert restored.confidence == original.confidence
         assert restored.key_concepts == original.key_concepts
+
+
+# ── Phase 4: ThoughtKind + Expanded Thought Tests ───────────────────
+
+
+class TestThoughtKind:
+    def test_all_kinds_are_strings(self):
+        for kind in ThoughtKind:
+            assert isinstance(kind.value, str)
+
+    def test_kind_values(self):
+        assert ThoughtKind.COMPREHENSION == "comprehension"
+        assert ThoughtKind.HEALTH_CHECK == "health_check"
+        assert ThoughtKind.REFLECTION == "reflection"
+
+    def test_thought_kind_default(self):
+        """kind defaults to COMPREHENSION — backward compat."""
+        t = Thought(
+            comprehension="test",
+            intent=BrainIntent.OBSERVE,
+            domain_relevance="general",
+            key_concepts=("a",),
+            confidence=0.5,
+        )
+        assert t.kind is ThoughtKind.COMPREHENSION
+
+    def test_thought_action_hint_and_evidence(self):
+        t = Thought(
+            comprehension="bottleneck detected",
+            intent=BrainIntent.GOVERN,
+            domain_relevance="immune",
+            key_concepts=("breaker",),
+            confidence=0.9,
+            kind=ThoughtKind.HEALTH_CHECK,
+            action_hint="flag_bottleneck:immune",
+            evidence=("breaker tripped", "3 failed heals"),
+        )
+        assert t.kind is ThoughtKind.HEALTH_CHECK
+        assert t.action_hint == "flag_bottleneck:immune"
+        assert len(t.evidence) == 2
+
+    def test_to_dict_includes_new_fields(self):
+        t = Thought(
+            comprehension="test",
+            intent=BrainIntent.OBSERVE,
+            kind=ThoughtKind.HEALTH_CHECK,
+            action_hint="investigate:learning",
+            evidence=("low avg weight",),
+            confidence=0.8,
+        )
+        d = t.to_dict()
+        assert d["kind"] == "health_check"
+        assert d["action_hint"] == "investigate:learning"
+        assert d["evidence"] == ["low avg weight"]
+
+    def test_to_dict_omits_empty_hint_evidence(self):
+        t = Thought(comprehension="x", intent=BrainIntent.OBSERVE, confidence=0.5)
+        d = t.to_dict()
+        assert "action_hint" not in d
+        assert "evidence" not in d
+
+    def test_format_for_post_expanded(self):
+        t = Thought(
+            comprehension="System healthy",
+            intent=BrainIntent.OBSERVE,
+            domain_relevance="infrastructure",
+            key_concepts=("health",),
+            confidence=0.8,
+            kind=ThoughtKind.HEALTH_CHECK,
+            action_hint="flag_bottleneck:immune",
+            evidence=("3 agents dead", "breaker tripped"),
+        )
+        post = t.format_for_post()
+        assert "**Kind**: health_check" in post
+        assert "**Action**: flag_bottleneck:immune" in post
+        assert "**Evidence**:" in post
+        assert "3 agents dead" in post
+
+    def test_format_for_post_comprehension_no_kind_line(self):
+        """COMPREHENSION kind should not show Kind line (backward compat)."""
+        t = Thought(
+            comprehension="test",
+            intent=BrainIntent.OBSERVE,
+            confidence=0.5,
+        )
+        post = t.format_for_post()
+        assert "**Kind**" not in post
+
+
+class TestExpandedJsonParsing:
+    def test_parse_action_hint_from_json(self):
+        raw = json.dumps({
+            "comprehension": "something stuck",
+            "intent": "govern",
+            "confidence": 0.85,
+            "action_hint": "flag_bottleneck:immune",
+            "evidence": ["breaker tripped", "3 heals failed"],
+        })
+        thought = _parse_json_thought(raw, kind=ThoughtKind.HEALTH_CHECK)
+        assert thought is not None
+        assert thought.action_hint == "flag_bottleneck:immune"
+        assert thought.evidence == ("breaker tripped", "3 heals failed")
+        assert thought.kind is ThoughtKind.HEALTH_CHECK
+
+    def test_parse_aliased_hint_keys(self):
+        """Model says 'suggestion' instead of 'action_hint'."""
+        raw = json.dumps({
+            "comprehension": "test",
+            "suggestion": "investigate:learning",
+            "reasoning": ["low weights"],
+        })
+        thought = _parse_json_thought(raw)
+        assert thought is not None
+        assert thought.action_hint == "investigate:learning"
+        assert thought.evidence == ("low weights",)
+
+    def test_roundtrip_with_new_fields(self):
+        original = Thought(
+            comprehension="Full roundtrip",
+            intent=BrainIntent.PROPOSE,
+            domain_relevance="governance",
+            key_concepts=("a", "b"),
+            confidence=0.9,
+            kind=ThoughtKind.REFLECTION,
+            action_hint="create_mission:improve routing",
+            evidence=("2 routes failed", "low confidence"),
+        )
+        d = original.to_dict()
+        raw = json.dumps(d)
+        restored = _parse_json_thought(raw)
+        assert restored is not None
+        assert restored.kind is ThoughtKind.REFLECTION
+        assert restored.action_hint == original.action_hint
+        assert restored.evidence == original.evidence
+
+
+class TestEvaluateHealth:
+    def _make_brain_with_mock(self, response_content: str) -> CityBrain:
+        brain = CityBrain()
+        brain._available = True
+        mock_provider = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = response_content
+        mock_provider.invoke.return_value = mock_response
+        brain._provider = mock_provider
+        return brain
+
+    def test_evaluate_health_mock(self):
+        from city.brain_context import ContextSnapshot
+
+        json_response = json.dumps({
+            "comprehension": "System running smoothly, all agents alive.",
+            "intent": "observe",
+            "domain_relevance": "infrastructure",
+            "key_concepts": ["health", "stability"],
+            "confidence": 0.85,
+            "action_hint": "",
+            "evidence": ["48/51 alive", "chain valid"],
+        })
+        brain = self._make_brain_with_mock(json_response)
+        snap = ContextSnapshot(agent_count=51, alive_count=48, dead_count=3)
+
+        thought = brain.evaluate_health(snap)
+        assert thought is not None
+        assert thought.kind is ThoughtKind.HEALTH_CHECK
+        assert thought.confidence == 0.85
+        assert "stability" in thought.key_concepts
+
+    def test_evaluate_health_offline(self):
+        from city.brain_context import ContextSnapshot
+
+        brain = CityBrain()
+        brain._available = False
+        snap = ContextSnapshot()
+        assert brain.evaluate_health(snap) is None
+
+    def test_reflect_on_cycle_mock(self):
+        from city.brain_context import ContextSnapshot
+
+        json_response = json.dumps({
+            "comprehension": "Good rotation. Learning improving.",
+            "intent": "observe",
+            "domain_relevance": "system",
+            "key_concepts": ["learning", "improvement"],
+            "confidence": 0.7,
+            "action_hint": "create_mission:optimize decay factor",
+            "evidence": ["avg weight rising", "0 breaker trips"],
+        })
+        brain = self._make_brain_with_mock(json_response)
+        snap = ContextSnapshot(agent_count=51, alive_count=48)
+        reflection = {"learning_stats": {"synapses": 50}, "events_since_last": 5}
+
+        thought = brain.reflect_on_cycle(snap, reflection)
+        assert thought is not None
+        assert thought.kind is ThoughtKind.REFLECTION
+        assert thought.action_hint.startswith("create_mission:")
+
+    def test_protocol_expanded(self):
+        """CityBrain still satisfies BrainProtocol with new methods."""
+        brain = CityBrain()
+        assert isinstance(brain, BrainProtocol)

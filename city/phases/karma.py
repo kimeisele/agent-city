@@ -78,6 +78,32 @@ def execute(ctx: PhaseContext) -> list[str]:
     """KARMA: Process gateway queue, sankalpa, heal, council cycle."""
     operations: list[str] = []
 
+    # System-level brain cognition (1 mandatory call)
+    brain = ctx.brain
+    if brain is not None and hasattr(brain, "evaluate_health"):
+        from city.brain_context import build_context_snapshot
+
+        snapshot = build_context_snapshot(ctx)
+        health_thought = brain.evaluate_health(snapshot)
+        if health_thought is not None:
+            operations.append(
+                f"brain_health:intent={health_thought.intent.value}"
+                f":confidence={health_thought.confidence:.2f}"
+                f":hint={health_thought.action_hint or 'none'}"
+            )
+            # Record in memory
+            if ctx.brain_memory is not None:
+                ctx.brain_memory.record(health_thought, ctx.heartbeat_count)
+            # Post high-confidence health thoughts to discussions
+            if (
+                health_thought.confidence >= 0.7
+                and ctx.discussions is not None
+                and not ctx.offline_mode
+            ):
+                ctx.discussions.post_brain_thought(health_thought, ctx.heartbeat_count)
+            # Budget: health check counts as 1 brain call
+            ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1
+
     # Mark citizens active (redundant with DHARMA, but keeps the set warm
     # for intra-run KARMA operations that check active_agents)
     from city.registry import SVC_SPAWNER

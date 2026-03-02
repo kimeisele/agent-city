@@ -23,7 +23,10 @@ import json
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from city.brain_context import ContextSnapshot
 
 logger = logging.getLogger("AGENT_CITY.BRAIN")
 
@@ -32,6 +35,14 @@ _MAX_TOKENS = 512    # room for proper JSON with all fields
 
 
 # ── Typed Intent ──────────────────────────────────────────────────────
+
+
+class ThoughtKind(StrEnum):
+    """Typed taxonomy for brain thoughts."""
+
+    COMPREHENSION = "comprehension"  # Phase 3: understand one input
+    HEALTH_CHECK = "health_check"    # System health evaluation
+    REFLECTION = "reflection"        # End-of-cycle reflection
 
 
 class BrainIntent(StrEnum):
@@ -68,9 +79,18 @@ _KEY_ALIASES: dict[str, str] = {
     # confidence aliases
     "score": "confidence",
     "certainty": "confidence",
+    # action_hint aliases ("action" already maps to intent — don't overwrite)
+    "suggestion": "action_hint",
+    "hint": "action_hint",
+    # evidence aliases
+    "reasoning": "evidence",
+    "observations": "evidence",
 }
 
-_CANONICAL_KEYS = {"comprehension", "intent", "domain_relevance", "key_concepts", "confidence"}
+_CANONICAL_KEYS = {
+    "comprehension", "intent", "domain_relevance", "key_concepts",
+    "confidence", "action_hint", "evidence",
+}
 
 
 def _normalize_keys(data: dict) -> dict:
@@ -121,21 +141,36 @@ class Thought:
     Serializable (to_dict), postable (format_for_post), transparent.
     """
 
-    comprehension: str           # What the brain understood (1-2 sentences)
-    intent: BrainIntent          # Typed intent classification
-    domain_relevance: str        # Which city domain this touches
-    key_concepts: tuple[str, ...]  # Extracted concepts (max 5, immutable)
-    confidence: float            # 0.0-1.0
+    comprehension: str = ""                          # What the brain understood
+    intent: BrainIntent = BrainIntent.OBSERVE        # Typed intent classification
+    domain_relevance: str = ""                       # Which city domain this touches
+    key_concepts: tuple[str, ...] = ()               # Extracted concepts (max 5)
+    confidence: float = 0.5                          # 0.0-1.0
+    kind: ThoughtKind = ThoughtKind.COMPREHENSION    # Thought taxonomy
+    action_hint: str = ""                            # Structured hint (see vocab below)
+    evidence: tuple[str, ...] = ()                   # Supporting data (max 3 refs)
+
+    # action_hint vocabulary:
+    #   "" — no action suggested
+    #   "flag_bottleneck:<domain>" — something is stuck
+    #   "investigate:<topic>" — needs deeper look
+    #   "create_mission:<description>" — suggest new Sankalpa mission
 
     def to_dict(self) -> dict[str, object]:
         """Serialize thought for storage, logging, feedback loops."""
-        return {
+        d: dict[str, object] = {
             "comprehension": self.comprehension,
             "intent": self.intent.value,
             "domain_relevance": self.domain_relevance,
             "key_concepts": list(self.key_concepts),
             "confidence": self.confidence,
+            "kind": self.kind.value,
         }
+        if self.action_hint:
+            d["action_hint"] = self.action_hint
+        if self.evidence:
+            d["evidence"] = list(self.evidence)
+        return d
 
     def format_for_post(self) -> str:
         """Format thought as structured text for discussion posting.
@@ -144,6 +179,8 @@ class Thought:
         discussion content that can be scanned → comprehended → reacted to.
         """
         lines: list[str] = []
+        if self.kind != ThoughtKind.COMPREHENSION:
+            lines.append(f"**Kind**: {self.kind.value}")
         if self.comprehension:
             lines.append(f"**Comprehension**: {self.comprehension}")
         if self.key_concepts:
@@ -154,6 +191,10 @@ class Thought:
         )
         if self.domain_relevance:
             lines.append(f"**Domain**: {self.domain_relevance}")
+        if self.action_hint:
+            lines.append(f"**Action**: {self.action_hint}")
+        if self.evidence:
+            lines.append(f"**Evidence**: {'; '.join(self.evidence)}")
         return "\n".join(lines)
 
 
@@ -177,6 +218,17 @@ class BrainProtocol(Protocol):
         self,
         decoded_signal: object,
         receiver_spec: dict,
+    ) -> Thought | None: ...
+
+    def evaluate_health(
+        self,
+        snapshot: ContextSnapshot,
+    ) -> Thought | None: ...
+
+    def reflect_on_cycle(
+        self,
+        snapshot: ContextSnapshot,
+        reflection: dict,
     ) -> Thought | None: ...
 
 
@@ -335,7 +387,83 @@ class CityBrain:
             )
         return thought
 
-    def _invoke_and_parse(self, messages: list[dict]) -> Thought | None:
+    def evaluate_health(
+        self,
+        snapshot: ContextSnapshot,
+    ) -> Thought | None:
+        """Brain evaluates system health. 1 call per KARMA, highest priority."""
+        if not self._ensure_provider():
+            return None
+
+        system_msg = snapshot.to_system_context("health_check")
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": "Evaluate the current system health."},
+        ]
+
+        thought = self._invoke_and_parse(
+            messages, kind=ThoughtKind.HEALTH_CHECK,
+        )
+        if thought is not None:
+            logger.info(
+                "Brain health check: intent=%s confidence=%.2f hint=%s",
+                thought.intent.value,
+                thought.confidence,
+                thought.action_hint or "none",
+            )
+        return thought
+
+    def reflect_on_cycle(
+        self,
+        snapshot: ContextSnapshot,
+        reflection: dict,
+    ) -> Thought | None:
+        """Brain reflects on what happened this rotation. 1 call per MOKSHA."""
+        if not self._ensure_provider():
+            return None
+
+        system_msg = snapshot.to_system_context("reflection")
+
+        # Summarize reflection dict for user message
+        user_parts: list[str] = ["Reflect on this MURALI rotation:"]
+        if reflection.get("learning_stats"):
+            ls = reflection["learning_stats"]
+            user_parts.append(
+                f"Learning: {ls.get('synapses', 0)} synapses, "
+                f"decayed={ls.get('decayed', 0)}, trimmed={ls.get('trimmed', 0)}."
+            )
+        if reflection.get("immune_stats"):
+            ims = reflection["immune_stats"]
+            user_parts.append(
+                f"Immune: {ims.get('heals_attempted', 0)} heals, "
+                f"{ims.get('heals_succeeded', 0)} succeeded."
+            )
+        if reflection.get("mission_results_terminal"):
+            user_parts.append(
+                f"Missions completed: {len(reflection['mission_results_terminal'])}."
+            )
+        events = reflection.get("events_since_last", 0)
+        if events:
+            user_parts.append(f"Events this rotation: {events}.")
+
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": " ".join(user_parts)},
+        ]
+
+        thought = self._invoke_and_parse(
+            messages, kind=ThoughtKind.REFLECTION,
+        )
+        if thought is not None:
+            logger.info(
+                "Brain reflection: intent=%s confidence=%.2f hint=%s",
+                thought.intent.value,
+                thought.confidence,
+                thought.action_hint or "none",
+            )
+        return thought
+
+    def _invoke_and_parse(self, messages: list[dict], *, kind: ThoughtKind = ThoughtKind.COMPREHENSION) -> Thought | None:
         """Invoke LLM with JSON mode + timeout. Parse into Thought.
 
         Logs failures transparently — never silent.
@@ -352,7 +480,7 @@ class CityBrain:
             )
             raw = response.content
             logger.debug("Brain raw response: %s", raw[:500])
-            return _parse_json_thought(raw)
+            return _parse_json_thought(raw, kind=kind)
         except TimeoutError as e:
             logger.warning(
                 "Brain timeout after %ds: %s — deterministic path continues",
@@ -372,7 +500,11 @@ class CityBrain:
 # ── JSON Parsing (module-level, testable) ─────────────────────────────
 
 
-def _parse_json_thought(raw: str) -> Thought | None:
+def _parse_json_thought(
+    raw: str,
+    *,
+    kind: ThoughtKind = ThoughtKind.COMPREHENSION,
+) -> Thought | None:
     """Parse JSON structured output into Thought.
 
     Key normalization: model says "understanding" → we map to "comprehension".
@@ -387,6 +519,12 @@ def _parse_json_thought(raw: str) -> Thought | None:
 
     # Normalize aliased keys
     normalized = _normalize_keys(data)
+
+    # Also pass through canonical keys that _normalize_keys doesn't touch
+    # (action_hint, evidence from the raw data if present)
+    for key in ("action_hint", "evidence", "kind"):
+        if key in data and key not in normalized:
+            normalized[key] = data[key]
 
     try:
         # Extract with defaults
@@ -404,12 +542,30 @@ def _parse_json_thought(raw: str) -> Thought | None:
         raw_confidence = normalized.get("confidence", 0.5)
         confidence = min(1.0, max(0.0, float(raw_confidence)))
 
+        # New fields (Phase 4)
+        action_hint = str(normalized.get("action_hint", ""))[:200]
+        raw_evidence = normalized.get("evidence", [])
+        if isinstance(raw_evidence, list):
+            evidence = tuple(str(e)[:100] for e in raw_evidence[:3])
+        else:
+            evidence = ()
+
+        # Kind from JSON overrides caller default (for roundtrip fidelity)
+        raw_kind = normalized.get("kind", kind.value if isinstance(kind, ThoughtKind) else kind)
+        try:
+            thought_kind = ThoughtKind(raw_kind)
+        except (ValueError, KeyError):
+            thought_kind = kind
+
         return Thought(
             comprehension=comprehension,
             intent=intent,
             domain_relevance=domain_relevance,
             key_concepts=key_concepts,
             confidence=confidence,
+            kind=thought_kind,
+            action_hint=action_hint,
+            evidence=evidence,
         )
     except (TypeError, ValueError) as e:
         logger.warning("Brain thought construction failed: %s", e)
