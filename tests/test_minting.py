@@ -117,7 +117,7 @@ class TestMokshaRewards(unittest.TestCase):
 
     def test_reward_for_completed_mission(self):
         """Completed mission → capability_token minted for owner."""
-        from city.phases.moksha import _mint_mission_rewards
+        from city.hooks.moksha.mission_lifecycle import _mint_mission_rewards
 
         ctx, pokedex = self._make_ctx_and_pokedex()
 
@@ -135,7 +135,7 @@ class TestMokshaRewards(unittest.TestCase):
 
     def test_no_reward_for_abandoned(self):
         """Abandoned mission → no minting."""
-        from city.phases.moksha import _mint_mission_rewards
+        from city.hooks.moksha.mission_lifecycle import _mint_mission_rewards
 
         ctx, pokedex = self._make_ctx_and_pokedex()
 
@@ -154,7 +154,7 @@ class TestMokshaRewards(unittest.TestCase):
 
     def test_reward_type_matches_prefix(self):
         """heal_ → validate, exec_ → execute, signal_ → observe."""
-        from city.phases.moksha import _mint_mission_rewards
+        from city.hooks.moksha.mission_lifecycle import _mint_mission_rewards
 
         ctx, pokedex = self._make_ctx_and_pokedex()
 

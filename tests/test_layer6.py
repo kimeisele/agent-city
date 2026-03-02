@@ -1156,7 +1156,7 @@ def test_moltbook_post_includes_mission_outcomes():
             pass
 
         # Even if offline, verify that _build_post_data includes missions
-        from city.phases.moksha import _build_post_data
+        from city.hooks.moksha.outbound import _build_post_data
         from city.phases import PhaseContext
         ctx = PhaseContext(
             pokedex=pokedex, gateway=mayor._gateway, network=mayor._network,
