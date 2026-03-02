@@ -50,6 +50,7 @@ SVC_DISCUSSIONS = "discussions"
 SVC_DIAGNOSTICS = "diagnostics"
 SVC_BRAIN = "brain"
 SVC_BRAIN_MEMORY = "brain_memory"
+SVC_WIKI_PORTAL = "wiki_portal"
 
 
 class CityServiceRegistry:

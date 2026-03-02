@@ -351,6 +351,12 @@ def execute(ctx: PhaseContext) -> dict:
     if ctx.discussions is not None:
         reflection["discussions"] = ctx.discussions.stats()
 
+    from city.registry import SVC_WIKI_PORTAL
+    wiki = ctx.registry.get(SVC_WIKI_PORTAL)
+    if wiki is not None and not ctx.offline_mode:
+        wiki_synced = wiki.sync(ctx.pokedex, ctx.heartbeat_count)
+        reflection["wiki_synced"] = wiki_synced
+
     return reflection
 
 

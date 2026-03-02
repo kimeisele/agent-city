@@ -191,6 +191,7 @@ def default_definitions(
         SVC_PATHOGEN_INDEX,
         SVC_DIAGNOSTICS,
         SVC_DISCUSSIONS,
+        SVC_WIKI_PORTAL,
     )
 
     defs: list[ServiceDefinition] = []
@@ -322,6 +323,10 @@ def default_definitions(
                 name=SVC_DIAGNOSTICS,
                 factory=lambda ctx: _build_diagnostics(ctx),
                 deps=(SVC_CARTRIDGE_FACTORY,),
+            ),
+            ServiceDefinition(
+                name=SVC_WIKI_PORTAL,
+                factory=lambda ctx: _build_wiki_portal(ctx),
             ),
         ]
     )
@@ -599,3 +604,21 @@ def _build_diagnostics(ctx: BuildContext) -> object | None:
         _factory=factory,
         _pokedex=ctx.pokedex,
     )
+
+
+def _build_wiki_portal(ctx: BuildContext) -> object | None:
+    from city.wiki_portal import WikiPortal
+
+    cfg = ctx.config.get("wiki", {})
+    if ctx.offline:
+        logger.info("WikiPortal skipped: offline mode")
+        return None
+        
+    repo_url = cfg.get("repo_url", "https://github.com/kimeisele/agent-city.wiki.git")
+    
+    portal = WikiPortal(
+        workspace=ctx.db_path.parent.parent,  # Go up from data/ to workspace root
+        wiki_repo_url=repo_url
+    )
+    logger.info("WikiPortal wired (repo: %s)", repo_url)
+    return portal
