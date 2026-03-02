@@ -41,9 +41,10 @@ logger = logging.getLogger("AGENT_CITY.BRAIN_CELL")
 BRAIN_CALL_COST: int = NAVA  # 9 prana per LLM invocation
 BRAIN_HEALTH_COST: int = TRINITY  # 3 prana for health check (cheaper)
 
-# TTL for brain cells: thoughts decay after this many heartbeats.
+# Relevance half-life: after this many heartbeats, relevance score halves.
 # NAVA × TRINITY = 27 heartbeats (~6.75 hours at 15min intervals).
-BRAIN_CELL_TTL: int = NAVA * TRINITY  # 27 heartbeats
+# Knowledge persists forever — only relevance decays (soft decay, not death).
+BRAIN_CELL_HALFLIFE: int = NAVA * TRINITY  # 27 heartbeats
 
 # ── Brain Address (deterministic) ────────────────────────────────────────
 # Source address for all brain-originated cells.
@@ -115,7 +116,7 @@ def create_brain_cell(
 
     lifecycle = CellLifecycleState(
         prana=cost,
-        integrity=BRAIN_CELL_TTL,
+        integrity=100,  # relevance score: starts at 100, decays over time
         cycle=heartbeat,
         is_active=True,
     )
@@ -161,7 +162,7 @@ def create_brain_cell_from_dict(
 
     lifecycle = CellLifecycleState(
         prana=0,  # external thoughts cost nothing
-        integrity=BRAIN_CELL_TTL,
+        integrity=100,  # relevance score: starts at 100
         cycle=heartbeat,
         is_active=True,
     )
@@ -181,19 +182,35 @@ def create_brain_cell_from_dict(
     )
 
 
+def cell_relevance(
+    cell: MahaCellUnified[BrainCellPayload],
+    current_heartbeat: int,
+) -> float:
+    """Compute relevance score for a brain cell (0.0 – 1.0).
+
+    Soft decay: relevance halves every BRAIN_CELL_HALFLIFE heartbeats.
+    Knowledge persists forever — only ranking changes.
+    """
+    if not cell.lifecycle.is_active:
+        return 0.0
+    birth_heartbeat = cell.lifecycle.cycle
+    age = max(0, current_heartbeat - birth_heartbeat)
+    if age == 0:
+        return 1.0
+    # Exponential decay: relevance = 2^(-age/halflife)
+    return 2.0 ** (-age / BRAIN_CELL_HALFLIFE)
+
+
 def is_cell_alive(
     cell: MahaCellUnified[BrainCellPayload],
     current_heartbeat: int,
 ) -> bool:
-    """Check if a brain cell is still alive (within TTL).
+    """Brain cells are always alive. Knowledge never dies.
 
-    Cells decay after BRAIN_CELL_TTL heartbeats.
+    Soft decay only — relevance decreases, cell persists.
+    Only FIFO eviction (hard cap) removes cells.
     """
-    if not cell.lifecycle.is_active:
-        return False
-    birth_heartbeat = cell.lifecycle.cycle
-    age = current_heartbeat - birth_heartbeat
-    return age < cell.lifecycle.integrity
+    return cell.lifecycle.is_active
 
 
 def get_cell_prana_cost(

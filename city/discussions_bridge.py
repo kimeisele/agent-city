@@ -20,6 +20,7 @@ GAD-000 compliant:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import subprocess
@@ -149,6 +150,9 @@ class DiscussionsBridge:
     # Seed thread numbers (transport-only, NOT agent state)
     _seed_threads: dict[str, int] = field(default_factory=dict)
 
+    # Content-hash dedup: SHA-256 of (discussion_number, body) → never post same content twice
+    _posted_hashes: set[str] = field(default_factory=set)
+
     # ── GAD-000: Discoverable ───────────────────────────────────────
 
     @staticmethod
@@ -259,7 +263,18 @@ class DiscussionsBridge:
 
         Requires fetching the discussion's node ID first (GraphQL mutation
         needs the opaque ID, not the number).
+        Content-hash dedup: identical content is never posted twice.
         """
+        # Content-hash dedup — prevent identical spam
+        content_key = f"{discussion_number}:{body}"
+        content_hash = hashlib.sha256(content_key.encode()).hexdigest()[:16]
+        if content_hash in self._posted_hashes:
+            logger.debug(
+                "DISCUSSIONS: dedup blocked duplicate comment on #%d",
+                discussion_number,
+            )
+            return False
+
         # Get discussion node ID
         data = _gh_graphql(
             GQL_GET_DISCUSSION,
@@ -296,6 +311,7 @@ class DiscussionsBridge:
         )
         if comment_id:
             self._seen_comment_ids.add(comment_id)
+            self._posted_hashes.add(content_hash)
             self._ops["comments"] += 1
             logger.info("DISCUSSIONS: commented on #%d", discussion_number)
             return True
@@ -561,23 +577,25 @@ class DiscussionsBridge:
         cognitive_action: dict,
         mission_id: str,
     ) -> bool:
-        """Post a cognitive action report to the Ideas thread.
+        """Post a cognitive action report to the City Log thread.
 
+        Action reports go to city_log (NOT ideas). The ideas thread
+        is reserved for community proposals and human discussion.
         Rate-limited separately from regular comments.
         Called by KARMA after successful cognitive execution.
         """
-        ideas_number = self._seed_threads.get("ideas")
-        if ideas_number is None:
+        log_number = self._seed_threads.get("city_log")
+        if log_number is None:
             return False
-        if not self.can_respond(ideas_number):
+        if not self.can_respond(log_number):
             return False
 
         from city.discussions_inbox import build_action_report
 
         body = build_action_report(spec, cognitive_action, mission_id)
-        posted = self.comment(ideas_number, body)
+        posted = self.comment(log_number, body)
         if posted:
-            self.record_response(ideas_number)
+            self.record_response(log_number)
         return posted
 
     def post_brain_thought(self, thought: object, heartbeat: int) -> bool:
@@ -666,6 +684,7 @@ class DiscussionsBridge:
                 for k, v in self._responded_discussions.items()
             },
             "seed_threads": dict(self._seed_threads),
+            "posted_hashes": sorted(self._posted_hashes)[-200:],
         }
 
     def restore(self, data: dict) -> None:
@@ -684,6 +703,7 @@ class DiscussionsBridge:
             for k, v in data.get("responded_discussions", {}).items()
         }
         self._seed_threads = data.get("seed_threads", {})
+        self._posted_hashes = set(data.get("posted_hashes", []))
         logger.info(
             "RESTORED: %d discussions seen, %d comments seen, %d ops, %d seed threads",
             len(self._seen_discussion_numbers),

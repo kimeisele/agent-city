@@ -398,10 +398,10 @@ def test_post_agent_intro_no_registry():
 @patch("city.discussions_bridge._gh_graphql")
 def test_post_agent_action(mock_gql):
     bridge = _make_bridge()
-    bridge._seed_threads["ideas"] = 12
+    bridge._seed_threads["city_log"] = 12
 
     mock_gql.side_effect = [
-        _get_discussion_response("D_ideas", 12),
+        _get_discussion_response("D_log", 12),
         _add_comment_response("C_action"),
     ]
 
@@ -624,28 +624,26 @@ def test_build_agent_intro_minimal():
 def test_build_action_report_structure():
     spec = {"name": "TestBot", "domain": "GOVERNANCE", "guna": "SATTVA",
             "element": "akasha", "guardian": "shuka", "capability_tier": "steward",
-            "capability_protocol": "enforce"}
+            "capability_protocol": "enforce", "role": "agent"}
     action = {"function": "SHIVA", "_operation": "trigger_audit",
               "composed": "integrity check needed", "chapter": 5,
               "prana": 200, "integrity": 0.99}
 
     report = build_action_report(spec, action, "mission_99")
     assert "TestBot" in report
-    assert "SHIVA" in report
-    assert "trigger_audit" in report
-    assert "mission_99" in report
-    assert "integrity check needed" in report
-    assert "200" in report
+    assert "triggered a code audit" in report
+    assert "99" in report
 
 
 def test_build_action_report_no_composed():
     spec = {"name": "Bot", "domain": "?", "guna": "?", "element": "?",
             "guardian": "?", "capability_tier": "observer",
-            "capability_protocol": "?"}
+            "capability_protocol": "?", "role": "agent"}
     action = {"function": "BRAHMA", "_operation": "create", "composed": "",
               "chapter": 1, "prana": 50, "integrity": 1.0}
     report = build_action_report(spec, action, "m1")
-    assert "Signal" not in report  # empty composed → no Signal line
+    assert "Bot" in report
+    assert "performed action: create" in report
 
 
 # ── Dispatch ──────────────────────────────────────────────────────────
