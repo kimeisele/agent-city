@@ -57,6 +57,8 @@ jobs:
         with:
           path: |
             data/city.db
+            data/city.db-wal
+            data/city.db-shm
             data/economy.db
             data/mayor_state.json
             data/bridge_state.json
@@ -106,6 +108,8 @@ jobs:
         with:
           path: |
             data/city.db
+            data/city.db-wal
+            data/city.db-shm
             data/economy.db
             data/mayor_state.json
             data/bridge_state.json

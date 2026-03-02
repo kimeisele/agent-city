@@ -291,6 +291,16 @@ def main() -> None:
         except Exception as e:
             log.warning("Discussions state save failed: %s", e)
 
+    # Checkpoint WAL + close SQLite connections before cache save.
+    # Without this, WAL-mode data lives in city.db-wal and is lost
+    # when GitHub Actions cache only restores city.db.
+    try:
+        pokedex._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        pokedex._conn.close()
+        log.info("Pokedex DB checkpointed and closed")
+    except Exception as e:
+        log.warning("Pokedex DB checkpoint failed: %s", e)
+
     for r in results:
         dept = r["department"]
         hb = r["heartbeat"]
