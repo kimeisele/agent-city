@@ -47,6 +47,21 @@ class BrainMemory:
         while len(self._entries) > self._max_entries:
             self._entries.pop(0)
 
+    def record_external(self, feedback: dict) -> None:
+        """Record an externally-observed brain thought (from discussion scan).
+
+        Adds source="external" to distinguish from internally-recorded thoughts.
+        """
+        self._entries.append({
+            "thought": feedback,
+            "heartbeat": feedback.get("heartbeat", 0),
+            "posted": True,
+            "source": "external",
+        })
+        # FIFO eviction
+        while len(self._entries) > self._max_entries:
+            self._entries.pop(0)
+
     def recent(self, n: int = 6) -> list[dict]:
         """Return the N most recent entries (newest last)."""
         return self._entries[-n:]

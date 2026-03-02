@@ -584,15 +584,27 @@ class DiscussionsBridge:
         """Post a brain thought to the City Log thread.
 
         Tagged with [Brain] prefix for feedback loop identification.
+        Hidden JSON payload appended as HTML comment for bulletproof
+        parsing in Genesis (Fix #2: no brittle markdown parsing).
         Rate-limited: max 1 brain post per KARMA cycle.
         """
         log_number = self._seed_threads.get("city_log")
         if log_number is None:
             return False
-        body = (
+
+        thought_dict = thought.to_dict()  # type: ignore[union-attr]
+        thought_dict["heartbeat"] = heartbeat
+
+        # Human-readable part
+        visible = (
             f"**[Brain] Heartbeat #{heartbeat}**\n\n"
             f"{thought.format_for_post()}"  # type: ignore[union-attr]
         )
+
+        # Machine-readable hidden payload (Fix #2)
+        hidden = f"\n\n<!--BRAIN_JSON:{json.dumps(thought_dict)}-->"
+
+        body = visible + hidden
         return self.comment(log_number, body)
 
     def post_pulse(self, heartbeat: int, city_stats: dict) -> bool:

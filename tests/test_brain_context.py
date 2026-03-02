@@ -11,7 +11,13 @@ from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 
-from city.brain_context import ContextSnapshot, build_context_snapshot
+from city.brain_context import (
+    ContextSnapshot,
+    build_context_snapshot,
+    diff_snapshots,
+    load_before_snapshot,
+    save_before_snapshot,
+)
 
 
 class TestContextSnapshot:
@@ -145,3 +151,89 @@ class TestBuildContextSnapshot:
         assert snap.council_summary == {}
         assert snap.failing_contracts == ()
         assert snap.recent_brain_thoughts == ()
+
+
+# ── Snapshot Diffing Tests ────────────────────────────────────────────
+
+
+class TestDiffSnapshots:
+    def test_agent_delta(self):
+        before = ContextSnapshot(agent_count=50, alive_count=45)
+        after = ContextSnapshot(agent_count=52, alive_count=48)
+        diff = diff_snapshots(before, after)
+        assert diff["agent_delta"] == 3
+
+    def test_chain_changed(self):
+        before = ContextSnapshot(chain_valid=True)
+        after = ContextSnapshot(chain_valid=False)
+        diff = diff_snapshots(before, after)
+        assert diff["chain_changed"] is True
+
+    def test_failing_contracts_diff(self):
+        before = ContextSnapshot(failing_contracts=("ruff_clean", "test_pass"))
+        after = ContextSnapshot(failing_contracts=("test_pass", "new_contract"))
+        diff = diff_snapshots(before, after)
+        assert "new_contract" in diff["new_failing"]
+        assert "ruff_clean" in diff["resolved"]
+        assert "test_pass" not in diff["new_failing"]
+        assert "test_pass" not in diff["resolved"]
+
+    def test_learning_delta(self):
+        before = ContextSnapshot(learning_stats={"synapses": 100, "avg_weight": 0.5})
+        after = ContextSnapshot(learning_stats={"synapses": 120, "avg_weight": 0.55})
+        diff = diff_snapshots(before, after)
+        assert diff["learning_delta"]["synapse_delta"] == 20
+        assert diff["learning_delta"]["weight_delta"] == 0.05
+
+
+# ── Before-Snapshot Persistence Tests (Fix #1) ───────────────────────
+
+
+class TestBeforeSnapshotPersistence:
+    def test_save_load_roundtrip(self, tmp_path):
+        snap = ContextSnapshot(
+            agent_count=51,
+            alive_count=48,
+            dead_count=3,
+            chain_valid=True,
+            failing_contracts=("test_contract",),
+            learning_stats={"synapses": 100},
+            venu_tick=42,
+            murali_phase="KARMA",
+        )
+        save_before_snapshot(snap, tmp_path)
+        loaded = load_before_snapshot(tmp_path)
+        assert loaded is not None
+        assert loaded.agent_count == 51
+        assert loaded.alive_count == 48
+        assert loaded.failing_contracts == ("test_contract",)
+        assert loaded.venu_tick == 42
+        assert loaded.murali_phase == "KARMA"
+
+    def test_load_missing_returns_none(self, tmp_path):
+        loaded = load_before_snapshot(tmp_path)
+        assert loaded is None
+
+    def test_load_cleans_up_file(self, tmp_path):
+        snap = ContextSnapshot(agent_count=10)
+        save_before_snapshot(snap, tmp_path)
+        assert (tmp_path / "before_snapshot.json").exists()
+        load_before_snapshot(tmp_path)
+        # File should be deleted after load (one-shot)
+        assert not (tmp_path / "before_snapshot.json").exists()
+
+    def test_load_corrupt_file_returns_none(self, tmp_path):
+        path = tmp_path / "before_snapshot.json"
+        path.write_text("NOT VALID JSON{{")
+        loaded = load_before_snapshot(tmp_path)
+        assert loaded is None
+
+
+# ── New Field Tests ───────────────────────────────────────────────────
+
+
+class TestNewFields:
+    def test_venu_tick_default(self):
+        snap = ContextSnapshot()
+        assert snap.venu_tick == 0
+        assert snap.murali_phase == ""

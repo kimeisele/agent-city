@@ -729,3 +729,103 @@ class TestEvaluateHealth:
         """CityBrain still satisfies BrainProtocol with new methods."""
         brain = CityBrain()
         assert isinstance(brain, BrainProtocol)
+
+    def test_evaluate_health_with_memory(self):
+        """evaluate_health accepts memory kwarg without error."""
+        from city.brain_context import ContextSnapshot
+
+        json_response = json.dumps({
+            "comprehension": "System stable.",
+            "intent": "observe",
+            "confidence": 0.8,
+        })
+        brain = self._make_brain_with_mock(json_response)
+        snap = ContextSnapshot(agent_count=51, alive_count=48)
+        mem = MagicMock()
+        mem.recent.return_value = [
+            {"thought": {"intent": "observe", "comprehension": "ok", "confidence": 0.5}, "heartbeat": 1},
+        ]
+        mem.pattern_summary.return_value = "1/1 high confidence"
+        thought = brain.evaluate_health(snap, memory=mem)
+        assert thought is not None
+
+    def test_reflect_on_cycle_with_memory(self):
+        """reflect_on_cycle accepts memory kwarg without error."""
+        from city.brain_context import ContextSnapshot
+
+        json_response = json.dumps({
+            "comprehension": "Good rotation.",
+            "intent": "observe",
+            "confidence": 0.7,
+        })
+        brain = self._make_brain_with_mock(json_response)
+        snap = ContextSnapshot(agent_count=51, alive_count=48)
+        mem = MagicMock()
+        mem.recent.return_value = []
+        mem.pattern_summary.return_value = "No brain thoughts recorded yet."
+        reflection = {"learning_stats": {"synapses": 50}}
+        thought = brain.reflect_on_cycle(snap, reflection, memory=mem)
+        assert thought is not None
+
+
+# ── Phase 5: Buddhi Validation Tests ─────────────────────────────────
+
+
+class TestBuddhiValidate:
+    def test_observe_passthrough(self):
+        """OBSERVE intent always passes — no alignment check."""
+        from city.brain import _buddhi_validate
+
+        t = Thought(
+            comprehension="watching",
+            intent=BrainIntent.OBSERVE,
+            confidence=0.9,
+        )
+        result = _buddhi_validate(t)
+        assert result.confidence == 0.9  # unchanged
+
+    def test_buddhi_graceful_handling(self):
+        """Buddhi validation always returns a valid Thought (never None)."""
+        from city.brain import _buddhi_validate
+
+        t = Thought(
+            comprehension="proposing changes",
+            intent=BrainIntent.PROPOSE,
+            confidence=0.85,
+        )
+        result = _buddhi_validate(t)
+        # Either passthrough (buddhi unavailable) or penalized (dissonance)
+        assert result is not None
+        assert 0 < result.confidence <= 0.85
+
+    def test_intent_buddhi_map_exists(self):
+        from city.brain import _INTENT_BUDDHI_MAP
+
+        assert "propose" in _INTENT_BUDDHI_MAP
+        assert "inquiry" in _INTENT_BUDDHI_MAP
+        assert "govern" in _INTENT_BUDDHI_MAP
+        assert "observe" in _INTENT_BUDDHI_MAP
+
+    def test_buddhi_penalty_constant(self):
+        from city.brain import _BUDDHI_PENALTY
+
+        assert 0 < _BUDDHI_PENALTY < 1
+
+    def test_cognitive_dissonance_in_evidence(self):
+        """When dissonance occurs, evidence should contain the flag."""
+        from city.brain import _buddhi_validate
+
+        t = Thought(
+            comprehension="proposing changes",
+            intent=BrainIntent.PROPOSE,
+            confidence=0.9,
+            evidence=("data point 1",),
+        )
+        result = _buddhi_validate(t)
+        # Either passthrough (buddhi unavailable) or penalized with flag
+        assert result is not None
+        if result.confidence < 0.9:
+            # Dissonance was detected — verify evidence flag
+            assert any(
+                "cognitive_dissonance" in e for e in result.evidence
+            )

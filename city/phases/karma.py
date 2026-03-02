@@ -81,10 +81,12 @@ def execute(ctx: PhaseContext) -> list[str]:
     # System-level brain cognition (1 mandatory call)
     brain = ctx.brain
     if brain is not None and hasattr(brain, "evaluate_health"):
-        from city.brain_context import build_context_snapshot
+        from city.brain_context import build_context_snapshot, save_before_snapshot
 
         snapshot = build_context_snapshot(ctx)
-        health_thought = brain.evaluate_health(snapshot)
+        # Fix #1: Persist before_snapshot to disk for MOKSHA outcome diffing
+        save_before_snapshot(snapshot, ctx.state_path.parent)
+        health_thought = brain.evaluate_health(snapshot, memory=ctx.brain_memory)
         if health_thought is not None:
             operations.append(
                 f"brain_health:intent={health_thought.intent.value}"

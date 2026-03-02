@@ -223,12 +223,16 @@ class BrainProtocol(Protocol):
     def evaluate_health(
         self,
         snapshot: ContextSnapshot,
+        *,
+        memory: object | None = None,
     ) -> Thought | None: ...
 
     def reflect_on_cycle(
         self,
         snapshot: ContextSnapshot,
         reflection: dict,
+        *,
+        memory: object | None = None,
     ) -> Thought | None: ...
 
 
@@ -286,42 +290,26 @@ class CityBrain:
         if not self._ensure_provider():
             return None
 
-        # Build context-driven messages (architecture = prompt)
-        system_parts: list[str] = []
-        name = agent_spec.get("name", "agent")
-        domain = agent_spec.get("domain", "general")
-        role = agent_spec.get("role", "observer")
-        guna = agent_spec.get("guna", "")
-        caps = agent_spec.get("capabilities", [])
-
-        system_parts.append(
-            f"You are the cognition layer for {name}, a {role} in the {domain} domain."
+        from city.brain_prompt import (
+            build_header,
+            build_payload,
+            build_schema,
+            build_system_prompt,
         )
-        if guna:
-            system_parts.append(f"Cognitive mode: {guna}.")
-        if caps:
-            system_parts.append(f"Capabilities: {', '.join(caps[:5])}.")
 
-        function = gateway_result.get("buddhi_function", "")
-        approach = gateway_result.get("buddhi_approach", "")
-        if function:
-            system_parts.append(f"Cognitive frame: {function} ({approach}).")
-        if kg_context:
-            system_parts.append(f"Domain knowledge: {kg_context[:500]}")
-        if signal_reading:
-            system_parts.append(f"Semantic reading: {signal_reading[:300]}")
-
-        system_parts.append(
-            "Respond with JSON: "
-            '{"comprehension": "1-2 sentence understanding", '
-            '"intent": "propose|inquiry|govern|observe|connect", '
-            '"domain_relevance": "which domain this touches", '
-            '"key_concepts": ["up to 5 concepts"], '
-            '"confidence": 0.0 to 1.0}'
+        header = build_header(0, model=self._model, murali_phase="KARMA")
+        payload = build_payload(
+            "comprehension",
+            agent_spec=agent_spec,
+            gateway_result=gateway_result,
+            kg_context=kg_context,
+            signal_reading=signal_reading,
         )
+        schema = build_schema("comprehension")
+        system_msg = build_system_prompt(header, payload, schema)
 
         messages = [
-            {"role": "system", "content": " ".join(system_parts)},
+            {"role": "system", "content": system_msg},
             {"role": "user", "content": f"Comprehend this discussion:\n\n{discussion_text[:2000]}"},
         ]
 
@@ -350,27 +338,21 @@ class CityBrain:
         if not self._ensure_provider():
             return None
 
-        domain = receiver_spec.get("domain", "general")
-        role = receiver_spec.get("role", "observer")
-
-        # Extract signal data
-        concepts = list(getattr(decoded_signal, "resonant_concepts", ()))[:5]
-        transitions = list(getattr(decoded_signal, "element_transitions", ()))[:3]
-        sender = getattr(
-            getattr(decoded_signal, "signal", None), "sender_name", "unknown"
+        from city.brain_prompt import (
+            build_header,
+            build_payload,
+            build_schema,
+            build_system_prompt,
         )
-        affinity = getattr(decoded_signal, "affinity", 0)
 
-        system_msg = (
-            f"You are cognition for a {role} in {domain}. "
-            f"A signal arrived from {sender} (affinity={affinity:.2f}). "
-            f"Concepts: {', '.join(concepts)}. Transitions: {', '.join(transitions)}. "
-            "Respond with JSON: "
-            '{"comprehension": "1-2 sentence understanding", '
-            '"intent": "propose|inquiry|govern|observe|connect", '
-            '"domain_relevance": "which domain", '
-            '"key_concepts": ["up to 5"], "confidence": 0.0 to 1.0}'
+        header = build_header(0, model=self._model, murali_phase="KARMA")
+        payload = build_payload(
+            "signal",
+            decoded_signal=decoded_signal,
+            receiver_spec=receiver_spec,
         )
+        schema = build_schema("signal")
+        system_msg = build_system_prompt(header, payload, schema)
 
         messages = [
             {"role": "system", "content": system_msg},
@@ -380,8 +362,7 @@ class CityBrain:
         thought = self._invoke_and_parse(messages)
         if thought is not None:
             logger.info(
-                "Brain comprehended signal from %s: intent=%s confidence=%.2f",
-                sender,
+                "Brain comprehended signal: intent=%s confidence=%.2f",
                 thought.intent.value,
                 thought.confidence,
             )
@@ -390,12 +371,40 @@ class CityBrain:
     def evaluate_health(
         self,
         snapshot: ContextSnapshot,
+        *,
+        memory: object | None = None,
     ) -> Thought | None:
         """Brain evaluates system health. 1 call per KARMA, highest priority."""
         if not self._ensure_provider():
             return None
 
-        system_msg = snapshot.to_system_context("health_check")
+        from city.brain_prompt import (
+            build_header,
+            build_payload,
+            build_schema,
+            build_system_prompt,
+        )
+
+        # Collect past thoughts for echo chamber guard
+        past_thoughts = None
+        if memory is not None and hasattr(memory, "recent"):
+            past_thoughts = memory.recent(3)
+
+        header = build_header(
+            getattr(snapshot, "venu_tick", 0),
+            snapshot=snapshot,
+            memory=memory,
+            model=self._model,
+            murali_phase="KARMA",
+        )
+        payload = build_payload(
+            "health_check",
+            snapshot=snapshot,
+            past_thoughts=past_thoughts,
+        )
+        schema = build_schema("health_check")
+        system_msg = build_system_prompt(header, payload, schema)
+
         messages = [
             {"role": "system", "content": system_msg},
             {"role": "user", "content": "Evaluate the current system health."},
@@ -417,12 +426,41 @@ class CityBrain:
         self,
         snapshot: ContextSnapshot,
         reflection: dict,
+        *,
+        memory: object | None = None,
     ) -> Thought | None:
         """Brain reflects on what happened this rotation. 1 call per MOKSHA."""
         if not self._ensure_provider():
             return None
 
-        system_msg = snapshot.to_system_context("reflection")
+        from city.brain_prompt import (
+            build_header,
+            build_payload,
+            build_schema,
+            build_system_prompt,
+        )
+
+        # Collect past thoughts for echo chamber guard
+        past_thoughts = None
+        if memory is not None and hasattr(memory, "recent"):
+            past_thoughts = memory.recent(3)
+
+        header = build_header(
+            getattr(snapshot, "venu_tick", 0),
+            snapshot=snapshot,
+            memory=memory,
+            model=self._model,
+            murali_phase="MOKSHA",
+        )
+        payload = build_payload(
+            "reflection",
+            snapshot=snapshot,
+            reflection=reflection,
+            outcome_diff=reflection.get("outcome_diff"),
+            past_thoughts=past_thoughts,
+        )
+        schema = build_schema("reflection")
+        system_msg = build_system_prompt(header, payload, schema)
 
         # Summarize reflection dict for user message
         user_parts: list[str] = ["Reflect on this MURALI rotation:"]
@@ -463,7 +501,12 @@ class CityBrain:
             )
         return thought
 
-    def _invoke_and_parse(self, messages: list[dict], *, kind: ThoughtKind = ThoughtKind.COMPREHENSION) -> Thought | None:
+    def _invoke_and_parse(
+        self,
+        messages: list[dict],
+        *,
+        kind: ThoughtKind = ThoughtKind.COMPREHENSION,
+    ) -> Thought | None:
         """Invoke LLM with JSON mode + timeout. Parse into Thought.
 
         Logs failures transparently — never silent.
@@ -480,7 +523,13 @@ class CityBrain:
             )
             raw = response.content
             logger.debug("Brain raw response: %s", raw[:500])
-            return _parse_json_thought(raw, kind=kind)
+            thought = _parse_json_thought(raw, kind=kind)
+            if thought is not None and kind in (
+                ThoughtKind.HEALTH_CHECK,
+                ThoughtKind.REFLECTION,
+            ):
+                thought = _buddhi_validate(thought)
+            return thought
         except TimeoutError as e:
             logger.warning(
                 "Brain timeout after %ds: %s — deterministic path continues",
@@ -570,3 +619,80 @@ def _parse_json_thought(
     except (TypeError, ValueError) as e:
         logger.warning("Brain thought construction failed: %s", e)
         return None
+
+
+# ── Buddhi Validation Gate (Fix #4: Cognitive Dissonance) ─────────────
+
+# Intent → expected buddhi function alignment
+_INTENT_BUDDHI_MAP: dict[str, tuple[str, ...]] = {
+    "propose": ("BRAHMA", "source"),
+    "inquiry": ("VISHNU", "carrier"),
+    "govern": ("SHIVA", "deliverer"),
+    "observe": (),          # any function is fine
+    "connect": ("VISHNU", "carrier"),
+}
+
+_BUDDHI_PENALTY = 0.7
+
+
+def _buddhi_validate(thought: Thought) -> Thought:
+    """Soft validation: adjust confidence based on buddhi alignment.
+
+    If intent and buddhi function disagree, this is a Cognitive Dissonance
+    anomaly. Instead of silently suppressing (Fix #4), we:
+    1. Log the dissonance explicitly as an anomaly
+    2. Apply a soft penalty (× 0.7) to confidence
+    3. Add "cognitive_dissonance" to evidence so it flows into memory
+
+    Returns original thought if buddhi unavailable or intent is OBSERVE.
+    """
+    # OBSERVE always passes — no expected alignment
+    if thought.intent is BrainIntent.OBSERVE:
+        return thought
+
+    expected = _INTENT_BUDDHI_MAP.get(thought.intent.value, ())
+    if not expected:
+        return thought
+
+    # Try to get buddhi reading from the thought's domain context
+    try:
+        from vibe_core.mahamantra.substrate.buddhi import get_buddhi
+
+        buddhi = get_buddhi()
+        cognition = buddhi.think(thought.comprehension)
+        actual_function = getattr(cognition, "function", "")
+
+        if actual_function not in expected:
+            # Cognitive Dissonance detected — log as anomaly, don't suppress
+            penalized_confidence = round(thought.confidence * _BUDDHI_PENALTY, 4)
+            logger.warning(
+                "Brain COGNITIVE DISSONANCE: intent=%s expects %s, "
+                "buddhi says %s. Confidence %.2f → %.2f. "
+                "Tracking as anomaly for future cycles.",
+                thought.intent.value,
+                expected,
+                actual_function,
+                thought.confidence,
+                penalized_confidence,
+            )
+            # Build new evidence tuple with dissonance flag
+            dissonance_note = (
+                f"cognitive_dissonance:intent={thought.intent.value}"
+                f":buddhi={actual_function}"
+            )
+            new_evidence = thought.evidence + (dissonance_note,)
+            return Thought(
+                comprehension=thought.comprehension,
+                intent=thought.intent,
+                domain_relevance=thought.domain_relevance,
+                key_concepts=thought.key_concepts,
+                confidence=penalized_confidence,
+                kind=thought.kind,
+                action_hint=thought.action_hint,
+                evidence=new_evidence[:3],  # cap at 3
+            )
+
+        return thought
+    except Exception:
+        # Buddhi unavailable — pass through unchanged
+        return thought

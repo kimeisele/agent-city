@@ -21,6 +21,47 @@ from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.PHASES.GENESIS")
 
+# ── Brain Feedback Loop (Fix #2: HTML comment parsing) ────────────────
+
+_BRAIN_JSON_PREFIX = "<!--BRAIN_JSON:"
+_BRAIN_JSON_SUFFIX = "-->"
+
+
+def _parse_brain_json(body: str) -> dict | None:
+    """Extract hidden JSON from HTML comment in a [Brain] post.
+
+    Returns parsed dict or None if not a brain post or parse fails.
+    """
+    if "[Brain]" not in body:
+        return None
+    start = body.find(_BRAIN_JSON_PREFIX)
+    if start == -1:
+        return None
+    start += len(_BRAIN_JSON_PREFIX)
+    end = body.find(_BRAIN_JSON_SUFFIX, start)
+    if end == -1:
+        return None
+    try:
+        return json.loads(body[start:end])
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.warning("Brain feedback JSON parse failed: %s", e)
+        return None
+
+
+def _ingest_brain_feedback(ctx: PhaseContext, body: str) -> None:
+    """Parse a [Brain] post and record it into brain_memory as external feedback."""
+    if ctx.brain_memory is None:
+        return
+    parsed = _parse_brain_json(body)
+    if parsed is None:
+        return
+    ctx.brain_memory.record_external(parsed)
+    logger.debug(
+        "Brain feedback ingested: heartbeat=%s intent=%s",
+        parsed.get("heartbeat", "?"),
+        parsed.get("intent", "?"),
+    )
+
 
 def execute(ctx: PhaseContext) -> list[str]:
     """GENESIS: Discover agents + poll DMs + process federation directives."""
@@ -154,6 +195,8 @@ def execute(ctx: PhaseContext) -> list[str]:
                 # Skip our own comments (self-reply prevention)
                 comment_author = comment.get("author", "")
                 if ctx.discussions.is_own_comment(comment_author):
+                    # Feedback loop: parse own [Brain] posts before skipping
+                    _ingest_brain_feedback(ctx, comment.get("body", ""))
                     continue
 
                 body = comment.get("body", "")
