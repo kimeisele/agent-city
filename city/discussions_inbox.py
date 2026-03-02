@@ -69,17 +69,20 @@ INTENT_REQUIREMENTS: dict[str, dict] = {
 def classify_discussion_intent(gateway_result: GatewayResult) -> str:
     """Map buddhi.function to discussion intent.
 
-    BRAHMA  = creation  -> propose (new idea, feature request)
-    VISHNU  = sustain   -> inquiry (question, status query)
-    SHIVA   = transform -> govern  (policy, vote, change request)
-    default             -> observe (general acknowledgement)
+    BuddhiResult.function uses trinity_function names (source/carrier/deliverer),
+    NOT the deity names (BRAHMA/VISHNU/SHIVA). Both forms are accepted.
+
+    source  / BRAHMA  = creation  -> propose (new idea, feature request)
+    carrier / VISHNU  = sustain   -> inquiry (question, status query)
+    deliverer / SHIVA = transform -> govern  (policy, vote, change request)
+    default                       -> observe (general acknowledgement)
     """
     function = gateway_result.get("buddhi_function", "")
-    if function == "BRAHMA":
+    if function in ("BRAHMA", "source"):
         return "propose"
-    if function == "VISHNU":
+    if function in ("VISHNU", "carrier"):
         return "inquiry"
-    if function == "SHIVA":
+    if function in ("SHIVA", "deliverer"):
         return "govern"
     return "observe"
 
@@ -91,6 +94,9 @@ _FUNCTION_VERB: dict[str, str] = {
     "BRAHMA": "contribute to",
     "VISHNU": "report on",
     "SHIVA": "review",
+    "source": "contribute to",
+    "carrier": "report on",
+    "deliverer": "review",
 }
 
 # Guna -> perspective label (HOW the agent frames its response)
