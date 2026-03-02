@@ -622,6 +622,11 @@ def _route_to_cartridges(
     max_cognitive_actions = autonomy_cfg.get("max_actions_per_cycle", 3)
     cognitive_count = 0
 
+    # Discussion action posts: rate-limited per cycle
+    disc_cfg = get_config().get("discussions", {})
+    max_action_posts = disc_cfg.get("max_action_posts_per_cycle", 1)
+    action_post_count = 0
+
     for mission in active:
         # Skip types handled by dedicated processors (which have their own gates)
         if mission.id.startswith(("issue_", "exec_")):
@@ -660,20 +665,37 @@ def _route_to_cartridges(
                     continue
 
                 # Act on cognitive decision
-                executed = _execute_cognitive_action(
+                operation_name = _execute_cognitive_action(
                     ctx, cognitive_action, mission, operations,
                 )
+                executed = operation_name is not None
                 _learn(ctx, f"cognition:{agent_name}", cognitive_action["function"], success=executed)
 
                 if executed:
                     cognitive_count += 1
+
+                    # Surface cognitive action in Discussions (rate-limited)
+                    if (
+                        ctx.discussions is not None
+                        and not ctx.offline_mode
+                        and action_post_count < max_action_posts
+                    ):
+                        spec = _get_agent_spec(ctx, agent_name)
+                        if spec is not None:
+                            cognitive_action["_operation"] = operation_name
+                            posted = ctx.discussions.post_agent_action(
+                                spec, cognitive_action, mission.id,
+                            )
+                            if posted:
+                                action_post_count += 1
+                                operations.append(f"disc_action:{agent_name}:{cognitive_action['function']}")
 
                 operations.append(
                     f"routed:{agent_name}:{mission.id}:score={result['score']:.2f}"
                     f":cognized={cognitive_action['function']}"
                 )
                 logger.info(
-                    "KARMA: Routed %s → %s (score=%.2f, function=%s, executed=%s)",
+                    "KARMA: Routed %s \u2192 %s (score=%.2f, function=%s, executed=%s)",
                     mission.id,
                     agent_name,
                     result["score"],
@@ -694,11 +716,11 @@ def _execute_cognitive_action(
     action: dict,
     mission: object,
     operations: list[str],
-) -> bool:
-    """Map CognitiveAction → existing city operation. Execute it.
+) -> str | None:
+    """Map CognitiveAction -> existing city operation. Execute it.
 
     Gates: confidence (synapse weight), prana (cell alive), capability map.
-    Returns True if operation succeeded.
+    Returns operation name on success, None on failure.
     """
     function = action.get("function", "")
     caps = action.get("capabilities", [])
@@ -713,14 +735,14 @@ def _execute_cognitive_action(
             operations.append(
                 f"cognition_low_confidence:{agent_name}:{function}:{confidence:.2f}"
             )
-            return False
+            return None
 
     # Prana gate: agent must be alive to act
     cell = ctx.pokedex.get_cell(agent_name)
     if cell is None or not cell.is_alive:
-        return False
+        return None
 
-    # Find matching operation via capability × function map
+    # Find matching operation via capability x function map
     function_map = _ACTION_MAP.get(function, {})
     operation = None
     for cap in caps:
@@ -730,7 +752,7 @@ def _execute_cognitive_action(
 
     if operation is None:
         operations.append(f"cognition_no_op:{agent_name}:{function}")
-        return False
+        return None
 
     # Execute the operation
     success = False
@@ -765,7 +787,7 @@ def _execute_cognitive_action(
             success = result.success
 
     if success:
-        operations.append(f"cognition:{agent_name}:{function}→{operation}")
+        operations.append(f"cognition:{agent_name}:{function}\u2192{operation}")
         emit_event(
             "ACTION",
             agent_name,
@@ -778,8 +800,9 @@ def _execute_cognitive_action(
                 "composed": action.get("composed", ""),
             },
         )
+        return operation
 
-    return success
+    return None
 
 
 def _cognitive_propose(ctx: PhaseContext, action: dict, mission: object) -> bool:
@@ -999,19 +1022,18 @@ def _route_discussion_to_agent(
 ) -> tuple[str | None, dict | None]:
     """Find the best agent for a discussion intent via capability scoring.
 
-    Hard gate on required_caps from INTENT_REQUIREMENTS, then score by
-    domain alignment + capability coverage + QoS.
+    Hard gate on required_caps from INTENT_REQUIREMENTS, then score via
+    shared score_agent_for_discussion() (city.diagnostics).
     """
+    from city.diagnostics import score_agent_for_discussion
     from city.discussions_inbox import INTENT_REQUIREMENTS
     from city.mission_router import check_capability_gate
 
     reqs = INTENT_REQUIREMENTS.get(intent, INTENT_REQUIREMENTS["observe"])
-    required_caps = set(reqs.get("required_caps", []))
-    preferred_domain = reqs.get("preferred_domain", "")
 
     # Build a MissionRequirement-compatible dict for the tier gate
     gate_req = {
-        "required": list(required_caps),
+        "required": reqs.get("required_caps", []),
         "preferred": [],
         "min_tier": "contributor",
     }
@@ -1028,20 +1050,7 @@ def _route_discussion_to_agent(
         if not check_capability_gate(spec, gate_req, inventory):
             continue
 
-        # Score: domain alignment (0.4) + capability coverage (0.4) + QoS (0.2)
-        score = 0.0
-        if preferred_domain and spec.get("domain") == preferred_domain:
-            score += 0.4
-
-        agent_caps = set(spec.get("capabilities", []))
-        if required_caps:
-            matched = sum(1 for cap in required_caps if cap in agent_caps)
-            score += 0.4 * (matched / len(required_caps))
-
-        qos = spec.get("qos", {})
-        latency = qos.get("latency_multiplier", 1.5)
-        if latency > 0:
-            score += 0.2 * (1.0 / latency)
+        score = score_agent_for_discussion(spec, intent)
 
         if score > best_score:
             best_score = score
@@ -1056,6 +1065,16 @@ def _route_discussion_to_agent(
             intent,
         )
     return best_name, best_spec
+
+
+def _get_agent_spec(ctx: PhaseContext, agent_name: str) -> dict | None:
+    """Get a single agent's spec from CartridgeFactory."""
+    from city.registry import SVC_CARTRIDGE_FACTORY
+
+    factory = ctx.registry.get(SVC_CARTRIDGE_FACTORY)
+    if factory is None:
+        return None
+    return factory.get_spec(agent_name)
 
 
 def _get_all_specs(ctx: PhaseContext) -> dict[str, dict]:

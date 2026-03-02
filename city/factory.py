@@ -189,6 +189,7 @@ def default_definitions(
         SVC_SPAWNER,
         SVC_MOLTBOOK_ASSISTANT,
         SVC_PATHOGEN_INDEX,
+        SVC_DIAGNOSTICS,
         SVC_DISCUSSIONS,
     )
 
@@ -316,6 +317,11 @@ def default_definitions(
             ServiceDefinition(
                 name=SVC_DISCUSSIONS,
                 factory=lambda ctx: _build_discussions(ctx),
+            ),
+            ServiceDefinition(
+                name=SVC_DIAGNOSTICS,
+                factory=lambda ctx: _build_diagnostics(ctx),
+                deps=(SVC_CARTRIDGE_FACTORY,),
             ),
         ]
     )
@@ -577,3 +583,19 @@ def _build_moltbook_assistant(ctx: BuildContext) -> object | None:
         logger.info("MoltbookAssistant skipped: no MoltbookClient")
         return None
     return MoltbookAssistant(_client=client, _pokedex=ctx.pokedex)
+
+
+def _build_diagnostics(ctx: BuildContext) -> object | None:
+    from city.diagnostics import CityDiagnostics
+    from city.gateway import CityGateway
+    from city.registry import SVC_CARTRIDGE_FACTORY
+
+    factory = ctx.registry.get(SVC_CARTRIDGE_FACTORY)
+    if factory is None or ctx.pokedex is None:
+        return None
+    gateway = CityGateway()
+    return CityDiagnostics(
+        _gateway=gateway,
+        _factory=factory,
+        _pokedex=ctx.pokedex,
+    )
