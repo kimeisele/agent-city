@@ -53,7 +53,8 @@ def execute(ctx: PhaseContext) -> list[str]:
     """KARMA: Process gateway queue, sankalpa, heal, council cycle."""
     operations: list[str] = []
 
-    # Mark all living citizens as active (feeds energy during next DHARMA metabolize)
+    # Mark citizens active (redundant with DHARMA, but keeps the set warm
+    # for intra-run KARMA operations that check active_agents)
     from city.registry import SVC_SPAWNER
 
     spawner = ctx.registry.get(SVC_SPAWNER)
