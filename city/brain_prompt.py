@@ -105,6 +105,7 @@ def build_payload(
         lines.extend(
             _payload_comprehension(
                 agent_spec, gateway_result, kg_context, signal_reading,
+                snapshot=snapshot,
             )
         )
     elif kind == "signal":
@@ -241,6 +242,7 @@ def _payload_comprehension(
     gateway_result: dict | None,
     kg_context: str,
     signal_reading: str,
+    snapshot: "ContextSnapshot | None" = None,
 ) -> list[str]:
     lines: list[str] = []
     if agent_spec:
@@ -264,6 +266,39 @@ def _payload_comprehension(
             lines.append(
                 f"Cognitive frame: {function} ({approach})."
             )
+
+    # 6C-5: Rich system context for natural language intent resolution
+    if snapshot is not None:
+        lines.append("")
+        lines.append("SYSTEM STATE (use this to understand requests in context):")
+        lines.append(
+            f"  Population: {snapshot.alive_count}/{snapshot.agent_count} alive, "
+            f"chain {'valid' if snapshot.chain_valid else 'BROKEN'}."
+        )
+        if snapshot.economy_stats:
+            es = snapshot.economy_stats
+            lines.append(
+                f"  Economy: total_prana={es.get('total_prana', 0)}, "
+                f"avg={es.get('avg_prana', 0)}, "
+                f"dormant={es.get('dormant_count', 0)}."
+            )
+        if snapshot.agent_roster:
+            names = [a.get("name", "?") for a in snapshot.agent_roster[:10]]
+            lines.append(f"  Active agents: {', '.join(names)}.")
+        if snapshot.active_missions:
+            mission_strs = [
+                f"{m.get('name', '?')}({m.get('status', '?')})"
+                for m in snapshot.active_missions[:5]
+            ]
+            lines.append(f"  Missions: {', '.join(mission_strs)}.")
+        if snapshot.failing_contracts:
+            lines.append(
+                f"  Failing contracts: {', '.join(snapshot.failing_contracts[:5])}."
+            )
+        if snapshot.thread_stats:
+            ts = snapshot.thread_stats
+            lines.append(f"  Discussion threads: {ts.get('total', 0)} comments tracked.")
+
     if kg_context:
         lines.append(f"Domain knowledge: {kg_context[:500]}")
     if signal_reading:
@@ -314,7 +349,9 @@ _SCHEMA_BASE = (
 
 _SCHEMA_EXTENDED = (
     ', "action_hint": "" or "flag_bottleneck:<domain>" or '
-    '"investigate:<topic>" or "create_mission:<description>", '
+    '"investigate:<topic>" or "create_mission:<description>" or '
+    '"run_status" or "check_health:<domain>" or '
+    '"assign_agent:<agent_name>:<task>" or "escalate:<reason>", '
     '"evidence": ["up to 3 data points"]'
 )
 
@@ -328,7 +365,9 @@ _SCHEMAS: dict[str, str] = {
         f"Respond with JSON: {{{_SCHEMA_BASE}{_SCHEMA_EXTENDED}}}"
     ),
     "comprehension": (
-        f"Respond with JSON: {{{_SCHEMA_BASE}}}"
+        "Comprehend this discussion. Identify what the user wants. "
+        "If they ask for something actionable, set action_hint accordingly. "
+        f"Respond with JSON: {{{_SCHEMA_BASE}{_SCHEMA_EXTENDED}}}"
     ),
     "signal": (
         "What does this signal mean for this agent? "

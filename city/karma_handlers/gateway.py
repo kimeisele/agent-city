@@ -297,12 +297,15 @@ def _handle_discussion_item(
     brain_thought = None
     brain = ctx.brain
     if brain is not None and brain_budget_ok(ctx):
+        from city.brain_context import build_context_snapshot
         from city.semantic import compose_prose
+        snapshot = build_context_snapshot(ctx)
         brain_thought = brain.comprehend_discussion(
             discussion_text=item.get("text", ""),
             agent_spec=agent_spec,
             gateway_result=result,
             signal_reading=compose_prose(disc_semantic_signal) if disc_semantic_signal else "",
+            snapshot=snapshot,
         )
         if brain_thought is not None:
             ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1
@@ -461,6 +464,53 @@ def _execute_action_hint(
             except Exception as e:
                 logger.warning("Brain hint flag_bottleneck failed: %s", e)
             return
+
+    if hint == "run_status":
+        operations.append(f"brain_hint_run_status:#{discussion_number}")
+        return
+
+    if hint.startswith("check_health:"):
+        domain = hint[len("check_health:"):].strip()
+        if hasattr(ctx, "reactor") and ctx.reactor is not None:
+            try:
+                ctx.reactor.emit_pain(
+                    source="brain_discussion",
+                    severity=0.3,
+                    detail=f"Health check requested for {domain} from #{discussion_number}",
+                )
+            except Exception as e:
+                logger.warning("Brain hint check_health failed: %s", e)
+        operations.append(f"brain_hint_check_health:{domain}:#{discussion_number}")
+        return
+
+    if hint.startswith("assign_agent:"):
+        parts = hint[len("assign_agent:"):].split(":", 1)
+        target_agent = parts[0].strip() if parts else ""
+        task_desc = parts[1].strip() if len(parts) > 1 else ""
+        if target_agent and task_desc:
+            from city.missions import create_community_mission
+            mission_id = create_community_mission(
+                ctx, discussion_number, f"Assigned: {task_desc[:60]}", "propose",
+            )
+            if mission_id:
+                operations.append(
+                    f"brain_hint_assign:{target_agent}:{mission_id}:#{discussion_number}"
+                )
+        return
+
+    if hint.startswith("escalate:"):
+        reason = hint[len("escalate:"):].strip()
+        if hasattr(ctx, "reactor") and ctx.reactor is not None:
+            try:
+                ctx.reactor.emit_pain(
+                    source="brain_discussion",
+                    severity=0.7,
+                    detail=f"Escalation from #{discussion_number}: {reason[:100]}",
+                )
+            except Exception as e:
+                logger.warning("Brain hint escalate failed: %s", e)
+        operations.append(f"brain_hint_escalate:{reason[:40]}:#{discussion_number}")
+        return
 
     # Unknown hint — log but don't fail
     operations.append(f"brain_hint_unknown:{hint[:40]}:#{discussion_number}")

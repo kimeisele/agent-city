@@ -212,6 +212,7 @@ class BrainProtocol(Protocol):
         gateway_result: dict,
         kg_context: str = "",
         signal_reading: str = "",
+        snapshot: ContextSnapshot | None = None,
     ) -> Thought | None: ...
 
     def comprehend_signal(
@@ -281,6 +282,7 @@ class CityBrain:
         gateway_result: dict,
         kg_context: str = "",
         signal_reading: str = "",
+        snapshot: ContextSnapshot | None = None,
     ) -> Thought | None:
         """Brain comprehends a discussion. Returns understanding, not content.
 
@@ -297,9 +299,12 @@ class CityBrain:
             build_system_prompt,
         )
 
-        header = build_header(0, model=self._model, murali_phase="KARMA")
+        header = build_header(
+            0, model=self._model, murali_phase="KARMA", snapshot=snapshot,
+        )
         payload = build_payload(
             "comprehension",
+            snapshot=snapshot,
             agent_spec=agent_spec,
             gateway_result=gateway_result,
             kg_context=kg_context,
