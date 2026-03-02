@@ -208,10 +208,16 @@ def _compose_response(
     if brain_thought is not None:
         parts.append(brain_thought.format_for_post())
 
+    # 7D-2: Routing transparency — why this agent was chosen
+    routing_score = gateway_result.get("routing_score")
+    routing_intent = gateway_result.get("routing_intent", "")
+    if routing_score is not None:
+        parts.append(f"\n*Routed: score={routing_score}, intent={routing_intent}*")
+
     # City stats (concise)
     alive = stats.get("active", 0) + stats.get("citizen", 0)
     total = stats.get("total", 0)
-    parts.append(f"\n*{alive}/{total} agents active*")
+    parts.append(f"*{alive}/{total} agents active*")
 
     return "\n".join(parts)
 

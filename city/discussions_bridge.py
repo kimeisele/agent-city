@@ -436,6 +436,34 @@ class DiscussionsBridge:
                 f"{immune.get('heals_succeeded', 0)} succeeded"
             )
 
+        # 7D-1: Council decisions (previously invisible)
+        governance = reflection.get("governance", {})
+        if governance:
+            open_p = governance.get("open_proposals", 0)
+            seats = governance.get("council_members", 0)
+            mayor = governance.get("elected_mayor", "")
+            if seats > 0:
+                mayor_line = f", mayor: {mayor}" if mayor else ""
+                lines.append(
+                    f"\n**Council**: {seats} seats{mayor_line}, "
+                    f"{open_p} open proposals"
+                )
+
+        # 7D-1: PR lifecycle events (previously invisible)
+        pr_lifecycle = reflection.get("pr_lifecycle_changes", [])
+        if pr_lifecycle:
+            lines.append(f"\n**PR Lifecycle**: {len(pr_lifecycle)} changes")
+            for pr_ev in pr_lifecycle[:5]:
+                action = pr_ev.get("action", "?")
+                pr_url = pr_ev.get("pr_url", "")
+                lines.append(f"- `{action}` {pr_url}")
+
+        pr_stats = reflection.get("pr_lifecycle_stats", {})
+        if pr_stats and pr_stats.get("total_tracked", 0) > 0:
+            by_status = pr_stats.get("by_status", {})
+            status_parts = [f"{k}: {v}" for k, v in by_status.items()]
+            lines.append(f"**PRs tracked**: {', '.join(status_parts)}")
+
         body = f"### {title}\n\n" + "\n".join(lines)
 
         # Consolidate into city_log thread (comment, not new discussion)
