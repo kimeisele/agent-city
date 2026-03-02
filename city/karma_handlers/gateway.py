@@ -162,6 +162,11 @@ def _handle_discussion_item(
     operations: list[str],
 ) -> None:
     """Route a discussion queue item to an agent and post response."""
+    from city.discussions_commands import (
+        ConversationTracker,
+        extract_brain_feedback,
+        parse_commands,
+    )
     from city.discussions_inbox import (
         DiscussionSignal,
         classify_discussion_intent,
@@ -171,6 +176,46 @@ def _handle_discussion_item(
 
     discussion_number = item["discussion_number"]
     direct_agent = item.get("direct_agent", "")
+    comment_author = item.get("from_agent", "")
+    comment_body = item.get("text", "")
+    comment_id = item.get("comment_id", "")
+
+    # Phase 6D: Parse inbound commands
+    commands = parse_commands(
+        comment_body,
+        author=comment_author,
+        discussion_number=discussion_number,
+        comment_id=comment_id,
+    )
+    for cmd in commands:
+        if cmd.is_valid:
+            operations.append(
+                f"disc_cmd:/{cmd.command}:#{discussion_number}:@{cmd.author}"
+            )
+
+    # Phase 6D: Track conversation state
+    tracker = getattr(ctx, "_conversation_tracker", None)
+    if tracker is None:
+        tracker = ConversationTracker()
+        ctx._conversation_tracker = tracker  # type: ignore[attr-defined]
+    thread = tracker.get_or_create(discussion_number)
+    for cmd in commands:
+        thread.record_command(cmd)
+
+    # Phase 6D: Feed human replies into BrainMemory as external feedback
+    if ctx.brain_memory is not None and comment_author:
+        feedback = extract_brain_feedback(
+            comment_body,
+            author=comment_author,
+            discussion_number=discussion_number,
+            heartbeat=ctx.heartbeat_count,
+        )
+        if feedback is not None:
+            ctx.brain_memory.record_external(feedback)
+            thread.brain_feedback_count += 1
+            operations.append(
+                f"brain_feedback:#{discussion_number}:@{comment_author}"
+            )
 
     signal = DiscussionSignal(
         discussion_number=discussion_number,
@@ -263,6 +308,7 @@ def _handle_discussion_item(
 
         if posted:
             ctx.discussions.record_response(discussion_number)
+            thread.record_response(ctx.heartbeat_count)
             emit_event(
                 "ACTION", agent_name, f"Discussion #{discussion_number} response",
                 {
