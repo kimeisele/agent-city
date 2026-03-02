@@ -8,6 +8,8 @@ from city.thread_state import (
     COOL_THRESHOLD,
     DECAY_RATE,
     REPETITION_ESCALATION_COUNT,
+    CommentEntry,
+    CommentStatus,
     ThreadSnapshot,
     ThreadStateEngine,
     ThreadStatus,
@@ -250,3 +252,132 @@ def test_snapshot_is_alive():
         response_count=0, unresolved=False, created_at=0,
     )
     assert snap_archived.is_alive is False
+
+
+# ── Comment Ledger ─────────────────────────────────────────────────
+
+
+def test_ingest_comment_external():
+    engine = _make_engine()
+    entry = engine.ingest_comment("c1", 42, "alice", "Hello world")
+    assert entry is not None
+    assert entry.comment_id == "c1"
+    assert entry.discussion_number == 42
+    assert entry.author == "alice"
+    assert entry.source == "external"
+    assert entry.status == CommentStatus.SEEN
+    assert entry.body_hash != ""
+    assert entry.enqueued_at is None
+    assert entry.replied_at is None
+
+
+def test_ingest_comment_self():
+    engine = _make_engine()
+    entry = engine.ingest_comment("c2", 42, "github-actions[bot]", "Report", is_own=True)
+    assert entry is not None
+    assert entry.source == "self"
+    assert entry.status == CommentStatus.SELF
+
+
+def test_ingest_comment_idempotent():
+    engine = _make_engine()
+    first = engine.ingest_comment("c1", 42, "alice", "Hello")
+    assert first is not None
+    second = engine.ingest_comment("c1", 42, "alice", "Hello")
+    assert second is None  # already ingested
+
+
+def test_is_comment_seen():
+    engine = _make_engine()
+    assert engine.is_comment_seen("c1") is False
+    engine.ingest_comment("c1", 42, "alice", "Hello")
+    assert engine.is_comment_seen("c1") is True
+
+
+def test_mark_enqueued():
+    engine = _make_engine()
+    engine.ingest_comment("c1", 42, "alice", "Hello")
+    engine.mark_enqueued("c1")
+    unreplied = engine.unreplied_comments()
+    assert len(unreplied) == 1
+    assert unreplied[0].status == CommentStatus.ENQUEUED
+    assert unreplied[0].enqueued_at is not None
+
+
+def test_mark_replied_closes_loop():
+    engine = _make_engine()
+    engine.ingest_comment("c1", 42, "alice", "Hello")
+    engine.mark_enqueued("c1")
+    engine.mark_replied("c1", reply_comment_id="r1")
+    unreplied = engine.unreplied_comments()
+    assert len(unreplied) == 0
+
+
+def test_unreplied_comments_excludes_self():
+    engine = _make_engine()
+    engine.ingest_comment("c1", 42, "alice", "Hello")
+    engine.ingest_comment("c2", 42, "bot", "Report", is_own=True)
+    unreplied = engine.unreplied_comments()
+    assert len(unreplied) == 1
+    assert unreplied[0].comment_id == "c1"
+
+
+def test_unreplied_comments_filter_by_thread():
+    engine = _make_engine()
+    engine.ingest_comment("c1", 42, "alice", "Hello")
+    engine.ingest_comment("c2", 99, "bob", "World")
+    unreplied_42 = engine.unreplied_comments(discussion_number=42)
+    assert len(unreplied_42) == 1
+    assert unreplied_42[0].discussion_number == 42
+    unreplied_all = engine.unreplied_comments()
+    assert len(unreplied_all) == 2
+
+
+def test_full_lifecycle():
+    """Complete lifecycle: ingest → enqueue → reply → closed."""
+    engine = _make_engine()
+    # Bot posts a report
+    engine.ingest_comment("bot1", 42, "bot", "Report", is_own=True)
+    # Human comments
+    engine.ingest_comment("h1", 42, "alice", "Question?")
+    engine.ingest_comment("h2", 42, "bob", "Another question")
+    # Enqueue both
+    engine.mark_enqueued("h1")
+    engine.mark_enqueued("h2")
+    assert len(engine.unreplied_comments()) == 2
+    # Reply to first
+    engine.mark_replied("h1", reply_comment_id="r1")
+    assert len(engine.unreplied_comments()) == 1
+    assert engine.unreplied_comments()[0].comment_id == "h2"
+    # Reply to second
+    engine.mark_replied("h2", reply_comment_id="r2")
+    assert len(engine.unreplied_comments()) == 0
+
+
+def test_comment_stats():
+    engine = _make_engine()
+    engine.ingest_comment("c1", 42, "alice", "Hello")
+    engine.ingest_comment("c2", 42, "bot", "Report", is_own=True)
+    engine.mark_enqueued("c1")
+    stats = engine.comment_stats()
+    assert stats["external:enqueued"] == 1
+    assert stats["self:self"] == 1
+    assert stats["total"] == 2
+
+
+def test_comment_entry_properties():
+    entry = CommentEntry(
+        comment_id="c1", discussion_number=42, author="alice",
+        body_hash="abc", source="external", status=CommentStatus.SEEN,
+        seen_at=0.0, enqueued_at=None, replied_at=None, reply_comment_id=None,
+    )
+    assert entry.needs_processing is True
+    assert entry.is_from_self is False
+
+    self_entry = CommentEntry(
+        comment_id="c2", discussion_number=42, author="bot",
+        body_hash="def", source="self", status=CommentStatus.SELF,
+        seen_at=0.0, enqueued_at=None, replied_at=None, reply_comment_id=None,
+    )
+    assert self_entry.needs_processing is False
+    assert self_entry.is_from_self is True

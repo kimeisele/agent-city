@@ -26,6 +26,7 @@ Stored in city.db (agent state, not transport).
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import sqlite3
 import threading
@@ -50,6 +51,43 @@ class ThreadStatus(StrEnum):
     WAITING = "waiting"
     COOLING = "cooling"
     ARCHIVED = "archived"
+
+
+class CommentStatus(StrEnum):
+    """Comment lifecycle in the ledger.
+
+    seen:     comment ingested, not yet enqueued for processing
+    enqueued: handed to gateway queue for KARMA processing
+    replied:  system posted a response to this comment
+    self:     comment was posted by the system itself (introspectable, not actionable)
+    """
+    SEEN = "seen"
+    ENQUEUED = "enqueued"
+    REPLIED = "replied"
+    SELF = "self"
+
+
+@dataclass(frozen=True)
+class CommentEntry:
+    """Immutable view of a comment ledger row."""
+    comment_id: str
+    discussion_number: int
+    author: str
+    body_hash: str
+    source: str
+    status: str
+    seen_at: float
+    enqueued_at: float | None
+    replied_at: float | None
+    reply_comment_id: str | None
+
+    @property
+    def needs_processing(self) -> bool:
+        return self.status in (CommentStatus.SEEN, CommentStatus.ENQUEUED)
+
+    @property
+    def is_from_self(self) -> bool:
+        return self.source == "self"
 
 
 @dataclass(frozen=True)
@@ -93,6 +131,21 @@ CREATE TABLE IF NOT EXISTS thread_state (
     last_human_author       TEXT NOT NULL DEFAULT '',
     consecutive_human_posts  INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS comment_ledger (
+    comment_id        TEXT PRIMARY KEY,
+    discussion_number INTEGER NOT NULL,
+    author            TEXT NOT NULL DEFAULT '',
+    body_hash         TEXT NOT NULL DEFAULT '',
+    source            TEXT NOT NULL DEFAULT 'external',
+    status            TEXT NOT NULL DEFAULT 'seen',
+    seen_at           REAL NOT NULL DEFAULT 0.0,
+    enqueued_at       REAL DEFAULT NULL,
+    replied_at        REAL DEFAULT NULL,
+    reply_comment_id  TEXT DEFAULT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ledger_thread ON comment_ledger(discussion_number);
+CREATE INDEX IF NOT EXISTS idx_ledger_status ON comment_ledger(status);
 """
 
 
@@ -322,6 +375,130 @@ class ThreadStateEngine:
             "unresolved": unresolved,
         }
 
+    # ── Comment Ledger ────────────────────────────────────────────────
+    #
+    # Every comment (bot OR external) gets a row. No discrimination at
+    # the front door. The ledger replaces the dumb _seen_comment_ids set.
+    #
+    # Lifecycle:  ingest → mark_enqueued → mark_replied
+    # Self-posts: ingest with source="self" → status="self" (introspectable)
+
+    def ingest_comment(
+        self,
+        comment_id: str,
+        discussion_number: int,
+        author: str,
+        body: str,
+        *,
+        is_own: bool = False,
+    ) -> CommentEntry | None:
+        """Record a comment in the ledger. Idempotent — returns None if already seen.
+
+        ALL comments enter here. No filtering by author. The source field
+        marks whether it came from the system ("self") or externally ("external").
+        """
+        now = time.time()
+        body_hash = hashlib.sha256(body.encode()).hexdigest()[:16]
+        source = "self" if is_own else "external"
+        status = CommentStatus.SELF if is_own else CommentStatus.SEEN
+
+        with self._lock:
+            existing = self._conn.execute(
+                "SELECT comment_id FROM comment_ledger WHERE comment_id = ?",
+                (comment_id,),
+            ).fetchone()
+            if existing is not None:
+                return None  # already ingested
+
+            self._conn.execute(
+                """INSERT INTO comment_ledger
+                   (comment_id, discussion_number, author, body_hash,
+                    source, status, seen_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (comment_id, discussion_number, author, body_hash,
+                 source, status, now),
+            )
+            self._conn.commit()
+
+        return CommentEntry(
+            comment_id=comment_id,
+            discussion_number=discussion_number,
+            author=author,
+            body_hash=body_hash,
+            source=source,
+            status=status,
+            seen_at=now,
+            enqueued_at=None,
+            replied_at=None,
+            reply_comment_id=None,
+        )
+
+    def is_comment_seen(self, comment_id: str) -> bool:
+        """Check if a comment has already been ingested."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM comment_ledger WHERE comment_id = ?",
+                (comment_id,),
+            ).fetchone()
+        return row is not None
+
+    def mark_enqueued(self, comment_id: str) -> None:
+        """Comment has been handed to the gateway queue for processing."""
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE comment_ledger SET status = ?, enqueued_at = ? WHERE comment_id = ?",
+                (CommentStatus.ENQUEUED, now, comment_id),
+            )
+            self._conn.commit()
+
+    def mark_replied(self, comment_id: str, reply_comment_id: str = "") -> None:
+        """System posted a response to this comment. Loop closed."""
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                """UPDATE comment_ledger SET status = ?, replied_at = ?, reply_comment_id = ?
+                   WHERE comment_id = ?""",
+                (CommentStatus.REPLIED, now, reply_comment_id, comment_id),
+            )
+            self._conn.commit()
+
+    def unreplied_comments(self, discussion_number: int | None = None) -> list[CommentEntry]:
+        """Comments that haven't been replied to yet (seen or enqueued, not self).
+
+        If discussion_number is given, filter to that thread.
+        """
+        with self._lock:
+            if discussion_number is not None:
+                rows = self._conn.execute(
+                    """SELECT * FROM comment_ledger
+                       WHERE status IN (?, ?) AND source != 'self'
+                         AND discussion_number = ?
+                       ORDER BY seen_at ASC""",
+                    (CommentStatus.SEEN, CommentStatus.ENQUEUED, discussion_number),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    """SELECT * FROM comment_ledger
+                       WHERE status IN (?, ?) AND source != 'self'
+                       ORDER BY seen_at ASC""",
+                    (CommentStatus.SEEN, CommentStatus.ENQUEUED),
+                ).fetchall()
+        return [self._row_to_comment(r) for r in rows]
+
+    def comment_stats(self) -> dict:
+        """Ledger summary for diagnostics."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT status, source, COUNT(*) as cnt FROM comment_ledger GROUP BY status, source",
+            ).fetchall()
+        result: dict = {}
+        for r in rows:
+            key = f"{r['source']}:{r['status']}"
+            result[key] = r["cnt"]
+        result["total"] = sum(result.values())
+        return result
+
     # ── Internal ───────────────────────────────────────────────────────
 
     @staticmethod
@@ -338,6 +515,21 @@ class ThreadStateEngine:
             response_count=row["response_count"],
             unresolved=bool(row["unresolved"]),
             created_at=row["created_at"],
+        )
+
+    @staticmethod
+    def _row_to_comment(row: sqlite3.Row) -> CommentEntry:
+        return CommentEntry(
+            comment_id=row["comment_id"],
+            discussion_number=row["discussion_number"],
+            author=row["author"],
+            body_hash=row["body_hash"],
+            source=row["source"],
+            status=row["status"],
+            seen_at=row["seen_at"],
+            enqueued_at=row["enqueued_at"],
+            replied_at=row["replied_at"],
+            reply_comment_id=row["reply_comment_id"],
         )
 
     def close(self) -> None:

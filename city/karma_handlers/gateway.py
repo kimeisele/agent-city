@@ -312,6 +312,10 @@ def _handle_discussion_item(
             # P8: Record agent response in ThreadState lifecycle engine
             if ctx.thread_state is not None:
                 ctx.thread_state.record_agent_response(discussion_number)
+                # Close the loop: mark originating comment as replied
+                origin_comment_id = item.get("comment_id", "")
+                if origin_comment_id:
+                    ctx.thread_state.mark_replied(origin_comment_id)
             emit_event(
                 "ACTION", agent_name, f"Discussion #{discussion_number} response",
                 {
