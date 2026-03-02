@@ -29,6 +29,15 @@ def execute(ctx: PhaseContext) -> list[str]:
     for name in hibernated:
         actions.append(f"hibernated:{name}:low_prana")
 
+    # Populate active_agents BEFORE metabolize — feeds +10 prana bonus.
+    # Must happen here (not KARMA) because ctx._active_agents is lost
+    # between GitHub Actions runs (Mayor recreated each cron invocation).
+    from city.registry import SVC_SPAWNER
+
+    spawner = ctx.registry.get(SVC_SPAWNER)
+    if spawner is not None:
+        spawner.mark_citizens_active(ctx.active_agents)
+
     # Metabolize all living agents (hibernated agents are frozen, won't be processed)
     _t0 = time.monotonic()
     dead = ctx.pokedex.metabolize_all(active_agents=ctx.active_agents)
@@ -59,8 +68,6 @@ def execute(ctx: PhaseContext) -> list[str]:
     ctx.active_agents.clear()
 
     # Auto-promote: discovered → citizen → network-registered
-    from city.registry import SVC_SPAWNER
-
     spawner = ctx.registry.get(SVC_SPAWNER)
     if spawner is not None:
         promoted = spawner.promote_eligible(ctx.heartbeat_count)
