@@ -276,8 +276,12 @@ def execute(ctx: PhaseContext) -> dict:
                 })()
                 create_improvement_mission(ctx, proposal)
 
-    # Flush brain memory to disk
+    # Decay stale brain cells, then flush to disk
     if ctx.brain_memory is not None:
+        if hasattr(ctx.brain_memory, "decay"):
+            reaped = ctx.brain_memory.decay(ctx.heartbeat_count)
+            if reaped:
+                reflection["brain_cells_decayed"] = reaped
         ctx.brain_memory.flush()
 
     # Layer 6: Federation Nadi — emit city state + flush outbox
