@@ -86,6 +86,30 @@ def test_daemon_set_frequency_clamped():
     assert daemon.frequency_hz == 0.1
 
 
+def test_entropy_with_nadi_pressure():
+    """CityNadi pressure → health < 0.80 → GAJENDRA."""
+    from unittest.mock import MagicMock
+    from city.registry import CityServiceRegistry, SVC_CITY_NADI
+
+    mayor = MagicMock()
+    registry = CityServiceRegistry()
+    mayor._registry = registry
+    mayor._pokedex.stats.return_value = {"total": 10, "active": 10}
+    mayor._gateway_queue = []
+
+    # Mock Nadi with high pressure
+    nadi = MagicMock()
+    nadi.pending_count.return_value = 110  # Max pressure penalty (0.25)
+    registry.register(SVC_CITY_NADI, nadi)
+
+    daemon = DaemonService(mayor=mayor)
+    daemon._measure_entropy()
+
+    # Health calculation: 1.0 - (0.0 dead + 0.0 contracts + 0.25 queue + 0.0 pathogen) = 0.75
+    assert daemon.entropy.health == 0.75
+    assert daemon.entropy.recommended_hz == GAJENDRA
+
+
 if __name__ == "__main__":
     test_entropy_perfect_health()
     test_entropy_moderate_stress()

@@ -35,6 +35,7 @@ class CityCartridgeLoader:
     _registry: object = None  # CartridgeRegistry
     _factory: object = None  # CartridgeFactory
     _initialized: bool = False
+    _vibe_root: Optional[Path] = None
 
     def discover(self) -> list[str]:
         """Discover available cartridges from steward-protocol.
@@ -53,10 +54,8 @@ class CityCartridgeLoader:
             # vibe_core is pip-installed from steward-protocol.
             # __path__[0] = .../steward-protocol/vibe_core
             # .parent     = .../steward-protocol (the real vibe_root)
-            # Without this, _detect_vibe_root() finds agent-city's .vibe/
-            # and scans agent-city/vibe_core/cartridges/ which doesn't exist.
-            vibe_root = Path(vibe_core.__path__[0]).parent
-            self._registry = get_default_cartridge_registry(vibe_root=vibe_root)
+            self._vibe_root = Path(vibe_core.__path__[0]).parent
+            self._registry = get_default_cartridge_registry(vibe_root=self._vibe_root)
             self._available = self._registry.get_cartridge_names()
             self._initialized = True
             logger.info("Discovered %d cartridges: %s", len(self._available), self._available)
@@ -81,7 +80,8 @@ class CityCartridgeLoader:
         try:
             from vibe_core.cartridge_service import get_cartridge_service
 
-            svc = get_cartridge_service()
+            # Ensure we use the exact vibe_root discovered earlier to find steward-protocol
+            svc = get_cartridge_service(workspace=self._vibe_root)
             info = svc.get(name)
             if info is None:
                 return None
@@ -89,11 +89,17 @@ class CityCartridgeLoader:
             # Some steward-protocol YAMLs lack agent: section → UNKNOWN domain.
             # Don't override Jiva-derived domain with garbage.
             domain = info.domain if info.domain != "UNKNOWN" else None
-            caps = list(info.capabilities) if info.capabilities else []
+            
+            # Safely handle capabilities that might be dictionaries instead of strings
+            raw_caps = info.capabilities if info.capabilities else []
+            caps = [c["name"] if isinstance(c, dict) else str(c) for c in raw_caps]
+            
+            # A cartridge is valid if it has domain, capabilities, OR tools
+            has_tools = hasattr(info, "tools") and bool(info.tools)
 
-            if not domain and not caps:
-                # YAML has no useful metadata — skip entirely
-                logger.debug("CartridgeInfo %s: no domain or capabilities in YAML", name)
+            if not domain and not caps and not has_tools:
+                # YAML has no useful metadata and no tools — skip entirely
+                logger.debug("CartridgeInfo %s: no domain, capabilities, or tools in YAML", name)
                 return None
 
             return {
@@ -105,7 +111,8 @@ class CityCartridgeLoader:
                 "version": info.version,
                 "enabled": info.enabled,
             }
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to parse info for %s: %s", name, e)
             return None
 
     def get(self, name: str) -> object | None:
