@@ -409,3 +409,94 @@ def translate_for_agent(text: str, spec: dict) -> str | None:
     agent_role = spec.get("role", "")
 
     return f"{base} | Lens: {agent_domain} ({agent_role})"
+
+
+# ── Signal-Aware Composition (Edge Layer) ────────────────────────────
+
+
+def compose_prose(signal: object) -> str | None:
+    """Render a SemanticSignal to human-readable prose (GitHub discussions).
+
+    Takes the structured signal and produces the same format as translate(),
+    but from already-computed signal data instead of re-running resonate().
+    """
+    from city.signal import SemanticSignal
+
+    if not isinstance(signal, SemanticSignal):
+        return None
+    if not signal.concepts:
+        return None
+
+    _INT_ELEM_LOCAL = {0: "akasha", 1: "vayu", 2: "agni", 3: "jala", 4: "prithvi"}
+
+    dominant_name = _INT_ELEM_LOCAL.get(signal.coords.dominant_element, "prithvi")
+    domain = ELEMENT_DOMAIN.get(dominant_name, "foundation")
+
+    # Walk direction
+    wdir = signal.coords.walk_direction
+    if wdir > 1:
+        direction = "manifesting"
+    elif wdir < -1:
+        direction = "resolving"
+    else:
+        direction = "steady"
+
+    # Opening
+    mode_tag = f"[{direction}]" if direction != "steady" else ""
+    concept_phrase = ", ".join(signal.concepts[:5])
+    opening = f"{mode_tag} {domain}: {concept_phrase}".strip()
+    parts = [opening]
+
+    # Flow from element walk
+    ewalk = signal.coords.element_walk
+    transitions = _element_transitions(
+        [_INT_ELEM_LOCAL.get(e, "prithvi") for e in ewalk[:8]]
+    )
+    if transitions:
+        parts.append(f"Flow: {' → '.join(transitions[:3])}")
+
+    # Quality from resonant elements
+    quality = _quality_from_elements(signal.resonant_elements)
+    if quality:
+        parts.append(f"Quality: {quality}")
+
+    # Guardian context
+    if signal.sender_guardian:
+        parts.append(f"Route: {signal.sender_guardian}")
+
+    return " | ".join(parts)
+
+
+def compose_prose_for_agent(decoded: object) -> str | None:
+    """Render a DecodedSignal with the receiver's agent lens.
+
+    Adds the receiver's domain perspective on top of the base prose.
+    """
+    from city.signal import DecodedSignal
+
+    if not isinstance(decoded, DecodedSignal):
+        return None
+
+    base = compose_prose(decoded.signal)
+    if base is None:
+        return None
+
+    return f"{base} | Lens: {decoded.receiver_domain} ({decoded.quality})"
+
+
+def _quality_from_elements(elements: tuple[str, ...] | list[str]) -> str:
+    """Determine quality tag from resonant element names."""
+    counts: dict[int, int] = {0: 0, 1: 0, 2: 0}
+    _elem_int_local = {"akasha": 0, "vayu": 1, "agni": 2, "jala": 3, "prithvi": 4}
+    for e in elements:
+        idx = _elem_int_local.get(e, 4)
+        if idx <= 1:
+            counts[0] += 1
+        elif idx == 2:
+            counts[1] += 1
+        else:
+            counts[2] += 1
+    if not any(counts.values()):
+        return ""
+    dominant = max(counts, key=lambda k: counts[k])
+    return _VARGA_QUALITY.get(dominant, "")

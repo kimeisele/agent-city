@@ -44,6 +44,7 @@ class _AgentMessage:
     correlation_id: str = ""
     timestamp: float = field(default_factory=time.time)
     ttl_s: float = _TTL_S
+    signal: object | None = None  # SemanticSignal when A2A signal protocol active
 
     @property
     def is_expired(self) -> bool:
@@ -94,10 +95,12 @@ class AgentNadiManager:
         *,
         priority: int | None = None,
         correlation_id: str = "",
+        signal: object | None = None,
     ) -> bool:
         """Send a message from one agent to another.
 
         Returns True if delivered, False if either agent missing.
+        Accepts optional signal (SemanticSignal) for A2A protocol.
         """
         if from_name not in self._inboxes or to_name not in self._inboxes:
             return False
@@ -109,6 +112,7 @@ class AgentNadiManager:
             from_agent=from_name,
             priority=priority if priority is not None else RAJAS,
             correlation_id=correlation_id,
+            signal=signal,
         )
         self._inboxes[to_name].append(msg)
         self._stats_sent += 1
@@ -155,15 +159,16 @@ class AgentNadiManager:
             msg = inbox.popleft()
             if msg.is_expired:
                 continue
-            items.append(
-                {
-                    "source": msg.source,
-                    "text": msg.text,
-                    "from_agent": msg.from_agent,
-                    "priority": msg.priority,
-                    "correlation_id": msg.correlation_id,
-                }
-            )
+            item = {
+                "source": msg.source,
+                "text": msg.text,
+                "from_agent": msg.from_agent,
+                "priority": msg.priority,
+                "correlation_id": msg.correlation_id,
+            }
+            if msg.signal is not None:
+                item["signal"] = msg.signal
+            items.append(item)
 
         # Sort by priority descending
         items.sort(key=lambda x: x["priority"], reverse=True)
