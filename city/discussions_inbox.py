@@ -107,6 +107,24 @@ _GUNA_FRAME: dict[str, str] = {
     "TAMAS": "Assessment",
 }
 
+# capability_protocol -> how the agent approaches a problem
+_PROTOCOL_APPROACH: dict[str, str] = {
+    "parse": "breaking this down into components",
+    "validate": "checking this against established rules",
+    "infer": "analyzing patterns and drawing conclusions",
+    "route": "connecting this to the right resources",
+    "enforce": "ensuring this meets quality standards",
+}
+
+# element -> sensory framing of the agent's perspective
+_ELEMENT_LENS: dict[str, str] = {
+    "akasha": "From the space of awareness",
+    "vayu": "Moving through the channels",
+    "agni": "Through the lens of transformation",
+    "jala": "Flowing with the connections",
+    "prithvi": "Grounded in structure",
+}
+
 
 def _agent_signature(spec: dict, gateway_result: dict | None = None) -> str:
     """Rich agent identity block. Derived from spec, zero hardcode."""
@@ -143,30 +161,70 @@ def _compose_response(
     gateway_result: dict,
     semantic_signal: object | None = None,
     brain_thought: Thought | None = None,
+    cartridge_cognition: dict | None = None,
 ) -> str:
-    """Compose agent response as clean human-readable prose.
+    """Compose agent response as spec-driven prose.
 
-    No raw internal state. No routing metadata. No word-salad signals.
-    Identity + perspective + brain thought (if available) + city stats.
+    Every agent produces different output because every spec IS different.
+    Uses: guardian_capabilities, element_capabilities, capability_protocol,
+    chapter_significance, element, style, role, domain, guna.
     """
     name = spec.get("name", "Unknown")
     domain = spec.get("domain", "general")
     role = spec.get("role", "agent")
     guna = spec.get("guna", "")
+    element = spec.get("element", "")
+    protocol = spec.get("capability_protocol", "")
+    guardian_caps = spec.get("guardian_capabilities", [])
+    element_caps = spec.get("element_capabilities", [])
+    chapter_sig = spec.get("chapter_significance", "")
+    style = spec.get("style", "")
 
     function = gateway_result.get("buddhi_function", "")
     verb = _FUNCTION_VERB.get(function, "observe")
     frame = _GUNA_FRAME.get(guna, "Note")
 
     # Identity line
-    parts = [f"**{name}** — {role} ({domain})"]
+    parts = [f"**{name}** \u2014 {role} ({domain})"]
 
-    # Perspective: what this agent brings to the discussion
+    # Perspective: buddhi-generated OR spec-derived
     perspective = gateway_result.get("buddhi_perspective", "")
     if perspective:
         parts.append(f"\n**{frame}**: {perspective}")
     else:
-        parts.append(f"\n**{frame}**: I can {verb} this from the {domain} perspective.")
+        # Spec-driven perspective: element lens + protocol approach
+        lens = _ELEMENT_LENS.get(element, "")
+        approach = _PROTOCOL_APPROACH.get(protocol, "")
+        if lens and approach:
+            parts.append(f"\n**{frame}**: {lens}, {approach}.")
+        else:
+            parts.append(f"\n**{frame}**: I can {verb} this from the {domain} perspective.")
+
+    # Capabilities block: what this agent specifically brings
+    if guardian_caps or element_caps:
+        skills = []
+        if guardian_caps:
+            skills.append(f"**Specialization**: {', '.join(guardian_caps[:3])}")
+        if element_caps:
+            skills.append(f"**Base skills**: {', '.join(element_caps[:3])}")
+        parts.append("\n" + " | ".join(skills))
+
+    # Chapter knowledge (unique per agent)
+    if chapter_sig:
+        parts.append(f"*Drawing from: {chapter_sig}*")
+
+    # 7A-4: Cartridge cognitive output (agent-specific process() result)
+    if cartridge_cognition and isinstance(cartridge_cognition, dict):
+        cog_fn = cartridge_cognition.get("function", "")
+        cog_approach = cartridge_cognition.get("approach", "")
+        cog_status = cartridge_cognition.get("status", "")
+        if cog_fn or cog_approach:
+            cog_parts = []
+            if cog_fn:
+                cog_parts.append(f"cognitive function: {cog_fn}")
+            if cog_approach:
+                cog_parts.append(f"approach: {cog_approach}")
+            parts.append(f"\n> {' | '.join(cog_parts)}")
 
     # Brain comprehension (LLM cognition, when available)
     if brain_thought is not None:
@@ -190,11 +248,14 @@ def dispatch_discussion(
     city_stats: dict,
     semantic_signal: object | None = None,
     brain_thought: Thought | None = None,
+    cartridge_cognition: dict | None = None,
 ) -> AgentDiscussionResponse:
     """Route a discussion signal to spec-driven composition and build response.
 
     When semantic_signal (SemanticSignal) is provided, the response composition
     uses the signal protocol for richer, coordinate-decoded readings.
+    When cartridge_cognition is provided, the agent's Cartridge process() output
+    is woven into the response for agent-specific cognitive framing.
     """
     intent = classify_discussion_intent(gateway_result)
 
@@ -210,6 +271,7 @@ def dispatch_discussion(
         agent_spec, signal, city_stats, gateway_result,
         semantic_signal=semantic_signal,
         brain_thought=brain_thought,
+        cartridge_cognition=cartridge_cognition,
     )
 
     return AgentDiscussionResponse(

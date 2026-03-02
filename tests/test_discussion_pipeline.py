@@ -653,3 +653,128 @@ def test_prune_stale_bridge():
     assert pruned == 1
     assert 1 not in bridge._responded_discussions
     assert 2 in bridge._responded_discussions
+
+
+# ── Agent Voice Differentiation Tests (7A) ────────────────────────────
+
+
+def test_different_agents_produce_different_responses():
+    """7A-5: Two agents with different specs must produce different output."""
+    from city.discussions_inbox import DiscussionSignal, _compose_response
+
+    # Vyasa: RAJAS, akasha, parse, compile/orchestrate/oversee
+    spec_vyasa = {
+        "name": "sys_vyasa",
+        "domain": "DISCOVERY",
+        "role": "System oversight, compilation",
+        "guna": "RAJAS",
+        "element": "akasha",
+        "capability_protocol": "parse",
+        "guardian_capabilities": ["compile", "orchestrate", "oversee"],
+        "element_capabilities": ["observe", "monitor", "report"],
+        "chapter_significance": "yoga of knowledge",
+        "style": "active",
+    }
+
+    # Nrisimha: TAMAS, prithvi, enforce, protect/yield/release
+    spec_nrisimha = {
+        "name": "sys_nrisimha",
+        "domain": "RESEARCH",
+        "role": "Protection, resource release",
+        "guna": "TAMAS",
+        "element": "prithvi",
+        "capability_protocol": "enforce",
+        "guardian_capabilities": ["protect", "yield", "release"],
+        "element_capabilities": ["build", "maintain", "stabilize"],
+        "chapter_significance": "yoga of renunciation",
+        "style": "transformative",
+    }
+
+    signal = DiscussionSignal(42, "Test Thread", "some input", "user", [])
+    stats = {"active": 5, "citizen": 3, "total": 10}
+    gateway_result = {"buddhi_function": "VISHNU", "seed": 42}
+
+    response_a = _compose_response(spec_vyasa, signal, stats, gateway_result)
+    response_b = _compose_response(spec_nrisimha, signal, stats, gateway_result)
+
+    # Responses must be different
+    assert response_a != response_b
+
+    # Each response must contain agent-specific content
+    assert "sys_vyasa" in response_a
+    assert "compile" in response_a or "orchestrate" in response_a
+    assert "observe" in response_a or "monitor" in response_a
+    assert "yoga of knowledge" in response_a
+
+    assert "sys_nrisimha" in response_b
+    assert "protect" in response_b or "yield" in response_b
+    assert "build" in response_b or "maintain" in response_b
+    assert "yoga of renunciation" in response_b
+
+    # Element lens must differ
+    assert "awareness" in response_a  # akasha
+    assert "structure" in response_b  # prithvi
+
+    # Protocol approach must differ
+    assert "components" in response_a  # parse
+    assert "quality standards" in response_b  # enforce
+
+
+def test_minimal_spec_still_produces_response():
+    """7A-5: Agent with minimal spec doesn't crash, falls back gracefully."""
+    from city.discussions_inbox import DiscussionSignal, _compose_response
+
+    spec_minimal = {"name": "bare_agent", "domain": "general"}
+    signal = DiscussionSignal(1, "Test", "hello", "user", [])
+    stats = {"active": 1, "total": 1}
+    gateway_result = {"seed": 1}
+
+    response = _compose_response(spec_minimal, signal, stats, gateway_result)
+    assert "bare_agent" in response
+    assert "general" in response
+    # No crash, no empty output
+    assert len(response) > 20
+
+
+def test_cartridge_cognition_in_response():
+    """7A-4: Cartridge process() output is woven into the response."""
+    from city.discussions_inbox import DiscussionSignal, _compose_response
+
+    spec = {
+        "name": "sys_kapila",
+        "domain": "GOVERNANCE",
+        "role": "Analysis, classification",
+        "guna": "SATTVA",
+        "element": "agni",
+        "capability_protocol": "infer",
+        "guardian_capabilities": ["analyze", "classify", "typecheck"],
+        "element_capabilities": ["transform", "audit", "validate"],
+    }
+
+    signal = DiscussionSignal(42, "Test", "input", "user", [])
+    stats = {"active": 5, "total": 10}
+    gateway_result = {"seed": 42}
+
+    # Without cartridge cognition
+    response_plain = _compose_response(spec, signal, stats, gateway_result)
+
+    # With cartridge cognition
+    cognition = {
+        "function": "TYPE_CHECK",
+        "approach": "structural analysis",
+        "status": "cognized",
+    }
+    response_cog = _compose_response(
+        spec, signal, stats, gateway_result, cartridge_cognition=cognition,
+    )
+
+    # Cognition output must be present in response
+    assert "TYPE_CHECK" in response_cog
+    assert "structural analysis" in response_cog
+
+    # Plain response must NOT have it
+    assert "TYPE_CHECK" not in response_plain
+
+    # Both must have agent identity
+    assert "sys_kapila" in response_plain
+    assert "sys_kapila" in response_cog

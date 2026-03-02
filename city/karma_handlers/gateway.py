@@ -322,12 +322,28 @@ def _handle_discussion_item(
                     comment_id=comment_id,
                 )
 
+    # 7A-4: Run Cartridge process() if available — agent-specific cognition
+    cartridge_cognition = None
+    try:
+        from city.registry import SVC_CARTRIDGE_FACTORY
+        factory = ctx.registry.get(SVC_CARTRIDGE_FACTORY)
+        if factory is not None:
+            cartridge = factory.get(agent_name)
+            if cartridge is not None and hasattr(cartridge, "process"):
+                cartridge_cognition = cartridge.process(
+                    item.get("text", "") or signal.title
+                )
+                operations.append(f"cartridge_process:{agent_name}:#{discussion_number}")
+    except Exception as e:
+        logger.debug("Cartridge process() skipped for %s: %s", agent_name, e)
+
     # Build response
     city_stats = ctx.pokedex.stats()
     response = dispatch_discussion(
         signal, result, agent_spec, city_stats,
         semantic_signal=disc_semantic_signal,
         brain_thought=brain_thought,
+        cartridge_cognition=cartridge_cognition,
     )
 
     # Broadcast signal to agent nadi
