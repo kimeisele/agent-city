@@ -1,15 +1,14 @@
 """
-KARMA Phase — Thin Dispatcher.
+KARMA Phase — Thin Dispatcher + Venu Wiring.
 
 All domain logic lives in city.karma_handlers.* plugins.
 This file is the dispatcher: it builds the handler registry,
-calls handlers in priority order, and returns operations.
+steps the VenuOrchestrator (19-bit DIW), then dispatches
+handlers in priority order.
 
 Phase 6A: God Object → Plugin Architecture.
-Former monolith (1491 LOC) → 9 isolated handlers + this 80-line dispatcher.
-
-Future (Phase 6C): VenuOrchestrator.step() emits DIWEvent to subscribers.
-Each handler implements DIWSubscriberProtocol and wakes based on 19-bit state.
+Phase 6C: VenuOrchestrator.step() emits DIWEvent to subscribers.
+DIW-aware handlers can read the 19-bit state in should_run().
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
@@ -24,11 +23,15 @@ from city.phases import PhaseContext
 logger = logging.getLogger("AGENT_CITY.PHASES.KARMA")
 
 
-def _build_registry():
-    """Build handler registry with all domain handlers.
+def _build_dispatcher():
+    """Build VenuDispatcher with all domain handlers + orchestrator.
 
     Dynamic registration: handlers register themselves. Future agents
     can add new handlers via PR without touching this file.
+
+    If VenuOrchestrator is available, the dispatcher steps the flute
+    once per KARMA and emits DIWEvent to all DIW-aware handlers.
+    Falls back to plain dispatch if unavailable.
     """
     from city.karma_handlers import KarmaHandlerRegistry
     from city.karma_handlers.brain_health import BrainHealthHandler
@@ -40,6 +43,7 @@ def _build_registry():
     from city.karma_handlers.heal import HealHandler
     from city.karma_handlers.council import CouncilHandler
     from city.karma_handlers.assistant import AssistantHandler
+    from city.karma_handlers.diw_bridge import VenuDispatcher
 
     registry = KarmaHandlerRegistry()
     registry.register(BrainHealthHandler())
@@ -51,16 +55,31 @@ def _build_registry():
     registry.register(HealHandler())
     registry.register(CouncilHandler())
     registry.register(AssistantHandler())
-    return registry
+
+    # Try to get the VenuOrchestrator for 19-bit DIW dispatch
+    orchestrator = None
+    try:
+        from vibe_core.mahamantra.substrate.vm.venu_orchestrator import (
+            VenuOrchestrator,
+        )
+        orchestrator = VenuOrchestrator()
+        logger.debug("KARMA: VenuOrchestrator wired")
+    except Exception as e:
+        logger.debug("KARMA: VenuOrchestrator unavailable: %s", e)
+
+    return VenuDispatcher(registry, orchestrator)
 
 
 def execute(ctx: PhaseContext) -> list[str]:
-    """KARMA: Dispatch to registered handlers in priority order."""
+    """KARMA: Step the flute, then dispatch handlers in priority order."""
     operations: list[str] = []
 
-    registry = _build_registry()
-    registry.dispatch(ctx, operations)
+    dispatcher = _build_dispatcher()
+    dispatcher.dispatch(ctx, operations)
 
     if operations:
-        logger.info("KARMA: %d operations via %d handlers", len(operations), registry.handler_count)
+        logger.info(
+            "KARMA: %d operations via %d handlers",
+            len(operations), dispatcher.handler_count,
+        )
     return operations

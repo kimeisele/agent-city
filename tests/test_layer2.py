@@ -323,7 +323,10 @@ def test_mayor_enqueue_and_process():
     results = mayor.run_cycle(3)  # GENESIS, DHARMA, KARMA
     karma_result = results[2]
     assert karma_result["department"] == "KARMA"
-    assert len(karma_result["operations"]) == 2
+    # 2 gateway ops + optional venu_tick from VenuOrchestrator
+    ops = karma_result["operations"]
+    non_venu_ops = [o for o in ops if not o.startswith("venu_tick:")]
+    assert len(non_venu_ops) == 2
 
     shutil.rmtree(tmpdir)
 
