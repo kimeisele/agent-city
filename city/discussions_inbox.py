@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from city.brain import Thought
     from city.gateway import GatewayResult
 
 logger = logging.getLogger("AGENT_CITY.DISCUSSIONS_INBOX")
@@ -141,6 +142,7 @@ def _compose_response(
     stats: dict,
     gateway_result: dict,
     semantic_signal: object | None = None,
+    brain_thought: Thought | None = None,
 ) -> str:
     """Compose agent response from spec + neuro-symbolic semantic layer.
 
@@ -195,6 +197,10 @@ def _compose_response(
     if reading:
         parts.append(f"**Reading**: {reading}")
 
+    # Brain comprehension (LLM cognition, when available)
+    if brain_thought is not None:
+        parts.append(brain_thought.format_for_post())
+
     # Approach context (which phase of thinking this maps to)
     if approach:
         parts.append(f"**Approach**: {approach}")
@@ -225,6 +231,7 @@ def dispatch_discussion(
     agent_spec: dict,
     city_stats: dict,
     semantic_signal: object | None = None,
+    brain_thought: Thought | None = None,
 ) -> AgentDiscussionResponse:
     """Route a discussion signal to spec-driven composition and build response.
 
@@ -244,6 +251,7 @@ def dispatch_discussion(
     body = _compose_response(
         agent_spec, signal, city_stats, gateway_result,
         semantic_signal=semantic_signal,
+        brain_thought=brain_thought,
     )
 
     return AgentDiscussionResponse(

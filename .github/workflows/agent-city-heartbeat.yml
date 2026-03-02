@@ -83,6 +83,7 @@ jobs:
         env:
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
           GH_TOKEN: ${{ secrets.FEDERATION_PAT || secrets.GITHUB_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           CYCLES=${{ github.event.inputs.cycles || '4' }}
           OFFLINE=${{ github.event.inputs.offline || 'false' }}

@@ -60,6 +60,14 @@ _ACTION_MAP: dict[str, dict[str, str]] = {
 }
 
 
+_MAX_BRAIN_CALLS_PER_CYCLE = 3
+
+
+def _brain_budget_ok(ctx: PhaseContext) -> bool:
+    """Check if brain call budget is not exhausted for this KARMA cycle."""
+    return getattr(ctx, "_brain_calls", 0) < _MAX_BRAIN_CALLS_PER_CYCLE
+
+
 def _learn(ctx: PhaseContext, source: str, action: str, *, success: bool) -> None:
     """Record a Hebbian learning outcome if learning is wired."""
     if ctx.learning is not None:
@@ -970,6 +978,28 @@ def _process_agent_signals(ctx: PhaseContext, operations: list[str]) -> None:
                     f":affinity={decoded.affinity:.2f}"
                 )
 
+            # MEDIUM affinity → brain comprehension (0.3-0.8)
+            brain = ctx.brain
+            if (
+                decoded.affinity < _SIGNAL_AFFINITY_EXECUTOR_THRESHOLD
+                and brain is not None
+                and _brain_budget_ok(ctx)
+            ):
+                from city.registry import SVC_CARTRIDGE_FACTORY
+
+                factory = ctx.registry.get(SVC_CARTRIDGE_FACTORY)
+                receiver_spec = (
+                    factory.get_spec(agent_name) if factory is not None else {}
+                ) or {}
+                signal_thought = brain.comprehend_signal(decoded, receiver_spec)
+                if signal_thought is not None:
+                    ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1
+                    operations.append(
+                        f"brain_signal:{agent_name}"
+                        f":intent={signal_thought.intent}"
+                        f":confidence={signal_thought.confidence:.2f}"
+                    )
+
             # Reply (if under hop limit and cycle budget)
             if (
                 sig.hop_count < MAX_SIGNAL_HOPS
@@ -1072,11 +1102,32 @@ def _handle_discussion_item(
     except Exception:
         pass  # Signal encoding optional — discussion works without it
 
+    # Brain comprehension (LLM cognition, budget-limited)
+    brain_thought = None
+    brain = ctx.brain
+    if brain is not None and _brain_budget_ok(ctx):
+        from city.semantic import compose_prose
+
+        brain_thought = brain.comprehend_discussion(
+            discussion_text=item.get("text", ""),
+            agent_spec=agent_spec,
+            gateway_result=result,
+            signal_reading=compose_prose(disc_semantic_signal) if disc_semantic_signal else "",
+        )
+        if brain_thought is not None:
+            ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1
+            operations.append(
+                f"brain_disc:{agent_name}:#{discussion_number}"
+                f":intent={brain_thought.intent.value}"
+                f":confidence={brain_thought.confidence:.2f}"
+            )
+
     # Build response (with signal-enhanced reading when available)
     city_stats = ctx.pokedex.stats()
     response = dispatch_discussion(
         signal, result, agent_spec, city_stats,
         semantic_signal=disc_semantic_signal,
+        brain_thought=brain_thought,
     )
 
     # Broadcast signal to agent nadi so other agents see the discussion
