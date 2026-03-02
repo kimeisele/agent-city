@@ -360,6 +360,57 @@ def create_discussion_mission(
     return mission_id
 
 
+def create_community_mission(
+    ctx: object,
+    description: str,
+    *,
+    author: str = "",
+    discussion_number: int = 0,
+) -> str | None:
+    """Create a Sankalpa mission from a human /mission command in Discussions.
+
+    Deduplicates: skips if an active community mission with the same description exists.
+    """
+    if ctx.sankalpa is None:
+        return None
+
+    from vibe_core.mahamantra.protocols.sankalpa.types import (
+        MissionPriority,
+        MissionStatus,
+        SankalpaMission,
+    )
+
+    # Dedup: check for active community missions with similar descriptions
+    short_desc = description[:40].lower()
+    for existing in ctx.sankalpa.registry.get_active_missions():
+        if (
+            existing.id.startswith("community_")
+            and existing.status == MissionStatus.ACTIVE
+            and short_desc in existing.description.lower()
+        ):
+            logger.debug(
+                "Community mission already exists (%s), skipping",
+                existing.id,
+            )
+            return existing.id
+
+    mission_id = f"community_{ctx.heartbeat_count}_{discussion_number}"
+    mission = SankalpaMission(
+        id=mission_id,
+        name=f"Community: {description[:60]}",
+        description=f"{description} (requested by @{author} in #{discussion_number})",
+        priority=MissionPriority.HIGH,
+        status=MissionStatus.ACTIVE,
+        owner=author or "community",
+    )
+    ctx.sankalpa.registry.add_mission(mission)
+    logger.info(
+        "Created community mission %s from @%s in #%d",
+        mission_id, author, discussion_number,
+    )
+    return mission_id
+
+
 def create_federation_mission(ctx: object, directive: object) -> bool:
     """Create a Sankalpa mission from a federation directive."""
     from vibe_core.mahamantra.protocols.sankalpa.types import (

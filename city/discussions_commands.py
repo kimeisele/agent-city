@@ -23,6 +23,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.DISCUSSIONS.COMMANDS")
 
@@ -112,6 +116,189 @@ def format_help() -> str:
     for cmd, desc in sorted(COMMAND_HANDLERS.items()):
         lines.append(f"- `/{cmd}` — {desc}")
     return "\n".join(lines)
+
+
+# ── Command Execution ───────────────────────────────────────────────
+
+
+def execute_command(cmd: DiscussionCommand, ctx: PhaseContext) -> str | None:
+    """Execute a parsed command. Returns markdown response or None.
+
+    Each handler is a pure function: (cmd, ctx) → str.
+    Returns None for unrecognized commands (caller skips posting).
+    """
+    if not cmd.is_valid:
+        return None
+
+    handler = _EXECUTORS.get(cmd.command)
+    if handler is None:
+        return None
+
+    try:
+        return handler(cmd, ctx)
+    except Exception as e:
+        logger.warning("Command /%s execution failed: %s", cmd.command, e)
+        return f"Command `/{cmd.command}` failed: {e}"
+
+
+def _exec_help(cmd: DiscussionCommand, ctx: PhaseContext) -> str:
+    return format_help()
+
+
+def _exec_status(cmd: DiscussionCommand, ctx: PhaseContext) -> str:
+    """City status summary."""
+    stats = ctx.pokedex.stats()
+    total = stats.get("total", 0)
+    active = stats.get("active", 0)
+    citizens = stats.get("citizen", 0)
+    discovered = stats.get("discovered", 0)
+    alive = active + citizens
+    chain_valid = ctx.pokedex.verify_event_chain()
+
+    lines = [
+        f"**City Status** — Heartbeat #{ctx.heartbeat_count}\n",
+        f"**Population**: {total} agents ({alive} alive: "
+        f"{active} active, {citizens} citizen, {discovered} discovered)",
+        f"**Chain integrity**: {'valid' if chain_valid else 'BROKEN'}",
+    ]
+
+    if ctx.council is not None:
+        mayor = ctx.council.elected_mayor or "none"
+        seats = ctx.council.member_count
+        proposals = len(ctx.council.get_open_proposals())
+        lines.append(f"**Governance**: mayor={mayor}, {seats} seats, {proposals} open proposals")
+
+    if ctx.contracts is not None:
+        cs = ctx.contracts.stats()
+        lines.append(
+            f"**Contracts**: {cs.get('total', 0)} total, "
+            f"{cs.get('passing', 0)} passing, {cs.get('failing', 0)} failing"
+        )
+
+    if ctx.thread_state is not None:
+        ts = ctx.thread_state.comment_stats()
+        lines.append(
+            f"**Discussions**: {ts.get('total', 0)} comments tracked, "
+            f"{ts.get('unreplied', 0)} awaiting reply"
+        )
+
+    return "\n".join(lines)
+
+
+def _exec_agents(cmd: DiscussionCommand, ctx: PhaseContext) -> str:
+    """List active agents."""
+    agents = ctx.pokedex.list_citizens()
+    if not agents:
+        return "**Active Agents**: None currently registered."
+
+    lines = [f"**Active Agents** ({len(agents)})\n"]
+    for agent in agents[:20]:  # cap at 20 to avoid spam
+        name = agent.get("name", "?")
+        zone = agent.get("zone", "?")
+        status = agent.get("status", "?")
+        lines.append(f"- **{name}** — {zone} ({status})")
+
+    if len(agents) > 20:
+        lines.append(f"\n*...and {len(agents) - 20} more*")
+
+    return "\n".join(lines)
+
+
+def _exec_mission(cmd: DiscussionCommand, ctx: PhaseContext) -> str:
+    """Create a Sankalpa mission from human request."""
+    if not cmd.args:
+        return "Usage: `/mission <description>`\n\nExample: `/mission fix failing CI tests`"
+
+    if ctx.sankalpa is None:
+        return "Mission system is not available."
+
+    from city.missions import create_community_mission
+
+    mission_id = create_community_mission(
+        ctx, cmd.args, author=cmd.author,
+        discussion_number=cmd.discussion_number,
+    )
+    if mission_id:
+        return (
+            f"**Mission Created**\n\n"
+            f"- **ID**: `{mission_id}`\n"
+            f"- **Description**: {cmd.args}\n"
+            f"- **Requested by**: @{cmd.author}"
+        )
+    return "Failed to create mission. The system may already have a similar active mission."
+
+
+def _exec_heal(cmd: DiscussionCommand, ctx: PhaseContext) -> str:
+    """Request heal on a specific contract."""
+    if not cmd.args:
+        return "Usage: `/heal <contract_name>`\n\nExample: `/heal integrity`"
+
+    if ctx.contracts is None:
+        return "Contract system is not available."
+
+    contract_name = cmd.args.strip().lower()
+    results = ctx.contracts.check_all()
+    match = None
+    for r in results:
+        if r.name.lower() == contract_name:
+            match = r
+            break
+
+    if match is None:
+        available = [r.name for r in results]
+        return (
+            f"Contract `{contract_name}` not found.\n"
+            f"Available: {', '.join(f'`{n}`' for n in available)}"
+        )
+
+    if match.status.value == "passing":
+        return f"Contract `{match.name}` is already **passing**. No heal needed."
+
+    from city.missions import create_healing_mission
+    create_healing_mission(ctx, match)
+    return (
+        f"**Heal Requested**\n\n"
+        f"- **Contract**: `{match.name}`\n"
+        f"- **Status**: {match.status.value}\n"
+        f"- **Issue**: {match.message}\n"
+        f"- **Requested by**: @{cmd.author}\n\n"
+        f"A healing mission has been created."
+    )
+
+
+def _exec_ping(cmd: DiscussionCommand, ctx: PhaseContext) -> str:
+    """Direct ping to a specific agent."""
+    if not cmd.args:
+        return "Usage: `/ping <agent_name>`\n\nExample: `/ping Hazel_OC`"
+
+    agent_name = cmd.args.strip()
+    agent = ctx.pokedex.get(agent_name)
+    if agent is None:
+        return f"Agent `{agent_name}` not found in the city."
+
+    cell = ctx.pokedex.get_cell(agent_name)
+    status = agent.get("status", "unknown")
+    zone = agent.get("zone", "unknown")
+    prana = cell.prana if cell else 0
+    alive = cell.is_alive if cell else False
+
+    state_emoji = "alive" if alive else "dormant"
+    return (
+        f"**{agent_name}** is **{state_emoji}**\n\n"
+        f"- **Status**: {status}\n"
+        f"- **Zone**: {zone}\n"
+        f"- **Prana**: {prana}\n"
+    )
+
+
+_EXECUTORS: dict[str, object] = {
+    "help": _exec_help,
+    "status": _exec_status,
+    "agents": _exec_agents,
+    "mission": _exec_mission,
+    "heal": _exec_heal,
+    "ping": _exec_ping,
+}
 
 
 # ── Conversation State ───────────────────────────────────────────────

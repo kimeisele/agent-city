@@ -164,6 +164,7 @@ def _handle_discussion_item(
     """Route a discussion queue item to an agent and post response."""
     from city.discussions_commands import (
         ConversationTracker,
+        execute_command,
         extract_brain_feedback,
         parse_commands,
     )
@@ -180,18 +181,43 @@ def _handle_discussion_item(
     comment_body = item.get("text", "")
     comment_id = item.get("comment_id", "")
 
-    # Phase 6D: Parse inbound commands
+    # Phase 6B: Parse and EXECUTE inbound commands
     commands = parse_commands(
         comment_body,
         author=comment_author,
         discussion_number=discussion_number,
         comment_id=comment_id,
     )
+    command_handled = False
     for cmd in commands:
         if cmd.is_valid:
             operations.append(
                 f"disc_cmd:/{cmd.command}:#{discussion_number}:@{cmd.author}"
             )
+            response_body = execute_command(cmd, ctx)
+            if response_body and ctx.discussions is not None and not ctx.offline_mode:
+                if ctx.discussions.can_respond(discussion_number):
+                    posted = ctx.discussions.comment(discussion_number, response_body)
+                    if posted:
+                        ctx.discussions.record_response(discussion_number)
+                        operations.append(
+                            f"cmd_replied:/{cmd.command}:#{discussion_number}"
+                        )
+                        if ctx.thread_state is not None and comment_id:
+                            ctx.thread_state.mark_replied(comment_id)
+                        command_handled = True
+                        _learn(ctx, "discussion", "command", success=True)
+                    else:
+                        operations.append(
+                            f"cmd_post_failed:/{cmd.command}:#{discussion_number}"
+                        )
+                        _learn(ctx, "discussion", "command", success=False)
+                else:
+                    operations.append(f"cmd_rate_limited:#{discussion_number}")
+
+    # If commands were executed and posted, skip normal agent routing
+    if command_handled:
+        return
 
     # Phase 6D: Track conversation state
     tracker = getattr(ctx, "_conversation_tracker", None)
