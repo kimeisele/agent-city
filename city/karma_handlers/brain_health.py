@@ -48,9 +48,17 @@ class BrainHealthHandler(BaseKarmaHandler):
             f":confidence={health_thought.confidence:.2f}"
             f":hint={health_thought.action_hint or 'none'}"
         )
-        # Record in memory
+        # Record in memory (returns prana cost of the cell)
         if ctx.brain_memory is not None:
-            ctx.brain_memory.record(health_thought, ctx.heartbeat_count)
+            prana_cost = ctx.brain_memory.record(
+                health_thought, ctx.heartbeat_count,
+            )
+            # Deduct prana from city treasury if available
+            if prana_cost and hasattr(ctx, "pokedex") and ctx.pokedex is not None:
+                try:
+                    ctx.pokedex.debit_treasury(prana_cost, reason="brain_health")
+                except Exception:
+                    pass  # treasury debit is best-effort
         # Post high-confidence health thoughts to discussions
         if (
             health_thought.confidence >= 0.7
