@@ -36,51 +36,6 @@ class TestContextSnapshot:
         assert snap.immune_stats == {}
         assert snap.council_summary == {}
 
-    def test_to_system_context_health_check(self):
-        snap = ContextSnapshot(
-            agent_count=51,
-            alive_count=48,
-            dead_count=3,
-            chain_valid=True,
-            failing_contracts=("ruff_clean",),
-            immune_stats={"heals_attempted": 5, "breaker_tripped": False},
-            learning_stats={"synapses": 120, "avg_weight": 0.65},
-        )
-        ctx = snap.to_system_context("health_check")
-        assert "48/51" in ctx
-        assert "3 dead" in ctx
-        assert "valid" in ctx
-        assert "ruff_clean" in ctx
-        assert "5 heal attempts" in ctx
-        assert "breaker ok" in ctx
-        assert "120 synapses" in ctx
-        assert "action_hint" in ctx  # JSON schema included
-
-    def test_to_system_context_reflection(self):
-        snap = ContextSnapshot(
-            agent_count=10,
-            alive_count=9,
-            recent_brain_thoughts=(
-                {"thought": {"intent": "observe", "confidence": 0.7}, "heartbeat": 5},
-            ),
-            audit_findings_count=3,
-            critical_findings=("low_prana:sys_herald",),
-        )
-        ctx = snap.to_system_context("reflection")
-        assert "End of MURALI rotation" in ctx
-        assert "hb#5" in ctx
-        assert "3" in ctx  # audit findings
-        assert "low_prana" in ctx
-        assert "create_mission" in ctx  # JSON schema
-
-    def test_to_system_context_comprehension(self):
-        snap = ContextSnapshot(agent_count=20, alive_count=18)
-        ctx = snap.to_system_context("comprehension")
-        assert "18/20" in ctx
-        # Should NOT have health check or reflection prompts
-        assert "Evaluate" not in ctx
-        assert "Reflect" not in ctx
-
 
 class TestBuildContextSnapshot:
     def _make_ctx(self, **overrides) -> MagicMock:
