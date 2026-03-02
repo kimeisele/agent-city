@@ -3,11 +3,12 @@ CARTRIDGE LOADER — Discover and load cartridges for KARMA routing.
 ==================================================================
 
 Two cartridge sources:
-1. Static — steward-protocol CartridgeRegistry (requires .vibe root)
-2. Dynamic — CartridgeFactory generates from Pokedex Jiva data (primary)
+1. Static — steward-protocol CartridgeRegistry (real cartridge classes)
+2. Dynamic — CartridgeFactory generates from Pokedex Jiva data
 
-Dynamic is the primary path. Static is fallback for when steward-protocol
-.vibe root is available.
+Static provides the 18 system cartridges (envoy, engineer, auditor, etc.)
+loaded from steward-protocol via pip install. Dynamic generates community
+agent cartridges at runtime from Pokedex Jiva classification.
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
@@ -25,8 +26,8 @@ logger = logging.getLogger("AGENT_CITY.CARTRIDGE_LOADER")
 class CityCartridgeLoader:
     """Discover and load cartridges from static registry + dynamic factory.
 
-    Primary path: CartridgeFactory (Pokedex Jiva → runtime classes).
-    Fallback: CartridgeRegistry (steward-protocol .vibe root).
+    Static: CartridgeRegistry (18 system cartridges from steward-protocol).
+    Dynamic: CartridgeFactory (Pokedex Jiva → runtime agent classes).
     """
 
     _available: list[str] = field(default_factory=list)
@@ -44,9 +45,18 @@ class CityCartridgeLoader:
             return self._available
 
         try:
+            from pathlib import Path
+
+            import vibe_core
             from vibe_core.cartridges.registry import get_default_cartridge_registry
 
-            self._registry = get_default_cartridge_registry()
+            # vibe_core is pip-installed from steward-protocol.
+            # __path__[0] = .../steward-protocol/vibe_core
+            # .parent     = .../steward-protocol (the real vibe_root)
+            # Without this, _detect_vibe_root() finds agent-city's .vibe/
+            # and scans agent-city/vibe_core/cartridges/ which doesn't exist.
+            vibe_root = Path(vibe_core.__path__[0]).parent
+            self._registry = get_default_cartridge_registry(vibe_root=vibe_root)
             self._available = self._registry.get_cartridge_names()
             self._initialized = True
             logger.info("Discovered %d cartridges: %s", len(self._available), self._available)
