@@ -48,7 +48,7 @@ query($owner:String!, $repo:String!, $limit:Int!) {
       nodes {
         number title createdAt
         author { login }
-        comments(first:5) {
+        comments(last:10) {
           nodes { id body author { login } createdAt }
         }
       }
