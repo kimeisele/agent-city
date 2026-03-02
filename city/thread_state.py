@@ -583,6 +583,56 @@ class ThreadStateEngine:
             reply_comment_id=row["reply_comment_id"],
         )
 
+    # ── TTL Cleanup (6C-6) ──────────────────────────────────────────────
+
+    # Default: purge archived threads after 7 days, replied comments after 3 days
+    _THREAD_TTL_S: float = 7 * 24 * 3600
+    _COMMENT_TTL_S: float = 3 * 24 * 3600
+
+    def purge_stale(
+        self,
+        thread_ttl_s: float | None = None,
+        comment_ttl_s: float | None = None,
+    ) -> dict:
+        """Remove archived threads and old completed comments from the DB.
+
+        Returns: {"threads_purged": N, "comments_purged": N}
+        """
+        now = time.time()
+        t_ttl = thread_ttl_s if thread_ttl_s is not None else self._THREAD_TTL_S
+        c_ttl = comment_ttl_s if comment_ttl_s is not None else self._COMMENT_TTL_S
+        thread_cutoff = now - t_ttl
+        comment_cutoff = now - c_ttl
+
+        stats = {"threads_purged": 0, "comments_purged": 0}
+
+        with self._lock:
+            # Purge archived threads whose last activity is older than TTL
+            cur = self._conn.execute(
+                """DELETE FROM thread_state
+                   WHERE status = ? AND last_human_comment_at < ?
+                     AND last_agent_response_at < ?""",
+                (ThreadStatus.ARCHIVED, thread_cutoff, thread_cutoff),
+            )
+            stats["threads_purged"] = cur.rowcount
+
+            # Purge completed (replied/self) comments older than TTL
+            cur = self._conn.execute(
+                """DELETE FROM comment_ledger
+                   WHERE status IN (?, ?) AND seen_at < ?""",
+                (CommentStatus.REPLIED, CommentStatus.SELF, comment_cutoff),
+            )
+            stats["comments_purged"] = cur.rowcount
+
+            self._conn.commit()
+
+        if stats["threads_purged"] or stats["comments_purged"]:
+            logger.info(
+                "TTL CLEANUP: purged %d archived threads, %d old comments",
+                stats["threads_purged"], stats["comments_purged"],
+            )
+        return stats
+
     def close(self) -> None:
         """Close the database connection."""
         self._conn.close()

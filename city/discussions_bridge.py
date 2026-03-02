@@ -189,6 +189,17 @@ class DiscussionsBridge:
         """Reset per-cycle counters. Call at the start of each KARMA cycle."""
         self._comments_this_cycle = 0
 
+    def prune_stale(self, ttl_s: float = 86400.0) -> int:
+        """6C-6: Remove stale rate-limit entries older than TTL (default 24h).
+
+        Returns number of entries pruned.
+        """
+        cutoff = time.time() - ttl_s
+        stale = [k for k, ts in self._responded_discussions.items() if ts < cutoff]
+        for k in stale:
+            del self._responded_discussions[k]
+        return len(stale)
+
     @staticmethod
     def is_own_comment(author: str) -> bool:
         """Check if a comment author is our own bot (skip self-replies)."""

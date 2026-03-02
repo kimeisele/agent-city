@@ -587,3 +587,69 @@ def test_action_hint_edit_dedup(mock_ctx):
     )
     assert any("brain_hint_investigate" in op for op in ops3)
     assert not any("dedup" in op for op in ops3)
+
+
+# ── TTL Cleanup Tests (6C-6) ──────────────────────────────────────────
+
+
+def test_purge_stale_threads(thread_state):
+    """6C-6: Archived threads older than TTL are purged."""
+    import time
+
+    # Create a thread, archive it, then backdate it
+    thread_state.record_human_comment(1, "alice", title="Old Thread")
+    # Manually set energy to 0 and status to archived
+    thread_state._conn.execute(
+        "UPDATE thread_state SET energy = 0.0, status = 'archived', "
+        "last_human_comment_at = ?, last_agent_response_at = ? "
+        "WHERE discussion_number = 1",
+        (time.time() - 800000, time.time() - 800000),
+    )
+    thread_state._conn.commit()
+
+    # Create a fresh thread (should NOT be purged)
+    thread_state.record_human_comment(2, "bob", title="Fresh Thread")
+
+    stats = thread_state.purge_stale(thread_ttl_s=86400)
+    assert stats["threads_purged"] == 1
+    assert thread_state.get(1) is None  # purged
+    assert thread_state.get(2) is not None  # still alive
+
+
+def test_purge_stale_comments(thread_state):
+    """6C-6: Old replied/self comments are purged from ledger."""
+    import time
+
+    # Ingest + reply to a comment, then backdate it
+    thread_state.ingest_comment("c1", 1, "alice", "old msg", is_own=False)
+    thread_state.mark_replied("c1")
+    thread_state._conn.execute(
+        "UPDATE comment_ledger SET seen_at = ? WHERE comment_id = 'c1'",
+        (time.time() - 400000,),
+    )
+    thread_state._conn.commit()
+
+    # Fresh unreplied comment (should NOT be purged)
+    thread_state.ingest_comment("c2", 1, "bob", "new msg", is_own=False)
+
+    stats = thread_state.purge_stale(comment_ttl_s=86400)
+    assert stats["comments_purged"] == 1
+    assert not thread_state.is_comment_seen("c1")  # purged
+    assert thread_state.is_comment_seen("c2")  # still there
+
+
+def test_prune_stale_bridge():
+    """6C-6: DiscussionsBridge prunes old rate-limit entries."""
+    import time
+    from city.discussions_bridge import DiscussionsBridge
+
+    bridge = DiscussionsBridge.__new__(DiscussionsBridge)
+    bridge._responded_discussions = {
+        1: time.time() - 200000,  # old — should be pruned
+        2: time.time() - 100,     # recent — should stay
+    }
+
+    pruned = bridge.prune_stale(ttl_s=86400)
+    assert pruned == 1
+    assert 1 not in bridge._responded_discussions
+    assert 2 in bridge._responded_discussions
