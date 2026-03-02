@@ -23,6 +23,7 @@ from city.registry import (
     SVC_AGENT_NADI,
     SVC_AUDIT,
     SVC_BRAIN,
+    SVC_BRAIN_MEMORY,
     SVC_CITY_NADI,
     SVC_CONTRACTS,
     SVC_COUNCIL,
@@ -223,3 +224,7 @@ class PhaseContext:
     @property
     def brain(self) -> BrainProtocol | None:
         return self.registry.get(SVC_BRAIN)  # type: ignore[return-value]
+
+    @property
+    def brain_memory(self) -> object | None:
+        return self.registry.get(SVC_BRAIN_MEMORY)

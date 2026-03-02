@@ -49,6 +49,7 @@ SVC_PATHOGEN_INDEX = "pathogen_index"
 SVC_DISCUSSIONS = "discussions"
 SVC_DIAGNOSTICS = "diagnostics"
 SVC_BRAIN = "brain"
+SVC_BRAIN_MEMORY = "brain_memory"
 
 
 class CityServiceRegistry:

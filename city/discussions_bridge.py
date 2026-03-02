@@ -580,6 +580,21 @@ class DiscussionsBridge:
             self.record_response(ideas_number)
         return posted
 
+    def post_brain_thought(self, thought: object, heartbeat: int) -> bool:
+        """Post a brain thought to the City Log thread.
+
+        Tagged with [Brain] prefix for feedback loop identification.
+        Rate-limited: max 1 brain post per KARMA cycle.
+        """
+        log_number = self._seed_threads.get("city_log")
+        if log_number is None:
+            return False
+        body = (
+            f"**[Brain] Heartbeat #{heartbeat}**\n\n"
+            f"{thought.format_for_post()}"  # type: ignore[union-attr]
+        )
+        return self.comment(log_number, body)
+
     def post_pulse(self, heartbeat: int, city_stats: dict) -> bool:
         """Post a city pulse update to the welcome thread.
 

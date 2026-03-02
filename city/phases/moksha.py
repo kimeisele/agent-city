@@ -240,6 +240,35 @@ def execute(ctx: PhaseContext) -> dict:
     if revival_results:
         reflection["revival"] = revival_results
 
+    # Brain reflection on cycle (1 optional call per MOKSHA)
+    brain = ctx.brain
+    if brain is not None and hasattr(brain, "reflect_on_cycle"):
+        from city.brain_context import build_context_snapshot
+
+        snapshot = build_context_snapshot(ctx)
+        cycle_thought = brain.reflect_on_cycle(snapshot, reflection)
+        if cycle_thought is not None:
+            reflection["brain_reflection"] = cycle_thought.to_dict()
+            if ctx.brain_memory is not None:
+                ctx.brain_memory.record(cycle_thought, ctx.heartbeat_count)
+            # High-confidence improvements → Sankalpa mission
+            if (
+                cycle_thought.action_hint.startswith("create_mission:")
+                and cycle_thought.confidence >= 0.7
+                and ctx.sankalpa is not None
+            ):
+                mission_desc = cycle_thought.action_hint[len("create_mission:"):]
+                proposal = type("BrainProposal", (), {
+                    "id": f"brain_{ctx.heartbeat_count}",
+                    "title": mission_desc[:60] or "Brain improvement",
+                    "description": cycle_thought.comprehension,
+                })()
+                create_improvement_mission(ctx, proposal)
+
+    # Flush brain memory to disk
+    if ctx.brain_memory is not None:
+        ctx.brain_memory.flush()
+
     # Layer 6: Federation Nadi — emit city state + flush outbox
     if ctx.federation_nadi is not None:
         nadi_payload = {
