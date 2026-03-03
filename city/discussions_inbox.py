@@ -167,12 +167,22 @@ def _compose_response(
     frame = _GUNA_FRAME.get(guna, "Note")
 
     # Identity line
-    parts = [f"**{name}** \u2014 {role} ({domain})"]
+    parts = [f"**{name}** — {role} ({domain})"]
 
-    # Perspective: buddhi-generated OR spec-derived
-    perspective = gateway_result.get("buddhi_perspective", "")
-    if perspective:
-        parts.append(f"\n**{frame}**: {perspective}")
+    # 8A: Semantic translation — systemwide layer (city/semantic.py)
+    # Produces agent-perspective-colored reading of the discussion text.
+    # Falls back to spec-derived line if translation unavailable.
+    semantic_reading = None
+    if signal.body:
+        try:
+            from city.semantic import translate_for_agent
+
+            semantic_reading = translate_for_agent(signal.body, spec)
+        except Exception:
+            pass
+
+    if semantic_reading:
+        parts.append(f"\n**{frame}**: {semantic_reading}")
     elif protocol and element:
         parts.append(f"\n**{frame}**: `{element}` · `{protocol}` — I can {verb} this from the {domain} perspective.")
     else:
