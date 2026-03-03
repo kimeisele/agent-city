@@ -84,12 +84,23 @@ def _enqueue_item(ctx: PhaseContext, item: dict) -> None:
 SEED_THREAD_KEYS = ("welcome", "registry", "ideas", "city_log", "brainstream")
 
 
-def _register_seed_threads(ctx: PhaseContext) -> None:
-    """Register all known seed threads in CityRegistry."""
-    try:
-        from city.city_registry import EntityKind, get_city_registry
+def _get_registry():
+    """Get CityRegistry singleton (lazy import)."""
+    from city.city_registry import get_city_registry
 
-        registry = get_city_registry()
+    return get_city_registry()
+
+
+def _register_seed_threads(ctx: PhaseContext) -> None:
+    """Push bridge-discovered seed threads into CityRegistry (transport → domain).
+
+    Called AFTER seed_discussions() so newly created/recovered threads
+    get registered as alive entities in the domain registry.
+    """
+    try:
+        from city.city_registry import EntityKind
+
+        registry = _get_registry()
         for key, number in ctx.discussions._seed_threads.items():
             registry.register(
                 f"thread:{key}",
@@ -101,25 +112,60 @@ def _register_seed_threads(ctx: PhaseContext) -> None:
         logger.debug("Seed thread registration skipped: %s", exc)
 
 
-def _check_seed_thread_health(ctx: PhaseContext, operations: list[str]) -> None:
-    """Detect deleted seed threads and purge stale entries for recreation."""
-    try:
-        from city.city_registry import get_city_registry
+def _sync_registry_to_bridge(ctx: PhaseContext) -> None:
+    """Populate bridge cache from CityRegistry (domain → transport).
 
-        registry = get_city_registry()
+    On cold start the registry may have state from a previous run
+    (restored from city_registry_state.json) while the bridge has
+    nothing. This ensures the bridge cache is populated from the
+    authoritative registry before seed_discussions() runs.
+    """
+    try:
+        from city.city_registry import EntityKind
+
+        registry = _get_registry()
+        alive_threads = registry.find_alive(EntityKind.THREAD)
+        synced = 0
+        for entry in alive_threads:
+            if not entry.key.startswith("thread:"):
+                continue
+            thread_key = entry.key.removeprefix("thread:")
+            if thread_key not in SEED_THREAD_KEYS:
+                continue
+            meta = registry.get_meta(entry.key)
+            number = meta.get("discussion_number")
+            if number and thread_key not in ctx.discussions._seed_threads:
+                ctx.discussions._seed_threads[thread_key] = number
+                synced += 1
+        if synced:
+            logger.info(
+                "REGISTRY→BRIDGE: Synced %d seed threads from CityRegistry", synced,
+            )
+    except Exception as exc:
+        logger.debug("Registry-to-bridge sync skipped: %s", exc)
+
+
+def _check_seed_thread_health(ctx: PhaseContext, operations: list[str]) -> None:
+    """Detect dead seed threads in CityRegistry, purge bridge cache for recreation.
+
+    The registry is the authority. If a thread was registered but its
+    cell is now dead (removed via registry.remove()), the bridge cache
+    entry is purged so seed_discussions() will recreate it via transport.
+    """
+    try:
+        registry = _get_registry()
         expected = [f"thread:{k}" for k in SEED_THREAD_KEYS]
         missing = registry.find_missing(expected)
 
         if not missing:
             return
 
-        # Purge stale _seed_threads entries so seed_discussions() recreates them
         for registry_key in missing:
             thread_key = registry_key.removeprefix("thread:")
             if thread_key in ctx.discussions._seed_threads:
                 old_num = ctx.discussions._seed_threads.pop(thread_key)
                 logger.warning(
-                    "RESILIENCE: Seed thread '%s' (#%d) missing — purged for recreation",
+                    "RESILIENCE: Seed thread '%s' (#%d) missing from registry — purged for recreation",
                     thread_key, old_num,
                 )
                 operations.append(f"disc_resilience:purged:{thread_key}:#{old_num}")
@@ -148,16 +194,19 @@ class DiscussionScannerHook(BasePhaseHook):
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         from city.discussions_inbox import extract_mentions
 
-        # 8B-resilience: Check for deleted seed threads via CityRegistry
+        # 8C-1: Strangler pattern — registry is authority, bridge is cache
+        # Step 1: Populate bridge cache from registry (domain → transport)
+        _sync_registry_to_bridge(ctx)
+        # Step 2: Detect dead entities and purge bridge cache
         _check_seed_thread_health(ctx, operations)
 
-        # Seed idempotent threads on first run (or recreate deleted ones)
+        # Step 3: Seed idempotent threads (transport creates missing ones)
         seeded = ctx.discussions.seed_discussions()
         for key, number in seeded.items():
             if number:
                 operations.append(f"disc_seed:{key}:#{number}")
 
-        # Register all known seed threads in CityRegistry
+        # Step 4: Push newly discovered/created threads into registry
         _register_seed_threads(ctx)
 
         disc_signals = ctx.discussions.scan()
