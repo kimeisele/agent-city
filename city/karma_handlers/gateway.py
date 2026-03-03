@@ -672,22 +672,16 @@ def _route_discussion_to_agent(
                 best_name, top.prana_delta, result.chamber_mode, intent,
             )
     except Exception as exc:
-        logger.warning("KARMA: Resonator failed, falling back to flat scoring: %s", exc)
+        logger.warning("KARMA: Resonator unavailable: %s", exc)
 
-    # Fallback: flat scoring if resonator didn't produce a result
-    if best_name is None:
-        from city.diagnostics import score_agent_for_discussion
-
-        for name, spec in eligible_specs.items():
-            score = score_agent_for_discussion(spec, intent, discussion_text)
-            if score > best_score:
-                best_score = score
-                best_name = name
-                best_spec = spec
-        if best_name is not None:
-            logger.info(
-                "KARMA: Flat-score routed to %s (score=%.2f, intent=%s)",
-                best_name, best_score, intent,
-            )
+    # Fallback: deterministic pick (first eligible) — no fake scoring
+    if best_name is None and eligible_specs:
+        best_name = next(iter(eligible_specs))
+        best_spec = eligible_specs[best_name]
+        best_score = 0.0
+        logger.info(
+            "KARMA: Deterministic fallback routed to %s (intent=%s)",
+            best_name, intent,
+        )
 
     return best_name, best_spec, best_score
