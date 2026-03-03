@@ -498,6 +498,7 @@ class DiscussionsBridge:
             "City Ideas & Proposals": "ideas",
             "City Log — Heartbeat Reports": "city_log",
             "Brainstream — City Inner Monolog": "brainstream",
+            "City Brain": "brainstream",  # manual alias
         }
 
         # Only scan if we're missing threads
