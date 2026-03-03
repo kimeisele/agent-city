@@ -686,6 +686,60 @@ class Pokedex:
 
         return self.get(recipient)
 
+    def award_prana(
+        self, name: str, amount: int, source: str = "system"
+    ) -> dict:
+        """Award prana to an agent from an external source (no donor required).
+
+        Used for engagement rewards (Moltbook interaction, discussion replies,
+        mission completion bonuses). Auto-revives frozen agents if prana
+        exceeds HIBERNATION_THRESHOLD.
+
+        Args:
+            name: Agent to receive prana.
+            amount: Prana to award (positive integer).
+            source: Descriptive source tag for event ledger.
+
+        Returns:
+            Updated agent dict.
+        """
+        if amount <= 0:
+            raise ValueError(f"Award amount must be positive, got {amount}")
+
+        with self._lock:
+            agent = self._require(name)
+            cur = self._conn.cursor()
+            cur.execute(
+                "UPDATE agents SET prana = prana + ? WHERE name = ?",
+                (amount, name),
+            )
+            self._conn.commit()
+
+            self._record_event(
+                name,
+                "prana_award",
+                agent["status"],
+                agent["status"],
+                json.dumps({"amount": amount, "source": source}),
+            )
+            self._conn.commit()
+
+            logger.info("PRANA AWARD: %s +%d (source=%s)", name, amount, source)
+
+            # Auto-revive frozen agents that now have enough prana
+            if agent["status"] == "frozen":
+                cur.execute("SELECT prana FROM agents WHERE name = ?", (name,))
+                new_prana = cur.fetchone()["prana"]
+                from city.seed_constants import HIBERNATION_THRESHOLD
+
+                if new_prana > HIBERNATION_THRESHOLD:
+                    return self.revive(
+                        name, prana_dose=0, sponsor="system",
+                        reason=f"revive:engagement_award:{source}",
+                    )
+
+            return self.get(name)
+
     def list_dormant(self) -> list[dict]:
         """List all frozen agents eligible for revival evaluation.
 

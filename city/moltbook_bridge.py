@@ -354,6 +354,50 @@ class MoltbookBridge:
 
         return "\n".join(parts)
 
+    # ── 7B-2: Agent-attributed posts ──────────────────────────────
+
+    def post_agent_update(
+        self,
+        agent_name: str,
+        action: str,
+        detail: str = "",
+        pr_url: str = "",
+    ) -> bool:
+        """Post an agent-attributed update to m/agent-city.
+
+        Closes the viral loop: agents are visible as individual actors
+        on Moltbook, not just "the city". Readers can follow/engage
+        specific agents.
+
+        Args:
+            agent_name: The agent performing the action.
+            action: Short action label (e.g. "healed", "responded", "proposed").
+            detail: Additional context.
+            pr_url: Optional PR URL if action produced a PR.
+
+        Returns True if posted.
+        """
+        now = time.time()
+        if (now - self._last_post_time) < self._post_cooldown_s:
+            return False
+
+        title = f"[Agent] {agent_name}: {action}"
+        parts = [f"**{agent_name}** performed: `{action}`"]
+        if detail:
+            parts.append(f"\n{detail}")
+        if pr_url:
+            parts.append(f"\nPR: {pr_url}")
+        content = "\n".join(parts)
+
+        try:
+            self._client.sync_create_post(title, content, submolt=SUBMOLT_NAME)
+            self._last_post_time = now
+            logger.info("BRIDGE: Agent post by %s: %s", agent_name, action)
+            return True
+        except Exception as e:
+            logger.warning("BRIDGE: Agent post failed for %s: %s", agent_name, e)
+            return False
+
     # ── Persistence ────────────────────────────────────────────────
 
     def snapshot(self) -> dict:

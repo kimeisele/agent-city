@@ -229,13 +229,24 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
 
         fix = ctx.executor.execute_heal(contract, details)
         if fix.success and fix.files_changed:
-            pr = ctx.executor.create_fix_pr(fix, ctx.heartbeat_count)
+            pr = ctx.executor.create_fix_pr(fix, ctx.heartbeat_count, agent_name=agent_name)
             if pr is not None and pr.success:
                 _record_pr_event(ctx, 0, pr, agent_name=agent_name)
                 logger.info(
                     "KARMA: Exec mission %s → PR created by %s: %s",
                     mission.id, agent_name or "mayor", pr.pr_url,
                 )
+                # 7B-3: Cross-post agent PR to Moltbook
+                if agent_name and ctx.moltbook_bridge is not None:
+                    try:
+                        ctx.moltbook_bridge.post_agent_update(
+                            agent_name=agent_name,
+                            action=f"created PR for {fix.contract_name}",
+                            detail=fix.message or "",
+                            pr_url=pr.pr_url or "",
+                        )
+                    except Exception:
+                        pass
                 return True
             if fix.success:
                 logger.info("KARMA: Exec mission %s fixed (no PR needed)", mission.id)
