@@ -8,7 +8,13 @@ handlers in priority order.
 
 Phase 6A: God Object → Plugin Architecture.
 Phase 6C: VenuOrchestrator.step() emits DIWEvent to subscribers.
-DIW-aware handlers can read the 19-bit state in should_run().
+
+NOTE (8C-5): The DIWAwareHandler mixin and VenuDispatcher infrastructure
+are correctly wired. However, NO handler currently extends DIWAwareHandler
+to gate on DIW bits. The orchestrator steps and emits, but the 19-bit
+state is currently observability-only (logged in operations).
+Making handlers DIW-aware (e.g., energy-gated healing, mood-aware routing)
+is a future integration point — the plumbing is ready.
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
