@@ -56,6 +56,9 @@ logger = logging.getLogger("AGENT_CITY.POKEDEX")
 _econ_cfg = get_config().get("economy", {})
 GENESIS_GRANT: int = _econ_cfg.get("genesis_grant", _SEED_GENESIS_GRANT)
 
+# System treasury — receives prana taxes from claims, brain calls, etc.
+SYSTEM_TREASURY = "SYSTEM_TREASURY"
+
 # Zone treasury accounts (one per quarter)
 ZONE_TREASURIES = {
     "discovery": "ZONE_DISCOVERY",
@@ -116,7 +119,9 @@ class Pokedex:
         self._constitution_path = Path(constitution_path or "docs/CONSTITUTION.md")
         self._constitution_hash = self._compute_constitution_hash()
 
-        # Initialize zone treasuries in the bank (1 credit seed to create accounts)
+        # Initialize system + zone treasuries in the bank
+        if self._bank.get_balance(SYSTEM_TREASURY) == 0:
+            self._bank.transfer("MINT", SYSTEM_TREASURY, 1, "treasury_genesis", "genesis")
         for zone_account in ZONE_TREASURIES.values():
             if self._bank.get_balance(zone_account) == 0:
                 self._bank.transfer("MINT", zone_account, 1, "zone_genesis", "genesis")
@@ -739,6 +744,79 @@ class Pokedex:
                     )
 
             return self.get(name)
+
+    def get_prana(self, name: str) -> int:
+        """O(1) prana balance lookup for a registered agent.
+
+        Returns 0 for frozen/archived agents (they can't spend).
+        Raises KeyError if agent doesn't exist.
+        """
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("SELECT prana, status FROM agents WHERE name = ?", (name,))
+            row = cur.fetchone()
+            if row is None:
+                raise KeyError(f"Agent '{name}' not found")
+            if row["status"] in ("frozen", "archived", "exiled"):
+                return 0
+            return row["prana"]
+
+    def debit_prana(
+        self, name: str, amount: int, reason: str = "system_tax"
+    ) -> bool:
+        """Debit prana from an agent and credit the SystemTreasury.
+
+        Returns True if the debit succeeded.
+        Returns False if the agent has insufficient prana (balance < amount).
+        The agent must be citizen/active — frozen/archived agents cannot spend.
+
+        This is the only path for prana to flow OUT of agents into the city
+        treasury. Used by: claim taxes (8D), brain call billing (8C).
+        """
+        if amount <= 0:
+            return True  # no-op
+
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT prana, status FROM agents WHERE name = ?", (name,)
+            )
+            row = cur.fetchone()
+            if row is None:
+                return False
+            if row["status"] not in ("citizen", "active"):
+                return False
+            if row["prana"] < amount:
+                return False
+
+            # Debit agent's prana
+            cur.execute(
+                "UPDATE agents SET prana = prana - ? WHERE name = ?",
+                (amount, name),
+            )
+            self._conn.commit()
+
+            # Credit SystemTreasury in CivicBank
+            try:
+                self._bank.transfer(
+                    "MINT", SYSTEM_TREASURY, amount,
+                    f"tax:{reason}:{name}", "tax",
+                )
+            except Exception as e:
+                logger.warning("Treasury credit failed (prana still debited): %s", e)
+
+            # Record in event ledger
+            self._record_event(
+                name,
+                "prana_debit",
+                row["status"],
+                row["status"],
+                json.dumps({"amount": amount, "reason": reason}),
+            )
+            self._conn.commit()
+
+            logger.debug("DEBIT: %s -%d prana (reason=%s)", name, amount, reason)
+            return True
 
     def list_dormant(self) -> list[dict]:
         """List all frozen agents eligible for revival evaluation.

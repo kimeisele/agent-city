@@ -286,12 +286,24 @@ def _handle_discussion_item(
         _learn(ctx, "discussion", "route", success=False)
         return
 
-    # 8D: Claim protocol — lock thread before acting
+    # 8D+8G: Claim protocol — lock thread before acting, charge prana tax
     _claim_ticket = None
     try:
         from city.city_registry import get_city_registry
+        from city.seed_constants import TRINITY as _CLAIM_COST
 
         _city_reg = get_city_registry()
+
+        # 8G: Prana gate — broke agents can't claim threads
+        if ctx.pokedex is not None:
+            agent_prana = ctx.pokedex.get_prana(agent_name)
+            if agent_prana < _CLAIM_COST:
+                operations.append(
+                    f"disc_claim_broke:{agent_name}:#{discussion_number}:prana={agent_prana}"
+                )
+                _learn(ctx, "discussion", "claim_broke", success=False)
+                return
+
         _claim_ticket = _city_reg.request_claim(
             thread_id=str(discussion_number),
             agent_id=agent_name,
@@ -303,6 +315,10 @@ def _handle_discussion_item(
             )
             _learn(ctx, "discussion", "claim", success=False)
             return
+
+        # 8G: Debit claim tax on grant
+        if ctx.pokedex is not None:
+            ctx.pokedex.debit_prana(agent_name, _CLAIM_COST, reason="claim_tax")
     except Exception as exc:
         logger.debug("Claim protocol skipped: %s", exc)
 
@@ -332,6 +348,12 @@ def _handle_discussion_item(
         )
         if brain_thought is not None:
             ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1
+            # 8G: Bill the agent for brain compute
+            if ctx.pokedex is not None:
+                from city.brain_cell import BRAIN_CALL_COST
+                ctx.pokedex.debit_prana(
+                    agent_name, BRAIN_CALL_COST, reason="brain_comprehension",
+                )
             operations.append(
                 f"brain_disc:{agent_name}:#{discussion_number}"
                 f":intent={brain_thought.intent.value}"
