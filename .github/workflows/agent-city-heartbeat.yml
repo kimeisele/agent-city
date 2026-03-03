@@ -64,6 +64,8 @@ jobs:
             data/bridge_state.json
             data/assistant_state.json
             data/discussions_state.json
+            data/city_registry_state.json
+            data/venu_state.bin
             .vibe/state/sankalpa.json
           key: agent-city-state-${{ github.run_id }}
           restore-keys: |
@@ -98,7 +100,7 @@ jobs:
         run: |
           git config user.name "agent-city-bot"
           git config user.email "bot@agent-city"
-          git add -f data/federation/ data/mayor_state.json data/bridge_state.json data/assistant_state.json data/discussions_state.json .vibe/state/sankalpa.json || true
+          git add -f data/federation/ data/mayor_state.json data/bridge_state.json data/assistant_state.json data/discussions_state.json data/city_registry_state.json data/venu_state.bin .vibe/state/sankalpa.json || true
           git diff --cached --quiet || \
             git commit -m "chore: heartbeat #${{ github.run_number }} federation state"
           git push || true
@@ -116,5 +118,7 @@ jobs:
             data/bridge_state.json
             data/assistant_state.json
             data/discussions_state.json
+            data/city_registry_state.json
+            data/venu_state.bin
             .vibe/state/sankalpa.json
           key: agent-city-state-${{ github.run_id }}

@@ -776,29 +776,36 @@ class DiscussionsBridge:
     def cross_post_mission_results(self, results: list[dict]) -> int:
         """MOKSHA: Cross-post terminal mission results to 'Show and tell'.
 
-        Returns count of discussions created.
+        Batches all results into a single discussion (not one per mission).
+        Returns count of missions included in the summary (0 if none).
         """
-        posted = 0
-        for mission in results:
-            name = mission.get("name", "Unknown")
-            status = mission.get("status", "?")
-            owner = mission.get("owner", "unknown")
+        terminal = [
+            m for m in results
+            if m.get("status", "?") in ("completed", "failed", "abandoned")
+        ]
+        if not terminal:
+            return 0
 
-            title = f"[Mission Result] {name}"
-            lines = [
-                f"**Status**: {status}",
-                f"**Owner**: {owner}",
-            ]
-            pr_url = mission.get("pr_url")
+        if len(terminal) == 1:
+            m = terminal[0]
+            title = f"[Mission Result] {m.get('status')}: {m.get('name', 'Unknown')}"
+        else:
+            title = f"[Mission Result] {len(terminal)} missions resolved"
+
+        lines: list[str] = []
+        for m in terminal:
+            status = m.get("status", "?")
+            name = m.get("name", "Unknown")
+            owner = m.get("owner", "unknown")
+            line = f"- **{status}**: {name} — {owner}"
+            pr_url = m.get("pr_url")
             if pr_url:
-                lines.append(f"**PR**: {pr_url}")
+                line += f" ([PR]({pr_url}))"
+            lines.append(line)
 
-            body = "\n".join(lines)
-            number = self.create_discussion(title, body, category="Show and tell")
-            if number is not None:
-                posted += 1
-
-        return posted
+        body = "\n".join(lines)
+        number = self.create_discussion(title, body, category="Show and tell")
+        return len(terminal) if number is not None else 0
 
     # ── Persistence ─────────────────────────────────────────────────
 

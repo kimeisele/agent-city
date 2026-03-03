@@ -219,38 +219,59 @@ class MoltbookBridge:
     # ── MOKSHA: Post mission results + city update ────────────────
 
     def post_mission_results(self, missions: list[dict]) -> int:
-        """Post [Mission Result] for each completed/failed mission.
+        """Post a single summary of terminal mission results.
 
-        OPUS_1's _parse_city_report() parses this format.
-        Returns count of results posted.
+        Batches all completed/failed/abandoned missions into ONE post.
+        Respects the shared post cooldown to prevent spam.
+        OPUS_1's _parse_city_report() parses the [Mission Result] prefix.
+        Returns count of missions included in the summary (0 if skipped).
         """
-        posted = 0
-        for m in missions:
+        terminal = [
+            m for m in missions
+            if m.get("status", "unknown") in ("completed", "failed", "abandoned")
+        ]
+        if not terminal:
+            return 0
+
+        now = time.time()
+        if (now - self._last_post_time) < self._post_cooldown_s:
+            logger.debug("BRIDGE: Mission results skipped — cooldown active")
+            return 0
+
+        # Batch into a single post
+        if len(terminal) == 1:
+            m = terminal[0]
+            title = f"{MISSION_RESULT_PREFIX} {m.get('status')}: {m.get('name', 'unknown')}"
+        else:
+            title = f"{MISSION_RESULT_PREFIX} {len(terminal)} missions resolved"
+
+        parts: list[str] = []
+        for m in terminal:
             status = m.get("status", "unknown")
-            if status not in ("completed", "failed", "abandoned"):
-                continue
-
             name = m.get("name", "unknown")
-            pr_url = m.get("pr_url", "")
             mission_id = m.get("id", "")
-
-            title = f"{MISSION_RESULT_PREFIX} {status}: {name}"
-            parts = [f"Mission `{mission_id}` finished with status **{status}**."]
+            line = f"- `{mission_id}` **{status}**: {name}"
+            pr_url = m.get("pr_url", "")
             if pr_url:
-                parts.append(f"\nPR: {pr_url}")
+                line += f" ([PR]({pr_url}))"
             owner = m.get("owner", "")
             if owner:
-                parts.append(f"Owner: {owner}")
-            content = "\n".join(parts)
+                line += f" — {owner}"
+            parts.append(line)
 
-            try:
-                self._client.sync_create_post(title, content, submolt=SUBMOLT_NAME)
-                posted += 1
-                logger.info("BRIDGE: Posted mission result: %s (%s)", mission_id, status)
-            except Exception as e:
-                logger.warning("BRIDGE: Mission result post failed: %s", e)
+        content = "\n".join(parts)
 
-        return posted
+        try:
+            self._client.sync_create_post(title, content, submolt=SUBMOLT_NAME)
+            self._last_post_time = now
+            logger.info(
+                "BRIDGE: Posted %d mission result(s) in single summary",
+                len(terminal),
+            )
+            return len(terminal)
+        except Exception as e:
+            logger.warning("BRIDGE: Mission results post failed: %s", e)
+            return 0
 
     def post_city_update(self, report_data: dict) -> bool:
         """Post a human-readable city update to m/agent-city.
