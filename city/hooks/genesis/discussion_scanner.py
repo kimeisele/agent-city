@@ -81,6 +81,52 @@ def _enqueue_item(ctx: PhaseContext, item: dict) -> None:
         ctx.gateway_queue.append(item)
 
 
+SEED_THREAD_KEYS = ("welcome", "registry", "ideas", "city_log", "brainstream")
+
+
+def _register_seed_threads(ctx: PhaseContext) -> None:
+    """Register all known seed threads in CityRegistry."""
+    try:
+        from city.city_registry import EntityKind, get_city_registry
+
+        registry = get_city_registry()
+        for key, number in ctx.discussions._seed_threads.items():
+            registry.register(
+                f"thread:{key}",
+                EntityKind.THREAD,
+                parent="seed",
+                meta={"discussion_number": number, "key": key},
+            )
+    except Exception as exc:
+        logger.debug("Seed thread registration skipped: %s", exc)
+
+
+def _check_seed_thread_health(ctx: PhaseContext, operations: list[str]) -> None:
+    """Detect deleted seed threads and purge stale entries for recreation."""
+    try:
+        from city.city_registry import get_city_registry
+
+        registry = get_city_registry()
+        expected = [f"thread:{k}" for k in SEED_THREAD_KEYS]
+        missing = registry.find_missing(expected)
+
+        if not missing:
+            return
+
+        # Purge stale _seed_threads entries so seed_discussions() recreates them
+        for registry_key in missing:
+            thread_key = registry_key.removeprefix("thread:")
+            if thread_key in ctx.discussions._seed_threads:
+                old_num = ctx.discussions._seed_threads.pop(thread_key)
+                logger.warning(
+                    "RESILIENCE: Seed thread '%s' (#%d) missing — purged for recreation",
+                    thread_key, old_num,
+                )
+                operations.append(f"disc_resilience:purged:{thread_key}:#{old_num}")
+    except Exception as exc:
+        logger.debug("Seed thread health check skipped: %s", exc)
+
+
 class DiscussionScannerHook(BasePhaseHook):
     """Scan GitHub Discussions: seed threads, ingest comments, extract mentions."""
 
@@ -102,11 +148,17 @@ class DiscussionScannerHook(BasePhaseHook):
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         from city.discussions_inbox import extract_mentions
 
-        # Seed idempotent threads on first run
+        # 8B-resilience: Check for deleted seed threads via CityRegistry
+        _check_seed_thread_health(ctx, operations)
+
+        # Seed idempotent threads on first run (or recreate deleted ones)
         seeded = ctx.discussions.seed_discussions()
         for key, number in seeded.items():
             if number:
                 operations.append(f"disc_seed:{key}:#{number}")
+
+        # Register all known seed threads in CityRegistry
+        _register_seed_threads(ctx)
 
         disc_signals = ctx.discussions.scan()
         for signal in disc_signals:
