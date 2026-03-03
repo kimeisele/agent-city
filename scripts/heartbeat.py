@@ -204,6 +204,18 @@ def main() -> None:
         except Exception:
             pass
 
+    # Wire CityRegistry (domain state for entity lifecycle)
+    _registry_state_path = db_path.parent / "city_registry_state.json"
+    try:
+        from city.city_registry import get_city_registry
+        import json as _json_r
+
+        _city_reg = get_city_registry()
+        if _registry_state_path.exists():
+            _city_reg.restore(_json_r.loads(_registry_state_path.read_text()))
+    except Exception as _reg_err:
+        log.debug("CityRegistry restore skipped: %s", _reg_err)
+
     # Wire Discussions Bridge (GitHub Discussions)
     from city.registry import SVC_DISCUSSIONS
 
@@ -290,6 +302,18 @@ def main() -> None:
             )
         except Exception as e:
             log.warning("Discussions state save failed: %s", e)
+
+    # Persist CityRegistry state
+    try:
+        from city.city_registry import get_city_registry
+        import json as _json_reg
+
+        _city_reg_save = get_city_registry()
+        _registry_state_path.write_text(
+            _json_reg.dumps(_city_reg_save.snapshot(), indent=2),
+        )
+    except Exception as e:
+        log.warning("CityRegistry state save failed: %s", e)
 
     # Checkpoint WAL + close SQLite connections before cache save.
     # Without this, WAL-mode data lives in city.db-wal and is lost
