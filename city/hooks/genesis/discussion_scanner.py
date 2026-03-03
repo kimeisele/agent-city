@@ -194,6 +194,15 @@ class DiscussionScannerHook(BasePhaseHook):
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         from city.discussions_inbox import extract_mentions
 
+        # 8D: Purge expired claims from previous cycles (orphaned locks)
+        try:
+            registry = _get_registry()
+            purged = registry.purge_expired_claims()
+            if purged:
+                operations.append(f"claims_purged:{purged}")
+        except Exception as exc:
+            logger.debug("Claim purge skipped: %s", exc)
+
         # 8C-1: Strangler pattern — registry is authority, bridge is cache
         # Step 1: Populate bridge cache from registry (domain → transport)
         _sync_registry_to_bridge(ctx)

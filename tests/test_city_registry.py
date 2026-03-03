@@ -1,8 +1,16 @@
 """Tests for city/city_registry.py — Entity lifecycle via SiksastakamRegistry."""
 
+import time
+
 import pytest
 
-from city.city_registry import CityRegistry, EntityKind, get_city_registry
+from city.city_registry import (
+    CityRegistry,
+    ClaimTicket,
+    ClaimViolationError,
+    EntityKind,
+    get_city_registry,
+)
 
 
 def test_register_and_lookup():
@@ -200,3 +208,214 @@ def test_entity_kinds_enum():
     assert EntityKind.COMMENT == 1
     assert EntityKind.POST == 2
     assert EntityKind.AGENT == 3
+
+
+# ── 8D: Claim Protocol Tests ────────────────────────────────────────────
+
+
+class TestClaimTicket:
+    """ClaimTicket dataclass tests."""
+
+    def test_create_and_fields(self):
+        now = time.time()
+        t = ClaimTicket(thread_id="42", agent_id="alice", timestamp=now, expires_at=now + 60)
+        assert t.thread_id == "42"
+        assert t.agent_id == "alice"
+        assert not t.is_expired(now)
+
+    def test_expired(self):
+        past = time.time() - 100
+        t = ClaimTicket(thread_id="42", agent_id="alice", timestamp=past, expires_at=past + 10)
+        assert t.is_expired()
+
+    def test_to_from_dict(self):
+        now = time.time()
+        t = ClaimTicket(thread_id="42", agent_id="alice", timestamp=now, expires_at=now + 60)
+        d = t.to_dict()
+        t2 = ClaimTicket.from_dict(d)
+        assert t == t2
+
+    def test_frozen(self):
+        now = time.time()
+        t = ClaimTicket(thread_id="42", agent_id="alice", timestamp=now, expires_at=now + 60)
+        with pytest.raises(AttributeError):
+            t.agent_id = "bob"  # type: ignore[misc]
+
+
+class TestClaimProtocol:
+    """CityRegistry claim lifecycle tests."""
+
+    def test_request_claim_granted(self):
+        reg = CityRegistry()
+        ticket = reg.request_claim("42", "alice")
+        assert ticket is not None
+        assert ticket.agent_id == "alice"
+        assert ticket.thread_id == "42"
+
+    def test_request_claim_denied_different_agent(self):
+        reg = CityRegistry()
+        reg.request_claim("42", "alice")
+        denied = reg.request_claim("42", "bob")
+        assert denied is None
+
+    def test_request_claim_refresh_same_agent(self):
+        reg = CityRegistry()
+        t1 = reg.request_claim("42", "alice", ttl_seconds=30)
+        t2 = reg.request_claim("42", "alice", ttl_seconds=60)
+        assert t2 is not None
+        assert t2.expires_at > t1.expires_at
+
+    def test_request_claim_after_expiry(self):
+        """Expired claim allows another agent to claim."""
+        reg = CityRegistry()
+        now = time.time()
+        # Manually inject an expired claim
+        reg._active_claims["42"] = ClaimTicket(
+            thread_id="42", agent_id="alice",
+            timestamp=now - 100, expires_at=now - 1,
+        )
+        ticket = reg.request_claim("42", "bob")
+        assert ticket is not None
+        assert ticket.agent_id == "bob"
+
+    def test_release_claim_success(self):
+        reg = CityRegistry()
+        reg.request_claim("42", "alice")
+        released = reg.release_claim("42", "alice")
+        assert released is True
+        # Thread is now free
+        ticket = reg.request_claim("42", "bob")
+        assert ticket is not None
+
+    def test_release_claim_wrong_agent(self):
+        reg = CityRegistry()
+        reg.request_claim("42", "alice")
+        released = reg.release_claim("42", "bob")
+        assert released is False
+
+    def test_release_claim_nonexistent(self):
+        reg = CityRegistry()
+        assert reg.release_claim("99", "alice") is False
+
+    def test_check_claim(self):
+        reg = CityRegistry()
+        reg.request_claim("42", "alice")
+        assert reg.check_claim("42", "alice") is True
+        assert reg.check_claim("42", "bob") is False
+        assert reg.check_claim("99", "alice") is False
+
+    def test_check_claim_expired(self):
+        reg = CityRegistry()
+        now = time.time()
+        reg._active_claims["42"] = ClaimTicket(
+            thread_id="42", agent_id="alice",
+            timestamp=now - 100, expires_at=now - 1,
+        )
+        assert reg.check_claim("42", "alice") is False
+
+    def test_get_claim_holder(self):
+        reg = CityRegistry()
+        assert reg.get_claim_holder("42") is None
+        reg.request_claim("42", "alice")
+        assert reg.get_claim_holder("42") == "alice"
+
+    def test_get_claim_holder_expired(self):
+        reg = CityRegistry()
+        now = time.time()
+        reg._active_claims["42"] = ClaimTicket(
+            thread_id="42", agent_id="alice",
+            timestamp=now - 100, expires_at=now - 1,
+        )
+        assert reg.get_claim_holder("42") is None
+
+    def test_purge_expired_claims(self):
+        reg = CityRegistry()
+        now = time.time()
+        reg._active_claims["42"] = ClaimTicket(
+            thread_id="42", agent_id="alice",
+            timestamp=now - 100, expires_at=now - 1,
+        )
+        reg._active_claims["43"] = ClaimTicket(
+            thread_id="43", agent_id="bob",
+            timestamp=now - 100, expires_at=now - 1,
+        )
+        reg.request_claim("44", "carol")  # active — should survive
+        purged = reg.purge_expired_claims()
+        assert purged == 2
+        assert "42" not in reg._active_claims
+        assert "43" not in reg._active_claims
+        assert "44" in reg._active_claims
+
+    def test_purge_with_no_expired(self):
+        reg = CityRegistry()
+        reg.request_claim("42", "alice")
+        assert reg.purge_expired_claims() == 0
+
+    def test_stats_includes_claims(self):
+        reg = CityRegistry()
+        reg.request_claim("42", "alice")
+        s = reg.stats()
+        assert s["active_claims"] == 1
+
+    def test_multiple_threads_independent(self):
+        """Claims on different threads are independent."""
+        reg = CityRegistry()
+        t1 = reg.request_claim("42", "alice")
+        t2 = reg.request_claim("43", "bob")
+        assert t1 is not None
+        assert t2 is not None
+        # alice can't claim bob's thread
+        assert reg.request_claim("43", "alice") is None
+        # bob can't claim alice's thread
+        assert reg.request_claim("42", "bob") is None
+
+
+class TestClaimPersistence:
+    """Claims survive snapshot/restore cycle."""
+
+    def test_snapshot_restore_claims(self):
+        reg = CityRegistry()
+        reg.request_claim("42", "alice", ttl_seconds=3600)
+        snap = reg.snapshot()
+        assert "active_claims" in snap
+        assert "42" in snap["active_claims"]
+
+        reg2 = CityRegistry()
+        reg2.restore(snap)
+        assert reg2.check_claim("42", "alice") is True
+
+    def test_restore_skips_expired_claims(self):
+        reg = CityRegistry()
+        now = time.time()
+        reg._active_claims["42"] = ClaimTicket(
+            thread_id="42", agent_id="alice",
+            timestamp=now - 100, expires_at=now - 1,
+        )
+        snap = reg.snapshot()
+
+        reg2 = CityRegistry()
+        reg2.restore(snap)
+        assert reg2.get_claim_holder("42") is None
+
+    def test_restore_empty_claims(self):
+        """Restore with no claims key is safe."""
+        reg = CityRegistry()
+        reg.restore({"key_to_slot": {}, "entity_kinds": {}, "entity_meta": {}})
+        assert len(reg._active_claims) == 0
+
+
+class TestClaimViolationError:
+    """ClaimViolationError exception tests."""
+
+    def test_error_attributes(self):
+        err = ClaimViolationError("42", "bob", "alice")
+        assert err.thread_id == "42"
+        assert err.agent_id == "bob"
+        assert err.holder == "alice"
+        assert "bob" in str(err)
+        assert "alice" in str(err)
+        assert "42" in str(err)
+
+    def test_is_runtime_error(self):
+        err = ClaimViolationError("42", "bob", "alice")
+        assert isinstance(err, RuntimeError)

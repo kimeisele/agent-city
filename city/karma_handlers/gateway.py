@@ -286,6 +286,26 @@ def _handle_discussion_item(
         _learn(ctx, "discussion", "route", success=False)
         return
 
+    # 8D: Claim protocol — lock thread before acting
+    _claim_ticket = None
+    try:
+        from city.city_registry import get_city_registry
+
+        _city_reg = get_city_registry()
+        _claim_ticket = _city_reg.request_claim(
+            thread_id=str(discussion_number),
+            agent_id=agent_name,
+        )
+        if _claim_ticket is None:
+            holder = _city_reg.get_claim_holder(str(discussion_number))
+            operations.append(
+                f"disc_claim_denied:{agent_name}:#{discussion_number}:held_by={holder}"
+            )
+            _learn(ctx, "discussion", "claim", success=False)
+            return
+    except Exception as exc:
+        logger.debug("Claim protocol skipped: %s", exc)
+
     # Encode semantic signal
     disc_semantic_signal = None
     try:
@@ -383,6 +403,13 @@ def _handle_discussion_item(
             operations.append(f"disc_replied:{agent_name}:#{discussion_number}")
             _learn(ctx, "discussion", "reply", success=True)
 
+            # 8D: Release claim after successful post
+            if _claim_ticket is not None:
+                try:
+                    _city_reg.release_claim(str(discussion_number), agent_name)
+                except Exception:
+                    pass
+
             # 7B-3: Cross-post to Moltbook — agent visible on both platforms
             if ctx.moltbook_bridge is not None:
                 try:
@@ -396,8 +423,20 @@ def _handle_discussion_item(
         else:
             operations.append(f"disc_post_failed:#{discussion_number}")
             _learn(ctx, "discussion", "reply", success=False)
+            # 8D: Release claim on post failure (don't orphan the lock)
+            if _claim_ticket is not None:
+                try:
+                    _city_reg.release_claim(str(discussion_number), agent_name)
+                except Exception:
+                    pass
     else:
         operations.append(f"disc_rate_limited:#{discussion_number}")
+        # 8D: Release claim on rate limit (don't orphan the lock)
+        if _claim_ticket is not None:
+            try:
+                _city_reg.release_claim(str(discussion_number), agent_name)
+            except Exception:
+                pass
 
 
 def _handle_agent_intro(
