@@ -373,6 +373,23 @@ def _handle_discussion_item(
     if disc_semantic_signal is not None and ctx.agent_nadi is not None:
         ctx.agent_nadi.broadcast(agent_name, response.body[:200])
 
+    # 8D: Re-validate claim AFTER brain (may have expired during LLM inference)
+    if _claim_ticket is not None:
+        try:
+            if not _city_reg.check_claim(str(discussion_number), agent_name):
+                holder = _city_reg.get_claim_holder(str(discussion_number))
+                logger.warning(
+                    "CLAIM: Post aborted — '%s' lost claim on #%d (holder=%s)",
+                    agent_name, discussion_number, holder or "expired",
+                )
+                operations.append(
+                    f"disc_claim_lost:{agent_name}:#{discussion_number}:holder={holder or 'expired'}"
+                )
+                _learn(ctx, "discussion", "claim_lost", success=False)
+                return
+        except Exception as exc:
+            logger.debug("Claim re-validation skipped: %s", exc)
+
     # Rate limit + post
     if ctx.discussions is not None and ctx.discussions.can_respond(discussion_number):
         if not ctx.offline_mode:

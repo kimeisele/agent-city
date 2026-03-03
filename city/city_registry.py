@@ -55,8 +55,10 @@ from vibe_core.mahamantra.substrate.cell_system.registry import (
 
 logger = logging.getLogger("AGENT_CITY.REGISTRY")
 
-# Default claim TTL: 60 seconds (one KARMA cycle is ~15 min, 60s is generous)
-_DEFAULT_CLAIM_TTL: int = 60
+# Default claim TTL: 300 seconds (5 min).
+# Must exceed worst-case LLM inference + network retries (~2-3 min under load).
+# A KARMA cycle is ~15 min; 300s covers the full brain-think-post window.
+_DEFAULT_CLAIM_TTL: int = 300
 
 
 # -- Claim Protocol ----------------------------------------------------------
@@ -372,6 +374,8 @@ class CityRegistry:
             return None
 
         # No active claim — grant it
+        # TODO(8D): Deduct 1 prana on claim grant to prevent spam-locking.
+        #   Needs a system agent/pool or BrainMemory prana debit path.
         ticket = ClaimTicket(
             thread_id=thread_id,
             agent_id=agent_id,
