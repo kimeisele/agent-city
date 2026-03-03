@@ -6,6 +6,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from city.karma_handlers import BaseKarmaHandler
+from city.brain_cell import BRAIN_CALL_COST
+from city.seed_constants import NAVA, TRINITY
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext
@@ -13,11 +15,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger("AGENT_CITY.KARMA.BRAIN_HEALTH")
 
 _MAX_BRAIN_CALLS_PER_CYCLE = 3
+# Max prana the brain can spend per KARMA cycle: 3 calls × 9 prana = 27
+_MAX_BRAIN_PRANA_PER_CYCLE = NAVA * TRINITY  # 27 prana
 
 
 def brain_budget_ok(ctx: PhaseContext) -> bool:
-    """Check if brain call budget is not exhausted for this KARMA cycle."""
-    return getattr(ctx, "_brain_calls", 0) < _MAX_BRAIN_CALLS_PER_CYCLE
+    """Check if brain call budget is not exhausted for this KARMA cycle.
+
+    Two gates (defense in depth):
+    1. Call count: max 3 LLM invocations per cycle
+    2. Prana budget: max 27 prana spent per cycle (tracked by BrainMemory)
+    """
+    if getattr(ctx, "_brain_calls", 0) >= _MAX_BRAIN_CALLS_PER_CYCLE:
+        return False
+    if ctx.brain_memory is not None:
+        spent = getattr(ctx.brain_memory, "total_prana_spent", 0)
+        if isinstance(spent, int) and spent >= _MAX_BRAIN_PRANA_PER_CYCLE:
+            return False
+    return True
 
 
 class BrainHealthHandler(BaseKarmaHandler):
@@ -53,12 +68,13 @@ class BrainHealthHandler(BaseKarmaHandler):
             prana_cost = ctx.brain_memory.record(
                 health_thought, ctx.heartbeat_count,
             )
-            # Deduct prana from city treasury if available
-            if prana_cost and hasattr(ctx, "pokedex") and ctx.pokedex is not None:
-                try:
-                    ctx.pokedex.debit_treasury(prana_cost, reason="brain_health")
-                except Exception:
-                    pass  # treasury debit is best-effort
+            if prana_cost:
+                logger.debug(
+                    "Brain health cost: %d prana (total spent: %d/%d)",
+                    prana_cost,
+                    ctx.brain_memory.total_prana_spent,
+                    _MAX_BRAIN_PRANA_PER_CYCLE,
+                )
         # Post high-confidence health thoughts to discussions
         if (
             health_thought.confidence >= 0.7
