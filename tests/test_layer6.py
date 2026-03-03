@@ -703,7 +703,7 @@ def test_bridge_persistence():
 
 
 def test_bridge_mission_result_post():
-    """[Mission Result] posts emit for completed missions."""
+    """[Mission Result] batched into single summary post."""
     from city.moltbook_bridge import MISSION_RESULT_PREFIX, MoltbookBridge
 
     client = _MockBridgeClient()
@@ -716,10 +716,11 @@ def test_bridge_mission_result_post():
     ]
     posted = bridge.post_mission_results(missions)
     assert posted == 2  # completed + failed, not active
-    assert len(client.posts_created) == 2
+    assert len(client.posts_created) == 1  # single batched post, not N
     assert client.posts_created[0]["title"].startswith(MISSION_RESULT_PREFIX)
-    assert "completed" in client.posts_created[0]["title"]
-    assert "failed" in client.posts_created[1]["title"]
+    assert "2 missions resolved" in client.posts_created[0]["title"]
+    assert "completed" in client.posts_created[0]["content"]
+    assert "failed" in client.posts_created[0]["content"]
 
 
 def test_bridge_directive_acks_in_content():
