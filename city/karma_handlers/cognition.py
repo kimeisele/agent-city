@@ -1,4 +1,9 @@
-"""Cognition Handler — Cartridge routing + cognitive action execution."""
+"""Cognition Handler — Cartridge routing + cognitive action execution.
+
+8E: DIW-aware — cognitive actions only run when venu energy >= 16 (moderate).
+Cognitive work (proposals, missions, nadi dispatch) is moderately expensive.
+In very low-energy ticks, the city defers non-essential cognition.
+"""
 
 from __future__ import annotations
 
@@ -10,11 +15,17 @@ from config import get_config
 
 from city.cognition import emit_event
 from city.karma_handlers import BaseKarmaHandler
+from city.karma_handlers.diw_bridge import DIWAwareHandler
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.KARMA.COGNITION")
+
+# Minimum venu energy to run cognition (0-63 scale).
+# 16 = quarter-point — more permissive than heal (32) but still
+# gates out the lowest-energy ticks where the city should rest.
+_COGNITION_VENU_THRESHOLD: int = 16
 
 # Maps buddhi function × agent capability → existing city operation.
 _ACTION_MAP: dict[str, dict[str, str]] = {
@@ -56,8 +67,11 @@ def _learn(ctx: PhaseContext, source: str, action: str, *, success: bool) -> Non
         ctx.learning.record_outcome(source, action, success)
 
 
-class CognitionHandler(BaseKarmaHandler):
-    """Route domain missions to best-fit agents via capability scoring."""
+class CognitionHandler(DIWAwareHandler, BaseKarmaHandler):
+    """Route domain missions to best-fit agents via capability scoring.
+
+    DIW-gated: requires venu energy >= 16 (moderate-energy tick).
+    """
 
     @property
     def name(self) -> str:
@@ -66,6 +80,15 @@ class CognitionHandler(BaseKarmaHandler):
     @property
     def priority(self) -> int:
         return 40
+
+    def should_run(self, ctx: PhaseContext) -> bool:
+        if self.current_diw is not None and self.venu_energy < _COGNITION_VENU_THRESHOLD:
+            logger.debug(
+                "COGNITION: Skipped — venu energy %d < %d (low-energy tick)",
+                self.venu_energy, _COGNITION_VENU_THRESHOLD,
+            )
+            return False
+        return True
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         all_specs = getattr(ctx, "_all_specs", {})

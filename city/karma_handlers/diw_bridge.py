@@ -72,6 +72,29 @@ class DIWAwareHandler:
         """
         self._current_diw = event
 
+    # ── DIW bit accessors ────────────────────────────────────────────
+
+    @property
+    def venu_energy(self) -> int:
+        """VENU bits 0-5: Quality/Mood (0-63). Higher = more energy."""
+        if self._current_diw is None:
+            return 0
+        return self._current_diw.get("venu", 0)
+
+    @property
+    def vamsi_action(self) -> int:
+        """VAMSI bits 6-14: Process/Action (0-511)."""
+        if self._current_diw is None:
+            return 0
+        return self._current_diw.get("vamsi", 0)
+
+    @property
+    def murali_phase(self) -> int:
+        """MURALI bits 15-18: Phase/Quarter (0-15)."""
+        if self._current_diw is None:
+            return 0
+        return self._current_diw.get("murali", 0)
+
 
 # ── Venu Dispatcher ─────────────────────────────────────────────────────
 
@@ -98,9 +121,20 @@ class VenuDispatcher:
         self._wired = False
 
     def _wire_subscribers(self) -> None:
-        """Register all DIW-aware handlers with the orchestrator."""
+        """Register all DIW-aware handlers with the orchestrator.
+
+        Since _build_dispatcher() creates new handler instances each cycle
+        but may reuse a singleton orchestrator, we first purge any stale
+        DIWAwareHandler subscribers before adding the current batch.
+        """
         if self._wired or self._orchestrator is None:
             return
+        # Purge stale DIWAwareHandler subscribers from previous cycles
+        if hasattr(self._orchestrator, "_subscribers"):
+            self._orchestrator._subscribers = [
+                s for s in self._orchestrator._subscribers
+                if not isinstance(s, DIWAwareHandler)
+            ]
         for handler in self._registry._handlers:
             if isinstance(handler, DIWAwareHandler):
                 try:

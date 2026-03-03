@@ -1,4 +1,9 @@
-"""Heal Handler — Execute HEAL intents on failing contracts + PR creation."""
+"""Heal Handler — Execute HEAL intents on failing contracts + PR creation.
+
+8E: DIW-aware — healing only runs when venu energy >= 32 (high energy).
+Healing is resource-intensive (executor, PRs, git ops). In low-energy
+ticks, the city conserves resources by deferring heals to the next cycle.
+"""
 
 from __future__ import annotations
 
@@ -7,15 +12,23 @@ from typing import TYPE_CHECKING
 
 from city.cognition import emit_event
 from city.karma_handlers import BaseKarmaHandler
+from city.karma_handlers.diw_bridge import DIWAwareHandler
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.KARMA.HEAL")
 
+# Minimum venu energy to run healing (0-63 scale).
+# 32 = midpoint — only heal in the upper half of the energy cycle.
+_HEAL_VENU_THRESHOLD: int = 32
 
-class HealHandler(BaseKarmaHandler):
-    """Heal failing contracts via executor, create PRs for fixes."""
+
+class HealHandler(DIWAwareHandler, BaseKarmaHandler):
+    """Heal failing contracts via executor, create PRs for fixes.
+
+    DIW-gated: requires venu energy >= 32 (high-energy tick).
+    """
 
     @property
     def name(self) -> str:
@@ -26,7 +39,15 @@ class HealHandler(BaseKarmaHandler):
         return 70
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.executor is not None and ctx.contracts is not None
+        if ctx.executor is None or ctx.contracts is None:
+            return False
+        if self.current_diw is not None and self.venu_energy < _HEAL_VENU_THRESHOLD:
+            logger.debug(
+                "HEAL: Skipped — venu energy %d < %d (low-energy tick)",
+                self.venu_energy, _HEAL_VENU_THRESHOLD,
+            )
+            return False
+        return True
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         all_specs = getattr(ctx, "_all_specs", {})
