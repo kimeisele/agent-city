@@ -44,6 +44,8 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import NamedTuple
 
+import time as _time
+
 from vibe_core.mahamantra.adapters.compression import MahaCompression
 from vibe_core.mahamantra.substrate.cell import MahaCellUnified
 from vibe_core.mahamantra.substrate.cell_system.registry import (
@@ -52,6 +54,63 @@ from vibe_core.mahamantra.substrate.cell_system.registry import (
 )
 
 logger = logging.getLogger("AGENT_CITY.REGISTRY")
+
+# Default claim TTL: 60 seconds (one KARMA cycle is ~15 min, 60s is generous)
+_DEFAULT_CLAIM_TTL: int = 60
+
+
+# -- Claim Protocol ----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ClaimTicket:
+    """Concurrency lock for an agent acting on a thread.
+
+    Prevents double-posting when multiple agents resonate with the same
+    discussion. The ticket is created by request_claim() and released
+    by release_claim() after a successful post.
+    """
+
+    thread_id: str
+    agent_id: str
+    timestamp: float
+    expires_at: float
+
+    def is_expired(self, now: float | None = None) -> bool:
+        """Check if this claim has timed out."""
+        return (now or _time.time()) >= self.expires_at
+
+    def to_dict(self) -> dict:
+        """Serialize for persistence."""
+        return {
+            "thread_id": self.thread_id,
+            "agent_id": self.agent_id,
+            "timestamp": self.timestamp,
+            "expires_at": self.expires_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> ClaimTicket:
+        """Deserialize from persistence."""
+        return cls(
+            thread_id=data["thread_id"],
+            agent_id=data["agent_id"],
+            timestamp=data["timestamp"],
+            expires_at=data["expires_at"],
+        )
+
+
+class ClaimViolationError(RuntimeError):
+    """Raised when a bridge post is attempted without a valid claim."""
+
+    def __init__(self, thread_id: str, agent_id: str, holder: str) -> None:
+        self.thread_id = thread_id
+        self.agent_id = agent_id
+        self.holder = holder
+        super().__init__(
+            f"Claim violation: agent '{agent_id}' tried to act on thread "
+            f"'{thread_id}' but claim is held by '{holder}'"
+        )
 
 
 # -- Entity Types -----------------------------------------------------------
@@ -107,6 +166,7 @@ class CityRegistry:
     _slot_to_key: dict[int, str] = field(default_factory=dict)
     _entity_kinds: dict[str, EntityKind] = field(default_factory=dict)
     _entity_meta: dict[str, dict] = field(default_factory=dict)
+    _active_claims: dict[str, ClaimTicket] = field(default_factory=dict)
 
     def _resolve_slot(self, key: str) -> int:
         """Key → deterministic slot (0-511) via MahaCompression."""
@@ -261,11 +321,123 @@ class CityRegistry:
             "capacity": SIKSASTAKAM_CACHE,
             "total_prana": total_prana,
             "registered_keys": len(self._key_to_slot),
+            "active_claims": len(self._active_claims),
             "kinds": {
                 kind.name: sum(1 for k, kd in self._entity_kinds.items() if kd == kind and self.is_alive(k))
                 for kind in EntityKind
             },
         }
+
+    # -- Claim Protocol -------------------------------------------------------
+
+    def request_claim(
+        self,
+        thread_id: str,
+        agent_id: str,
+        ttl_seconds: int = _DEFAULT_CLAIM_TTL,
+    ) -> ClaimTicket | None:
+        """Request exclusive claim on a thread for an agent.
+
+        Returns a ClaimTicket if the claim is granted (no active claim by
+        another agent exists). Returns None if the thread is already
+        claimed by a different agent.
+
+        If the agent already holds the claim, refreshes the TTL and
+        returns the updated ticket.
+        """
+        now = _time.time()
+        existing = self._active_claims.get(thread_id)
+
+        if existing is not None and not existing.is_expired(now):
+            if existing.agent_id == agent_id:
+                # Same agent — refresh TTL
+                refreshed = ClaimTicket(
+                    thread_id=thread_id,
+                    agent_id=agent_id,
+                    timestamp=existing.timestamp,
+                    expires_at=now + ttl_seconds,
+                )
+                self._active_claims[thread_id] = refreshed
+                logger.debug(
+                    "CLAIM: Refreshed claim on '%s' for '%s' (expires +%ds)",
+                    thread_id, agent_id, ttl_seconds,
+                )
+                return refreshed
+            # Different agent holds the claim
+            logger.info(
+                "CLAIM: Denied '%s' on thread '%s' — held by '%s' (expires %.0fs)",
+                agent_id, thread_id, existing.agent_id,
+                existing.expires_at - now,
+            )
+            return None
+
+        # No active claim — grant it
+        ticket = ClaimTicket(
+            thread_id=thread_id,
+            agent_id=agent_id,
+            timestamp=now,
+            expires_at=now + ttl_seconds,
+        )
+        self._active_claims[thread_id] = ticket
+        logger.info(
+            "CLAIM: Granted '%s' → thread '%s' (ttl=%ds)",
+            agent_id, thread_id, ttl_seconds,
+        )
+        return ticket
+
+    def release_claim(self, thread_id: str, agent_id: str) -> bool:
+        """Release a claim after successful action.
+
+        Returns True if the claim was held by this agent and is now released.
+        Returns False if no claim exists or it belongs to another agent.
+        """
+        existing = self._active_claims.get(thread_id)
+        if existing is None:
+            return False
+        if existing.agent_id != agent_id:
+            logger.warning(
+                "CLAIM: Release denied — '%s' tried to release '%s' (held by '%s')",
+                agent_id, thread_id, existing.agent_id,
+            )
+            return False
+        del self._active_claims[thread_id]
+        logger.debug("CLAIM: Released '%s' → thread '%s'", agent_id, thread_id)
+        return True
+
+    def check_claim(self, thread_id: str, agent_id: str) -> bool:
+        """Check if an agent holds a valid (non-expired) claim on a thread."""
+        existing = self._active_claims.get(thread_id)
+        if existing is None:
+            return False
+        if existing.is_expired():
+            del self._active_claims[thread_id]
+            return False
+        return existing.agent_id == agent_id
+
+    def get_claim_holder(self, thread_id: str) -> str | None:
+        """Return the agent_id holding the claim, or None if unclaimed/expired."""
+        existing = self._active_claims.get(thread_id)
+        if existing is None:
+            return None
+        if existing.is_expired():
+            del self._active_claims[thread_id]
+            return None
+        return existing.agent_id
+
+    def purge_expired_claims(self, now: float | None = None) -> int:
+        """Remove all expired claims. Returns count of purged claims."""
+        now = now or _time.time()
+        expired = [
+            tid for tid, ticket in self._active_claims.items()
+            if ticket.is_expired(now)
+        ]
+        for tid in expired:
+            agent = self._active_claims[tid].agent_id
+            del self._active_claims[tid]
+            logger.debug("CLAIM: Purged expired claim '%s' → '%s'", agent, tid)
+        if expired:
+            logger.info("CLAIM: Purged %d expired claims", len(expired))
+        return len(expired)
 
     # -- Persistence ----------------------------------------------------------
 
@@ -276,6 +448,10 @@ class CityRegistry:
             "key_to_slot": dict(self._key_to_slot),
             "entity_kinds": {k: int(v) for k, v in self._entity_kinds.items()},
             "entity_meta": dict(self._entity_meta),
+            "active_claims": {
+                tid: ticket.to_dict()
+                for tid, ticket in self._active_claims.items()
+            },
         }
 
     def restore(self, data: dict) -> None:
@@ -297,10 +473,23 @@ class CityRegistry:
         }
         self._entity_meta = data.get("entity_meta", {})
 
+        # Restore claims (purge any that expired while we were down)
+        raw_claims = data.get("active_claims", {})
+        now = _time.time()
+        restored_claims = 0
+        for tid, ticket_data in raw_claims.items():
+            try:
+                ticket = ClaimTicket.from_dict(ticket_data)
+                if not ticket.is_expired(now):
+                    self._active_claims[tid] = ticket
+                    restored_claims += 1
+            except (KeyError, TypeError) as exc:
+                logger.debug("CLAIM: Skipped invalid claim data for '%s': %s", tid, exc)
+
         alive = len(self._registry.active_cells())
         logger.info(
-            "REGISTRY: Restored %d keys, %d alive cells",
-            len(self._key_to_slot), alive,
+            "REGISTRY: Restored %d keys, %d alive cells, %d active claims",
+            len(self._key_to_slot), alive, restored_claims,
         )
 
 
