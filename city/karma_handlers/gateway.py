@@ -382,6 +382,17 @@ def _handle_discussion_item(
             )
             operations.append(f"disc_replied:{agent_name}:#{discussion_number}")
             _learn(ctx, "discussion", "reply", success=True)
+
+            # 7B-3: Cross-post to Moltbook — agent visible on both platforms
+            if ctx.moltbook_bridge is not None:
+                try:
+                    ctx.moltbook_bridge.post_agent_update(
+                        agent_name=agent_name,
+                        action=f"responded to discussion #{discussion_number}",
+                        detail=response.body[:200],
+                    )
+                except Exception as e:
+                    logger.debug("Moltbook cross-post skipped: %s", e)
         else:
             operations.append(f"disc_post_failed:#{discussion_number}")
             _learn(ctx, "discussion", "reply", success=False)

@@ -219,6 +219,20 @@ class SubmoltScanHook(BasePhaseHook):
                     ctx.pokedex.discover(author, moltbook_profile={})
                     operations.append(author)
 
+            # 7B-1: Engagement prana — reward agents who post in submolt
+            if author and existing:
+                try:
+                    _engagement_prana = get_config().get(
+                        "moltbook_bridge", {}
+                    ).get("engagement_prana", 10)
+                    ctx.pokedex.award_prana(
+                        author, _engagement_prana,
+                        source=f"moltbook:submolt_post:{signal.get('post_id', '')[:8]}",
+                    )
+                    operations.append(f"engagement_prana:{author}:+{_engagement_prana}")
+                except Exception as e:
+                    logger.debug("Engagement prana skipped for %s: %s", author, e)
+
             # Create Sankalpa mission from code signals (agent participation)
             if signal.get("code_signals") and ctx.sankalpa is not None:
                 from city.missions import create_signal_mission
