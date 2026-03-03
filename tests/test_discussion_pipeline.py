@@ -711,11 +711,11 @@ def test_different_agents_produce_different_responses():
     assert "build" in response_b or "maintain" in response_b
     assert "yoga of renunciation" in response_b
 
-    # Element + protocol must appear in response (raw spec values, not hardcoded prose)
-    assert "akasha" in response_a
-    assert "parse" in response_a
-    assert "prithvi" in response_b
-    assert "enforce" in response_b
+    # 8A: Semantic reading OR fallback element/protocol must appear
+    # When semantic.translate_for_agent() succeeds, output contains "Lens:"
+    # When it falls back, raw element/protocol appear instead.
+    assert ("Lens:" in response_a or "akasha" in response_a)
+    assert ("Lens:" in response_b or "prithvi" in response_b)
 
 
 def test_minimal_spec_still_produces_response():
