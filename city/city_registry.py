@@ -374,8 +374,7 @@ class CityRegistry:
             return None
 
         # No active claim — grant it
-        # TODO(8D): Deduct 1 prana on claim grant to prevent spam-locking.
-        #   Needs a system agent/pool or BrainMemory prana debit path.
+        # Prana tax enforced at call site (gateway.py — 8G)
         ticket = ClaimTicket(
             thread_id=thread_id,
             agent_id=agent_id,
