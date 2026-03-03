@@ -622,8 +622,12 @@ def _route_discussion_to_agent(
     all_inventories: dict[str, list[dict]],
     discussion_text: str = "",
 ) -> tuple[str | None, dict | None]:
-    """Find the best agent for a discussion intent via neuro-symbolic scoring."""
-    from city.diagnostics import score_agent_for_discussion
+    """Find the best agent for a discussion intent via resonance chamber.
+
+    8B: Uses CityResonator (steward-protocol SankirtanChamber) instead of
+    flat scoring. Capability gating stays as pre-filter. Falls back to
+    diagnostics scoring if resonator unavailable.
+    """
     from city.discussions_inbox import INTENT_REQUIREMENTS
     from city.mission_router import check_capability_gate
 
@@ -634,25 +638,56 @@ def _route_discussion_to_agent(
         "min_tier": "contributor",
     }
 
-    best_name: str | None = None
-    best_spec: dict | None = None
-    best_score = -1.0
-
+    # Pre-filter: only active agents that pass capability gate
+    eligible_specs: dict[str, dict] = {}
     for name, spec in all_specs.items():
         if name not in ctx.active_agents:
             continue
         inventory = all_inventories.get(name)
         if not check_capability_gate(spec, gate_req, inventory):
             continue
-        score = score_agent_for_discussion(spec, intent, discussion_text)
-        if score > best_score:
-            best_score = score
-            best_name = name
-            best_spec = spec
+        eligible_specs[name] = spec
 
-    if best_name is not None:
-        logger.info(
-            "KARMA: Discussion routed to %s (score=%.2f, intent=%s)",
-            best_name, best_score, intent,
-        )
+    if not eligible_specs:
+        return None, None, -1.0
+
+    # 8B: Resonance-based routing via CityResonator
+    best_name: str | None = None
+    best_spec: dict | None = None
+    best_score = -1.0
+
+    try:
+        from city.resonator import get_resonator
+
+        resonator = get_resonator()
+        result = resonator.resonate(discussion_text, eligible_specs, max_agents=1)
+        if result.scores:
+            top = result.scores[0]
+            best_name = top.agent_name
+            best_spec = eligible_specs[best_name]
+            # Normalize prana_delta to 0.0-1.0 range for compatibility
+            best_score = max(0.0, min(1.0, top.prana_delta / 1000.0))
+            logger.info(
+                "KARMA: Resonator routed to %s (prana_delta=%d, mode=%s, intent=%s)",
+                best_name, top.prana_delta, result.chamber_mode, intent,
+            )
+    except Exception as exc:
+        logger.warning("KARMA: Resonator failed, falling back to flat scoring: %s", exc)
+
+    # Fallback: flat scoring if resonator didn't produce a result
+    if best_name is None:
+        from city.diagnostics import score_agent_for_discussion
+
+        for name, spec in eligible_specs.items():
+            score = score_agent_for_discussion(spec, intent, discussion_text)
+            if score > best_score:
+                best_score = score
+                best_name = name
+                best_spec = spec
+        if best_name is not None:
+            logger.info(
+                "KARMA: Flat-score routed to %s (score=%.2f, intent=%s)",
+                best_name, best_score, intent,
+            )
+
     return best_name, best_spec, best_score
