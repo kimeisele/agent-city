@@ -89,7 +89,11 @@ class MoltbookOutboundHook(BasePhaseHook):
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         reflection = getattr(ctx, "_reflection", {})
 
-        # Mission result posts (always — terminal missions are inherently events)
+        # Mission result posts (batched, cooldown-gated — 8F)
+        # TODO(DECOUPLE_MOKSHA): Replace raw mission dumps with Brain-reflected
+        #   [Agent Insight] posts. Moltbook is agent-to-agent — insights trigger
+        #   resonance, not formatted status logs. Split MOKSHA generation into
+        #   two prompts: one for GitHub (audit trail) and one for Moltbook (social).
         mission_results = reflection.get("mission_results_terminal", [])
         if mission_results:
             results_posted = ctx.moltbook_bridge.post_mission_results(mission_results)
