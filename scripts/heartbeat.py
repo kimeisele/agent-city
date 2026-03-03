@@ -204,6 +204,17 @@ def main() -> None:
         except Exception:
             pass
 
+    # Restore VenuOrchestrator tick position (8E: persistent energy cycle)
+    _venu_state_path = db_path.parent / "venu_state.bin"
+    try:
+        from vibe_core.mahamantra import mahamantra
+
+        if _venu_state_path.exists():
+            mahamantra.venu.from_bytes(_venu_state_path.read_bytes())
+            log.info("VenuOrchestrator restored (tick=%d)", mahamantra.venu.tick)
+    except Exception as _venu_err:
+        log.debug("VenuOrchestrator restore skipped: %s", _venu_err)
+
     # Wire CityRegistry (domain state for entity lifecycle)
     _registry_state_path = db_path.parent / "city_registry_state.json"
     try:
@@ -302,6 +313,15 @@ def main() -> None:
             )
         except Exception as e:
             log.warning("Discussions state save failed: %s", e)
+
+    # Persist VenuOrchestrator tick position (8E: persistent energy cycle)
+    try:
+        from vibe_core.mahamantra import mahamantra
+
+        _venu_state_path.write_bytes(mahamantra.venu.to_bytes())
+        log.info("VenuOrchestrator saved (tick=%d)", mahamantra.venu.tick)
+    except Exception as e:
+        log.warning("VenuOrchestrator save failed: %s", e)
 
     # Persist CityRegistry state
     try:

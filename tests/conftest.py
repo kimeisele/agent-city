@@ -92,6 +92,21 @@ def pytest_collection_modifyitems(config, items):
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.fixture(autouse=True)
+def _reset_venu_singleton():
+    """Reset the mahamantra VenuOrchestrator singleton between tests.
+
+    The singleton accumulates ticks across the process lifetime.
+    Without this, DIW energy gate outcomes depend on test ordering.
+    """
+    try:
+        from vibe_core.mahamantra import mahamantra
+        mahamantra.venu.reset()
+    except Exception:
+        pass
+    yield
+
+
 @pytest.fixture(scope="session")
 def project_root() -> Path:
     """Return the agent-city project root."""

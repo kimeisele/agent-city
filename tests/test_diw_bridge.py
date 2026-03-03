@@ -169,3 +169,144 @@ def test_dispatcher_wiring_is_idempotent():
     count_after_second = orch.subscriber_count
 
     assert count_after_first == count_after_second
+
+
+# ── 8E: DIW-Gated Handler Tests ────────────────────────────────────────
+
+
+class TestDIWBitAccessors:
+    """DIWAwareHandler bit extraction properties."""
+
+    def test_venu_energy_no_event(self):
+        h = _MockDIWHandler()
+        assert h.venu_energy == 0
+
+    def test_venu_energy_with_event(self):
+        h = _MockDIWHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 42, "vamsi": 5, "murali": 3, "mode": 0})
+        assert h.venu_energy == 42
+
+    def test_vamsi_action(self):
+        h = _MockDIWHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 7, "vamsi": 123, "murali": 0, "mode": 0})
+        assert h.vamsi_action == 123
+
+    def test_murali_phase(self):
+        h = _MockDIWHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 7, "vamsi": 0, "murali": 12, "mode": 0})
+        assert h.murali_phase == 12
+
+
+class TestHealHandlerDIWGate:
+    """HealHandler energy gating via venu bits."""
+
+    def _make_ctx(self):
+        ctx = MagicMock()
+        ctx.executor = MagicMock()
+        ctx.contracts = MagicMock()
+        ctx.contracts.failing.return_value = []
+        return ctx
+
+    def test_heal_runs_without_diw(self):
+        """No DIW event = no gate = runs."""
+        from city.karma_handlers.heal import HealHandler
+        h = HealHandler()
+        assert h.should_run(self._make_ctx()) is True
+
+    def test_heal_runs_high_energy(self):
+        """venu=50 >= 32 threshold = runs."""
+        from city.karma_handlers.heal import HealHandler
+        h = HealHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 50, "vamsi": 0, "murali": 0, "mode": 0})
+        assert h.should_run(self._make_ctx()) is True
+
+    def test_heal_skips_low_energy(self):
+        """venu=10 < 32 threshold = skipped."""
+        from city.karma_handlers.heal import HealHandler
+        h = HealHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 10, "vamsi": 0, "murali": 0, "mode": 0})
+        assert h.should_run(self._make_ctx()) is False
+
+    def test_heal_skips_at_boundary(self):
+        """venu=31 < 32 threshold = skipped (boundary)."""
+        from city.karma_handlers.heal import HealHandler
+        h = HealHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 31, "vamsi": 0, "murali": 0, "mode": 0})
+        assert h.should_run(self._make_ctx()) is False
+
+    def test_heal_runs_at_threshold(self):
+        """venu=32 == 32 threshold = runs."""
+        from city.karma_handlers.heal import HealHandler
+        h = HealHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 32, "vamsi": 0, "murali": 0, "mode": 0})
+        assert h.should_run(self._make_ctx()) is True
+
+    def test_heal_skips_without_executor(self):
+        """No executor = skipped regardless of energy."""
+        from city.karma_handlers.heal import HealHandler
+        h = HealHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 63, "vamsi": 0, "murali": 0, "mode": 0})
+        ctx = MagicMock()
+        ctx.executor = None
+        ctx.contracts = MagicMock()
+        assert h.should_run(ctx) is False
+
+    def test_heal_is_diw_aware(self):
+        """HealHandler extends DIWAwareHandler."""
+        from city.karma_handlers.heal import HealHandler
+        assert isinstance(HealHandler(), DIWAwareHandler)
+
+
+class TestCognitionHandlerDIWGate:
+    """CognitionHandler energy gating via venu bits."""
+
+    def test_cognition_runs_without_diw(self):
+        """No DIW event = no gate = runs."""
+        from city.karma_handlers.cognition import CognitionHandler
+        h = CognitionHandler()
+        assert h.should_run(MagicMock()) is True
+
+    def test_cognition_runs_moderate_energy(self):
+        """venu=30 >= 16 threshold = runs."""
+        from city.karma_handlers.cognition import CognitionHandler
+        h = CognitionHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 30, "vamsi": 0, "murali": 0, "mode": 0})
+        assert h.should_run(MagicMock()) is True
+
+    def test_cognition_skips_low_energy(self):
+        """venu=5 < 16 threshold = skipped."""
+        from city.karma_handlers.cognition import CognitionHandler
+        h = CognitionHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 5, "vamsi": 0, "murali": 0, "mode": 0})
+        assert h.should_run(MagicMock()) is False
+
+    def test_cognition_runs_at_threshold(self):
+        """venu=16 == 16 threshold = runs."""
+        from city.karma_handlers.cognition import CognitionHandler
+        h = CognitionHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 16, "vamsi": 0, "murali": 0, "mode": 0})
+        assert h.should_run(MagicMock()) is True
+
+    def test_cognition_skips_at_boundary(self):
+        """venu=15 < 16 threshold = skipped (boundary)."""
+        from city.karma_handlers.cognition import CognitionHandler
+        h = CognitionHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 15, "vamsi": 0, "murali": 0, "mode": 0})
+        assert h.should_run(MagicMock()) is False
+
+    def test_cognition_is_diw_aware(self):
+        """CognitionHandler extends DIWAwareHandler."""
+        from city.karma_handlers.cognition import CognitionHandler
+        assert isinstance(CognitionHandler(), DIWAwareHandler)
