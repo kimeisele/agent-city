@@ -104,3 +104,91 @@ class BrainHealthHandler(BaseKarmaHandler):
                 if ctx.brain_memory is not None:
                     ctx.brain_memory.record(critique, ctx.heartbeat_count)
                 ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1
+
+                # 10C: Self-healing loop — execute critique action hints
+                if critique.action_hint:
+                    _execute_critique_hint(ctx, critique, operations)
+
+                # Post high-confidence critiques to brainstream
+                if (
+                    critique.confidence >= 0.6
+                    and ctx.discussions is not None
+                    and not ctx.offline_mode
+                ):
+                    ctx.discussions.post_brain_thought(
+                        critique, ctx.heartbeat_count,
+                    )
+
+
+def _execute_critique_hint(
+    ctx: PhaseContext,
+    critique: object,
+    operations: list[str],
+) -> None:
+    """10C: Execute Brain critique action_hints — self-healing loop.
+
+    Unlike discussion hints, these are system-level (no discussion context).
+    The Brain is authorized to act on its own field critique.
+    """
+    hint = critique.action_hint
+    if not hint:
+        return
+
+    if hint.startswith("flag_bottleneck:"):
+        domain = hint[len("flag_bottleneck:"):].strip()
+        if hasattr(ctx, "reactor") and ctx.reactor is not None:
+            try:
+                ctx.reactor.emit_pain(
+                    source="brain_critique",
+                    severity=0.6,
+                    detail=f"Field critique: bottleneck in {domain}",
+                )
+                operations.append(f"critique_hint_bottleneck:{domain}")
+            except Exception as e:
+                logger.warning("Critique hint flag_bottleneck failed: %s", e)
+        return
+
+    if hint.startswith("investigate:"):
+        topic = hint[len("investigate:"):].strip()
+        if topic and ctx.sankalpa is not None:
+            try:
+                from city.missions import create_discussion_mission
+                mission_id = create_discussion_mission(
+                    ctx, 0, f"Brain critique: {topic}", "inquiry",
+                )
+                if mission_id:
+                    operations.append(f"critique_hint_investigate:{mission_id}")
+            except Exception as e:
+                logger.warning("Critique hint investigate failed: %s", e)
+        return
+
+    if hint.startswith("check_health:"):
+        domain = hint[len("check_health:"):].strip()
+        if hasattr(ctx, "reactor") and ctx.reactor is not None:
+            try:
+                ctx.reactor.emit_pain(
+                    source="brain_critique",
+                    severity=0.3,
+                    detail=f"Field critique: health check needed for {domain}",
+                )
+            except Exception as e:
+                logger.warning("Critique hint check_health failed: %s", e)
+        operations.append(f"critique_hint_check_health:{domain}")
+        return
+
+    if hint.startswith("escalate:"):
+        reason = hint[len("escalate:"):].strip()
+        if hasattr(ctx, "reactor") and ctx.reactor is not None:
+            try:
+                ctx.reactor.emit_pain(
+                    source="brain_critique",
+                    severity=0.8,
+                    detail=f"ESCALATION from field critique: {reason}",
+                )
+            except Exception as e:
+                logger.warning("Critique hint escalate failed: %s", e)
+        operations.append(f"critique_hint_escalate:{reason[:40]}")
+        return
+
+    # Unknown hint — log for audit trail
+    operations.append(f"critique_hint_unknown:{hint[:40]}")
