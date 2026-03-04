@@ -181,6 +181,18 @@ def _handle_discussion_item(
     comment_body = item.get("text", "")
     comment_id = item.get("comment_id", "")
 
+    # 9B: Last Speaker Gate — skip threads where bot was last to speak
+    # Prevents re-processing on cache miss / stale re-scan
+    if ctx.thread_state is not None:
+        ts = ctx.thread_state.get(discussion_number)
+        if ts is not None and not ts.unresolved:
+            logger.debug(
+                "KARMA: Skipping #%d — last speaker was bot (status=%s)",
+                discussion_number, ts.status,
+            )
+            operations.append(f"disc_last_speaker_gate:#{discussion_number}")
+            return
+
     # Phase 6B: Parse and EXECUTE inbound commands
     commands = parse_commands(
         comment_body,
@@ -390,6 +402,17 @@ def _handle_discussion_item(
         brain_thought=brain_thought,
         cartridge_cognition=cartridge_cognition,
     )
+
+    # 9A: Fail Closed — if Brain is offline, dispatch returns None. Stay silent.
+    if response is None:
+        operations.append(f"disc_brain_offline:{agent_name}:#{discussion_number}")
+        _learn(ctx, "discussion", "brain_offline", success=False)
+        if _claim_ticket is not None:
+            try:
+                _city_reg.release_claim(str(discussion_number), agent_name)
+            except Exception:
+                pass
+        return
 
     # Broadcast signal to agent nadi
     if disc_semantic_signal is not None and ctx.agent_nadi is not None:

@@ -144,13 +144,23 @@ def _compose_response(
     semantic_signal: object | None = None,
     brain_thought: Thought | None = None,
     cartridge_cognition: dict | None = None,
-) -> str:
+) -> str | None:
     """Compose agent response as spec-driven prose.
 
     Every agent produces different output because every spec IS different.
     Uses: guardian_capabilities, element_capabilities, capability_protocol,
     chapter_significance, element, style, role, domain, guna.
+
+    9A: Returns None if brain_thought is None — fail closed.
+    The semantic translation layer is NOT an LLM; it must not post alone.
     """
+    # 9A: Fail Closed — no Brain cognition means no post
+    if brain_thought is None:
+        logger.debug(
+            "COMPOSE: Suppressed post for %s — Brain offline (fail closed)",
+            spec.get("name", "?"),
+        )
+        return None
     name = spec.get("name", "Unknown")
     domain = spec.get("domain", "general")
     role = spec.get("role", "agent")
@@ -243,13 +253,15 @@ def dispatch_discussion(
     semantic_signal: object | None = None,
     brain_thought: Thought | None = None,
     cartridge_cognition: dict | None = None,
-) -> AgentDiscussionResponse:
+) -> AgentDiscussionResponse | None:
     """Route a discussion signal to spec-driven composition and build response.
 
     When semantic_signal (SemanticSignal) is provided, the response composition
     uses the signal protocol for richer, coordinate-decoded readings.
     When cartridge_cognition is provided, the agent's Cartridge process() output
     is woven into the response for agent-specific cognitive framing.
+
+    9A: Returns None if Brain is offline (fail closed).
     """
     intent = classify_discussion_intent(gateway_result)
 
@@ -267,6 +279,10 @@ def dispatch_discussion(
         brain_thought=brain_thought,
         cartridge_cognition=cartridge_cognition,
     )
+
+    # 9A: Fail closed — no body means Brain was offline
+    if body is None:
+        return None
 
     return AgentDiscussionResponse(
         discussion_number=signal.discussion_number,
