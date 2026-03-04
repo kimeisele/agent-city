@@ -928,6 +928,41 @@ class Pokedex:
             "constitution_hash": self._constitution_hash[:16],
         }
 
+    def economy_snapshot(self) -> dict:
+        """12C: GAD-000 Transparency — aggregate prana economy stats.
+
+        Returns total/avg/min/max prana across living agents, dormant count,
+        and system treasury balance. Used in city reports for operator visibility.
+        """
+        cur = self._conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) as cnt, SUM(prana) as total, "
+            "AVG(prana) as avg, MIN(prana) as min_p, MAX(prana) as max_p "
+            "FROM agents WHERE status IN ('citizen', 'active')"
+        )
+        row = cur.fetchone()
+        living = row["cnt"] if row["cnt"] else 0
+        cur.execute(
+            "SELECT COUNT(*) as cnt FROM agents WHERE status = 'frozen'"
+        )
+        dormant = cur.fetchone()["cnt"]
+
+        treasury_balance = 0
+        try:
+            treasury_balance = self._bank.get_balance("SystemTreasury")
+        except Exception:
+            pass
+
+        return {
+            "living_agents": living,
+            "total_prana": int(row["total"] or 0),
+            "avg_prana": round(float(row["avg"] or 0), 1),
+            "min_prana": int(row["min_p"] or 0),
+            "max_prana": int(row["max_p"] or 0),
+            "dormant_count": dormant,
+            "treasury": treasury_balance,
+        }
+
     def get_events(self, name: str | None = None, limit: int = 50) -> list[dict]:
         """Get event history. Optionally filter by agent name."""
         cur = self._conn.cursor()

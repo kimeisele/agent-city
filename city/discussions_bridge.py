@@ -532,6 +532,39 @@ class DiscussionsBridge:
             status_parts = [f"{k}: {v}" for k, v in by_status.items()]
             lines.append(f"**PRs tracked**: {', '.join(status_parts)}")
 
+        # 12C: GAD-000 Transparency — Prana Economy snapshot
+        economy = reflection.get("economy_stats", {})
+        if economy:
+            lines.append(
+                f"\n**Economy**: total prana={economy.get('total_prana', '?')}, "
+                f"avg={economy.get('avg_prana', '?')}, "
+                f"min={economy.get('min_prana', '?')}, "
+                f"dormant={economy.get('dormant_count', 0)}"
+            )
+
+        # 12C: GAD-000 Transparency — Brain decisions this cycle
+        brain_ops = reflection.get("brain_operations", [])
+        if brain_ops:
+            lines.append(f"\n**Brain Decisions**: {len(brain_ops)}")
+            for bop in brain_ops[:5]:
+                lines.append(f"- `{bop}`")
+
+        # 12C: GAD-000 Transparency — Operations log (compact)
+        ops_log = reflection.get("operations_log", [])
+        if ops_log:
+            # Show only actionable operations, not noise
+            notable = [
+                op for op in ops_log
+                if any(k in op for k in (
+                    "disc_replied", "disc_dedup", "brain_", "critique_",
+                    "prana_", "quarantine", "retract", "mission",
+                ))
+            ]
+            if notable:
+                lines.append(f"\n**Operations**: {len(notable)} notable / {len(ops_log)} total")
+                for op in notable[:10]:
+                    lines.append(f"- `{op}`")
+
         body = f"### {title}\n\n" + "\n".join(lines)
 
         # Consolidate into city_log thread (comment, not new discussion)
