@@ -44,6 +44,7 @@ class ThoughtKind(StrEnum):
     HEALTH_CHECK = "health_check"    # System health evaluation
     REFLECTION = "reflection"        # End-of-cycle reflection
     INSIGHT = "insight"              # 8H: synthesized insight from missions
+    CRITIQUE = "critique"            # 10B: critical evaluation of system output quality
 
 
 class BrainIntent(StrEnum):
@@ -568,6 +569,75 @@ class CityBrain:
                 thought.intent.value,
                 thought.confidence,
                 list(thought.key_concepts),
+            )
+        return thought
+
+    def critique_field(
+        self,
+        field_summary: str,
+        *,
+        snapshot: ContextSnapshot | None = None,
+        memory: object | None = None,
+    ) -> Thought | None:
+        """Brain critically evaluates the Field (system output quality).
+
+        10B: The Brain is the Kshetrajna (Knower of the Field).
+        It receives a BrainDigest field_summary and must:
+        - Evaluate output quality, language, workflow health
+        - Detect agent misbehavior, mechanical patterns, spam
+        - Propose actionable fixes via action_hint
+
+        Returns None if LLM unavailable.
+        Caller provides field_summary from render_field_summary().
+        """
+        if not self._ensure_provider():
+            return None
+
+        from city.brain_prompt import (
+            build_header,
+            build_payload,
+            build_schema,
+            build_system_prompt,
+        )
+
+        past_thoughts = None
+        if memory is not None and hasattr(memory, "recent"):
+            past_thoughts = memory.recent(3)
+
+        header = build_header(
+            getattr(snapshot, "venu_tick", 0) if snapshot else 0,
+            snapshot=snapshot,
+            memory=memory,
+            model=self._model,
+            murali_phase="KARMA",
+        )
+        payload = build_payload(
+            "critique",
+            snapshot=snapshot,
+            field_summary=field_summary,
+            past_thoughts=past_thoughts,
+        )
+        schema = build_schema("critique")
+        system_msg = build_system_prompt(header, payload, schema)
+
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": (
+                "Critically evaluate the Field Summary below. "
+                "Are outputs clean? Is language proper? Are workflows healthy? "
+                "Flag any anomalies and propose fixes.\n\n"
+                f"{field_summary}"
+            )},
+        ]
+
+        thought = self._invoke_and_parse(messages, kind=ThoughtKind.CRITIQUE)
+        if thought is not None:
+            logger.info(
+                "Brain critique: intent=%s confidence=%.2f hint=%s anomalies=%d",
+                thought.intent.value,
+                thought.confidence,
+                thought.action_hint or "none",
+                len(thought.evidence),
             )
         return thought
 

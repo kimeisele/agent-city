@@ -50,7 +50,11 @@ class BrainHealthHandler(BaseKarmaHandler):
         return ctx.brain is not None and hasattr(ctx.brain, "evaluate_health")
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        from city.brain_context import build_context_snapshot, save_before_snapshot
+        from city.brain_context import (
+            build_context_snapshot,
+            build_field_digest,
+            save_before_snapshot,
+        )
 
         snapshot = build_context_snapshot(ctx)
         save_before_snapshot(snapshot, ctx.state_path.parent)
@@ -84,3 +88,19 @@ class BrainHealthHandler(BaseKarmaHandler):
             ctx.discussions.post_brain_thought(health_thought, ctx.heartbeat_count)
         # Budget: health check counts as 1 brain call
         ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1
+
+        # 10B: Field Critique — Brain as Kshetrajna evaluates system output
+        if brain_budget_ok(ctx) and hasattr(ctx.brain, "critique_field"):
+            field_summary = build_field_digest(ctx)
+            critique = ctx.brain.critique_field(
+                field_summary, snapshot=snapshot, memory=ctx.brain_memory,
+            )
+            if critique is not None:
+                operations.append(
+                    f"brain_critique:intent={critique.intent.value}"
+                    f":confidence={critique.confidence:.2f}"
+                    f":hint={critique.action_hint or 'none'}"
+                )
+                if ctx.brain_memory is not None:
+                    ctx.brain_memory.record(critique, ctx.heartbeat_count)
+                ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1

@@ -93,6 +93,7 @@ def build_payload(
     reflection: dict | None = None,
     outcome_diff: dict | None = None,
     past_thoughts: list[dict] | None = None,
+    field_summary: str = "",
 ) -> list[str]:
     """Build payload lines. Content varies by ThoughtKind."""
     lines: list[str] = []
@@ -112,6 +113,8 @@ def build_payload(
         lines.extend(_payload_signal(decoded_signal, receiver_spec))
     elif kind == "insight":
         lines.extend(_payload_insight(snapshot, reflection))
+    elif kind == "critique":
+        lines.extend(_payload_critique(snapshot, field_summary))
 
     # Echo Chamber Guard (Fix #3): past thoughts with explicit framing
     if past_thoughts:
@@ -344,6 +347,51 @@ def _payload_insight(
     return lines
 
 
+def _payload_critique(
+    snapshot: ContextSnapshot | None,
+    field_summary: str,
+) -> list[str]:
+    """Build payload for critical field evaluation.
+
+    10B: Brain as Kshetrajna — Knower of the Field.
+    Input: BrainDigest field_summary (compressed system artifacts).
+    Output: critical evaluation with actionable fixes.
+    """
+    lines: list[str] = []
+    lines.append(
+        "You are the Kshetrajna — the Knower of the Field. "
+        "Your role is to CRITICALLY EVALUATE system output quality. "
+        "You must think like an auditor, not a summarizer."
+    )
+    lines.append(
+        "Ask yourself: Are outputs clean and meaningful? Is agent language proper? "
+        "Are workflows functioning correctly? Can I detect misbehavior or spam? "
+        "Is any agent producing mechanical or repetitive content?"
+    )
+    lines.append(
+        "If you detect problems, set action_hint to propose a concrete fix. "
+        "If everything is clean, say so with high confidence."
+    )
+
+    if snapshot is not None:
+        lines.append(
+            f"City state: {snapshot.alive_count}/{snapshot.agent_count} alive, "
+            f"chain_valid={snapshot.chain_valid}."
+        )
+        if snapshot.failing_contracts:
+            lines.append(
+                f"Failing contracts: {', '.join(snapshot.failing_contracts[:5])}."
+            )
+
+    if field_summary:
+        lines.append("")
+        lines.append("=== FIELD DIGEST (MahaCompression-derived) ===")
+        lines.append(field_summary)
+        lines.append("=== END FIELD DIGEST ===")
+
+    return lines
+
+
 def _payload_signal(
     decoded_signal: object | None,
     receiver_spec: dict | None,
@@ -415,6 +463,12 @@ _SCHEMAS: dict[str, str] = {
         "Synthesize a 1-2 sentence insight from these missions. "
         "What did the city learn? What pattern emerged? "
         "Write for agents, not humans. Be concrete, not generic."
+    ),
+    "critique": (
+        "Critically evaluate the Field Digest. Identify anomalies, "
+        "quality issues, workflow failures, or agent misbehavior. "
+        "If problems found, propose concrete fixes via action_hint. "
+        f"Respond with JSON: {{{_SCHEMA_BASE}{_SCHEMA_EXTENDED}}}"
     ),
 }
 

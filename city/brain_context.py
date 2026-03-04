@@ -160,6 +160,63 @@ def load_before_snapshot(state_dir: Path) -> ContextSnapshot | None:
         return None
 
 
+def build_field_digest(ctx: object) -> str:
+    """Assemble BrainDigest field summary from PhaseContext services.
+
+    10A: Adapted MahaCompression — compresses system state into
+    Brain-readable DigestCells. Returns rendered field summary string.
+    """
+    from city.brain_digest import (
+        digest_economy,
+        digest_thread_state,
+        render_field_summary,
+        DigestCell,
+    )
+
+    cells: list[DigestCell] = []
+
+    # Economy digest
+    try:
+        pokedex = ctx.pokedex  # type: ignore[union-attr]
+        if pokedex is not None:
+            all_agents = pokedex.list_all()
+            pranas = [a.get("prana", 0) for a in all_agents if a.get("prana") is not None]
+            dormant_count = len([a for a in all_agents if a.get("status") == "frozen"])
+            if pranas:
+                cells.append(digest_economy(
+                    total_prana=sum(pranas),
+                    avg_prana=sum(pranas) / max(len(pranas), 1),
+                    dormant_count=dormant_count,
+                    agent_count=len(all_agents),
+                    min_prana=min(pranas),
+                    max_prana=max(pranas),
+                ))
+    except Exception:
+        pass
+
+    # Thread state digests
+    try:
+        thread_state = ctx.thread_state  # type: ignore[union-attr]
+        if thread_state is not None:
+            for t in thread_state.active_threads():
+                cells.append(digest_thread_state(
+                    discussion_number=t.discussion_number,
+                    status=t.status,
+                    energy=t.energy,
+                    human_count=t.human_comment_count,
+                    response_count=t.response_count,
+                    unresolved=t.unresolved,
+                    last_human_author=t.last_human_author,
+                ))
+    except Exception:
+        pass
+
+    # TODO: 10D — digest agent outputs from recent discussion responses
+    # TODO: 10D — digest mission results from Sankalpa
+
+    return render_field_summary(cells)
+
+
 def build_context_snapshot(ctx: object) -> ContextSnapshot:
     """Assemble ContextSnapshot from PhaseContext services.
 
