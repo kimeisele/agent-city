@@ -44,6 +44,7 @@ def _build_registry():
         MoltbookOutboundHook,
         WikiSyncHook,
     )
+    from city.hooks.moksha.system_health import SystemHealthHook
 
     registry = PhaseHookRegistry()
     registry.register(ReflectionStatsHook())      # pri=5   stats foundation
@@ -58,6 +59,7 @@ def _build_registry():
     registry.register(DormantRevivalHook())        # pri=55  revival
     registry.register(FederationReportHook())      # pri=60  federation
     registry.register(MoltbookOutboundHook())      # pri=65  moltbook
+    registry.register(SystemHealthHook())          # pri=68  12E: proactive diagnostics
     registry.register(DiscussionsOutboundHook())   # pri=70  discussions
     registry.register(WikiSyncHook())              # pri=75  wiki
 
