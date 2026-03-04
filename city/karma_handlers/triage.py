@@ -64,10 +64,19 @@ class TriageHandler(BaseKarmaHandler):
 
 
 def _handle_respond(ctx: PhaseContext, item: object, operations: list[str]) -> int:
-    """Post a triage-driven response to an unresolved thread."""
+    """Post a triage-driven response to an unresolved thread.
+
+    11A: Brain-gated — if Brain is offline, stay silent.
+    No Brain = No Post applies to ALL outbound agent paths.
+    """
     disc_num = item.discussion_number
     if ctx.discussions is None or ctx.offline_mode:
         operations.append(f"triage_respond_offline:#{disc_num}")
+        return 0
+
+    # 11A: Kill Switch — triage must not post if Brain is offline
+    if ctx.brain is None:
+        operations.append(f"triage_brain_offline:#{disc_num}")
         return 0
 
     if not ctx.discussions.can_respond(disc_num):

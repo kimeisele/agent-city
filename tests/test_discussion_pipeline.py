@@ -393,6 +393,9 @@ def test_triage_respond_action(mock_ctx, mock_discussions, thread_state):
     from city.karma_handlers.triage import TriageHandler, _handle_respond
     from city.community_triage import TriageItem
 
+    # 11A: Triage requires Brain to be online
+    mock_ctx.brain = MagicMock()
+
     item = TriageItem(
         action="respond",
         discussion_number=42,
@@ -408,6 +411,30 @@ def test_triage_respond_action(mock_ctx, mock_discussions, thread_state):
     assert result == 1
     assert any("triage_responded" in op for op in operations)
     mock_discussions.comment.assert_called()
+
+
+def test_triage_respond_brain_offline(mock_ctx, mock_discussions, thread_state):
+    """11A: Triage stays silent when Brain is offline."""
+    from city.karma_handlers.triage import _handle_respond
+    from city.community_triage import TriageItem
+
+    mock_ctx.brain = None  # Brain offline
+
+    item = TriageItem(
+        action="respond",
+        discussion_number=42,
+        title="Test Thread",
+        energy=0.8,
+        priority=0.8,
+        reason="Unresolved human comment",
+        suggested_agent="TestAgent",
+    )
+
+    operations = []
+    result = _handle_respond(mock_ctx, item, operations)
+    assert result == 0
+    assert any("triage_brain_offline" in op for op in operations)
+    mock_discussions.comment.assert_not_called()
 
 
 def test_triage_handler_gate(mock_ctx):
