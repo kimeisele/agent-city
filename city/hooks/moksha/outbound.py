@@ -89,15 +89,14 @@ class MoltbookOutboundHook(BasePhaseHook):
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         reflection = getattr(ctx, "_reflection", {})
 
-        # Mission result posts (batched, cooldown-gated — 8F)
-        # TODO(DECOUPLE_MOKSHA): Replace raw mission dumps with Brain-reflected
-        #   [Agent Insight] posts. Moltbook is agent-to-agent — insights trigger
-        #   resonance, not formatted status logs. Split MOKSHA generation into
-        #   two prompts: one for GitHub (audit trail) and one for Moltbook (social).
+        # 8H: Brain-synthesized insight replaces raw mission dumps on Moltbook.
+        # Strict gate: no terminal missions → no Brain call → no prana burn.
         mission_results = reflection.get("mission_results_terminal", [])
         if mission_results:
-            results_posted = ctx.moltbook_bridge.post_mission_results(mission_results)
-            reflection["mission_results_posted"] = results_posted
+            insight_posted = self._post_insight_or_fallback(
+                ctx, reflection, mission_results, operations,
+            )
+            reflection["mission_insight_posted"] = insight_posted
 
         # Smart Heartbeat: skip city update when nothing happened
         delta = _count_rotation_delta(reflection)
@@ -111,6 +110,54 @@ class MoltbookOutboundHook(BasePhaseHook):
         # Moltbook Assistant: reflect on engagement metrics
         if ctx.moltbook_assistant is not None:
             reflection["moltbook_assistant"] = ctx.moltbook_assistant.on_moksha()
+
+    @staticmethod
+    def _post_insight_or_fallback(
+        ctx: PhaseContext,
+        reflection: dict,
+        mission_results: list[dict],
+        operations: list[str],
+    ) -> bool:
+        """Generate Brain insight from missions and post to Moltbook.
+
+        Falls back to raw post_mission_results() if Brain is unavailable.
+        Bills BRAIN_CALL_COST from SystemTreasury (city-level, not agent).
+        """
+        brain = ctx.brain
+        if brain is not None and hasattr(brain, "generate_insight"):
+            try:
+                from city.brain_context import build_context_snapshot
+                snapshot = build_context_snapshot(ctx)
+            except Exception:
+                snapshot = None
+
+            thought = brain.generate_insight(reflection, snapshot=snapshot)
+            if thought is not None:
+                # 8H: Record insight cost against treasury (city service, no agent to debit)
+                try:
+                    from city.brain_cell import BRAIN_CALL_COST
+                    from city.pokedex import SYSTEM_TREASURY
+                    if ctx.pokedex is not None:
+                        ctx.pokedex._bank.transfer(
+                            SYSTEM_TREASURY, "BURN", BRAIN_CALL_COST,
+                            "moksha_insight", "service",
+                        )
+                except Exception:
+                    pass  # cost recording is best-effort
+
+                posted = ctx.moltbook_bridge.post_agent_insight(
+                    thought, mission_count=len(mission_results),
+                )
+                if posted:
+                    operations.append(
+                        f"moltbook_insight:{len(mission_results)}_missions"
+                    )
+                    return True
+
+        # Fallback: raw mission dump (Brain offline or insight failed)
+        results_posted = ctx.moltbook_bridge.post_mission_results(mission_results)
+        reflection["mission_results_posted"] = results_posted
+        return False
 
 
 class DiscussionsOutboundHook(BasePhaseHook):
