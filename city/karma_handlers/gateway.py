@@ -92,6 +92,12 @@ class GatewayHandler(BaseKarmaHandler):
         if ctx.discussions is not None:
             ctx.discussions.reset_cycle()
 
+        # 9D: Per-cycle thread dedup — prevent responding to same thread twice
+        responded_threads: set[int] = set()
+        ctx._responded_threads = responded_threads  # type: ignore[attr-defined]
+        # 9D: Per-cycle agent diversity — track which agents responded
+        ctx._responded_threads_agents: set[str] = set()  # type: ignore[attr-defined]
+
         for item in queue_items:
             source = item.get("source", "unknown")
             text = item.get("text", "")
@@ -180,6 +186,12 @@ def _handle_discussion_item(
     comment_author = item.get("from_agent", "")
     comment_body = item.get("text", "")
     comment_id = item.get("comment_id", "")
+
+    # 9D: Per-cycle dedup — skip threads already responded to this cycle
+    responded = getattr(ctx, "_responded_threads", set())
+    if discussion_number in responded:
+        operations.append(f"disc_dedup:#{discussion_number}")
+        return
 
     # 9B: Last Speaker Gate — skip threads where bot was last to speak
     # Prevents re-processing on cache miss / stale re-scan
@@ -464,6 +476,13 @@ def _handle_discussion_item(
             )
             operations.append(f"disc_replied:{agent_name}:#{discussion_number}")
             _learn(ctx, "discussion", "reply", success=True)
+            # 9D: Mark thread + agent as responded for per-cycle dedup/diversity
+            responded = getattr(ctx, "_responded_threads", None)
+            if responded is not None:
+                responded.add(discussion_number)
+            agents_responded = getattr(ctx, "_responded_threads_agents", None)
+            if agents_responded is not None:
+                agents_responded.add(agent_name)
 
             # 8D: Release claim after successful post
             if _claim_ticket is not None:
@@ -752,6 +771,18 @@ def _route_discussion_to_agent(
     if not eligible_specs:
         return None, None, -1.0
 
+    # 9D: Routing diversity — deprioritize agents who already responded this cycle
+    responded_this_cycle = getattr(ctx, "_responded_threads_agents", set())
+    diverse_specs: dict[str, dict] = {}
+    fallback_specs: dict[str, dict] = {}
+    for name, spec in eligible_specs.items():
+        if name in responded_this_cycle:
+            fallback_specs[name] = spec
+        else:
+            diverse_specs[name] = spec
+    # Prefer diverse agents; fall back to all eligible if none left
+    routing_specs = diverse_specs if diverse_specs else eligible_specs
+
     # 8B: Resonance-based routing via CityResonator
     best_name: str | None = None
     best_spec: dict | None = None
@@ -761,7 +792,7 @@ def _route_discussion_to_agent(
         from city.resonator import get_resonator
 
         resonator = get_resonator()
-        result = resonator.resonate(discussion_text, eligible_specs, max_agents=1)
+        result = resonator.resonate(discussion_text, routing_specs, max_agents=1)
         if result.scores:
             top = result.scores[0]
             best_name = top.agent_name
@@ -775,10 +806,10 @@ def _route_discussion_to_agent(
     except Exception as exc:
         logger.warning("KARMA: Resonator unavailable: %s", exc)
 
-    # Fallback: deterministic pick (first eligible) — no fake scoring
-    if best_name is None and eligible_specs:
-        best_name = next(iter(eligible_specs))
-        best_spec = eligible_specs[best_name]
+    # Fallback: deterministic pick (first from diversity pool) — no fake scoring
+    if best_name is None and routing_specs:
+        best_name = next(iter(routing_specs))
+        best_spec = routing_specs[best_name]
         best_score = 0.0
         logger.info(
             "KARMA: Deterministic fallback routed to %s (intent=%s)",
