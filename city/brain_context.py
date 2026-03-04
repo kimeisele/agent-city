@@ -206,7 +206,7 @@ def build_field_digest(ctx: object) -> str:
                     human_count=t.human_comment_count,
                     response_count=t.response_count,
                     unresolved=t.unresolved,
-                    last_human_author=t.last_human_author,
+                    last_human_author=getattr(t, "last_human_author", ""),
                 ))
     except Exception:
         pass
