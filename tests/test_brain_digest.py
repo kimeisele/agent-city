@@ -254,3 +254,64 @@ class TestFieldSummary:
         rendered = render_field_summary(cells)
         assert "3 artifacts" in rendered
         assert "1 critical" in rendered
+
+    def test_budget_truncates_low_severity(self):
+        """10E: Low-severity cells get dropped when budget is tight."""
+        critical = digest_economy(
+            total_prana=0, avg_prana=0.0, dormant_count=5, agent_count=5,
+        )
+        low1 = digest_text("Normal output one for the brain to read and evaluate.", label="a")
+        low2 = digest_text("Normal output two for the brain to read and evaluate.", label="b")
+        low3 = digest_text("Normal output three for the brain to read and evaluate.", label="c")
+        # Very tight budget — only critical should survive
+        rendered = render_field_summary([critical, low1, low2, low3], max_chars=200)
+        assert "economy_collapsed" in rendered
+        assert "omitted" in rendered
+
+    def test_budget_includes_all_when_generous(self):
+        """10E: All cells included when budget is large."""
+        cells = [
+            digest_text("Normal output for the brain.", label=f"item{i}")
+            for i in range(5)
+        ]
+        rendered = render_field_summary(cells, max_chars=10000)
+        assert "omitted" not in rendered
+        assert "5 artifacts" in rendered
+
+    def test_warnings_always_included(self):
+        """10E: Warning cells always included regardless of budget."""
+        warning = digest_thread_state(
+            discussion_number=1, status="active", energy=0.5,
+            human_count=5, response_count=0, unresolved=True,
+        )
+        low = digest_text("Normal output for the brain to read.", label="low")
+        rendered = render_field_summary([warning, low], max_chars=100)
+        assert "WARNING" in rendered
+        assert "unresponsive" in rendered
+
+
+# ── Token Budget Estimation ──────────────────────────────────────────
+
+
+class TestTokenBudget:
+    def test_zero_prana_gives_minimum(self):
+        from city.brain_digest import estimate_token_budget
+        chars = estimate_token_budget(0)
+        assert chars >= 800  # _MIN_CHARS
+
+    def test_high_prana_gives_more(self):
+        from city.brain_digest import estimate_token_budget
+        low = estimate_token_budget(9)
+        high = estimate_token_budget(27)
+        assert high > low
+
+    def test_capped_at_max(self):
+        from city.brain_digest import estimate_token_budget
+        chars = estimate_token_budget(1000)  # absurdly high prana
+        assert chars <= 12000  # _MAX_CHARS
+
+    def test_scales_with_prana(self):
+        from city.brain_digest import estimate_token_budget
+        c1 = estimate_token_budget(9, prana_per_call=9)
+        c2 = estimate_token_budget(18, prana_per_call=9)
+        assert c2 > c1

@@ -165,10 +165,13 @@ def build_field_digest(ctx: object) -> str:
 
     10A: Adapted MahaCompression — compresses system state into
     Brain-readable DigestCells. Returns rendered field summary string.
+    10E: Dynamic budget — field size adapts to remaining prana budget.
     """
     from city.brain_digest import (
+        digest_agent_output,
         digest_economy,
         digest_thread_state,
+        estimate_token_budget,
         render_field_summary,
         DigestCell,
     )
@@ -211,10 +214,37 @@ def build_field_digest(ctx: object) -> str:
     except Exception:
         pass
 
-    # TODO: 10E — digest agent outputs from recent discussion responses
-    # TODO: 10E — digest mission results from Sankalpa
+    # 10F: Self-awareness — digest the system's own recent posts
+    try:
+        thread_state = ctx.thread_state  # type: ignore[union-attr]
+        if thread_state is not None and hasattr(thread_state, "recent_own_posts"):
+            own_posts = thread_state.recent_own_posts(limit=5)
+            for post in own_posts:
+                text = post.body_text or post.body_hash or "(no content)"
+                cells.append(digest_agent_output(
+                    text,
+                    agent_name=post.author or "github-actions[bot]",
+                    discussion_number=post.discussion_number,
+                ))
+    except Exception:
+        pass
 
-    field_str = render_field_summary(cells)
+    # TODO: 10G — digest mission results from Sankalpa
+
+    # 10E: Dynamic budget — adapt field size to remaining prana
+    max_chars = 4000  # default
+    try:
+        brain_memory = ctx.brain_memory  # type: ignore[union-attr]
+        if brain_memory is not None:
+            spent = getattr(brain_memory, "total_prana_spent", 0)
+            # Remaining prana in this cycle's budget (27 max)
+            from city.seed_constants import NAVA, TRINITY
+            remaining = max(0, (NAVA * TRINITY) - (spent if isinstance(spent, int) else 0))
+            max_chars = estimate_token_budget(remaining, prana_per_call=NAVA)
+    except Exception:
+        pass
+
+    field_str = render_field_summary(cells, max_chars=max_chars)
 
     # 10D: Append TODO scan to field summary
     try:

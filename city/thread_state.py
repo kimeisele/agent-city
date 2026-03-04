@@ -80,6 +80,7 @@ class CommentEntry:
     enqueued_at: float | None
     replied_at: float | None
     reply_comment_id: str | None
+    body_text: str | None = None       # 10F: full text for self-posts
 
     @property
     def needs_processing(self) -> bool:
@@ -142,7 +143,8 @@ CREATE TABLE IF NOT EXISTS comment_ledger (
     seen_at           REAL NOT NULL DEFAULT 0.0,
     enqueued_at       REAL DEFAULT NULL,
     replied_at        REAL DEFAULT NULL,
-    reply_comment_id  TEXT DEFAULT NULL
+    reply_comment_id  TEXT DEFAULT NULL,
+    body_text         TEXT DEFAULT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ledger_thread ON comment_ledger(discussion_number);
 CREATE INDEX IF NOT EXISTS idx_ledger_status ON comment_ledger(status);
@@ -170,6 +172,15 @@ class ThreadStateEngine:
     def _init_schema(self) -> None:
         with self._lock:
             self._conn.executescript(_SCHEMA)
+            # 10F: Backward-compatible migration — add body_text if missing
+            try:
+                self._conn.execute(
+                    "SELECT body_text FROM comment_ledger LIMIT 0",
+                )
+            except sqlite3.OperationalError:
+                self._conn.execute(
+                    "ALTER TABLE comment_ledger ADD COLUMN body_text TEXT DEFAULT NULL",
+                )
             self._conn.commit()
 
     # ── Inbound Events ─────────────────────────────────────────────────
@@ -410,13 +421,15 @@ class ThreadStateEngine:
             if existing is not None:
                 return None  # already ingested
 
+            # 10F: Store body_text for self-posts (Brain self-awareness)
+            stored_body = body if is_own else None
             self._conn.execute(
                 """INSERT INTO comment_ledger
                    (comment_id, discussion_number, author, body_hash,
-                    source, status, seen_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    source, status, seen_at, body_text)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (comment_id, discussion_number, author, body_hash,
-                 source, status, now),
+                 source, status, now, stored_body),
             )
             self._conn.commit()
 
@@ -537,6 +550,23 @@ class ThreadStateEngine:
                 ).fetchall()
         return [self._row_to_comment(r) for r in rows]
 
+    def recent_own_posts(self, limit: int = 10) -> list[CommentEntry]:
+        """10F: Recent bot-authored comments for Brain self-awareness.
+
+        Returns up to `limit` most recent self-posted comments,
+        ordered newest first. The Brain digests these to evaluate
+        its own output quality.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT * FROM comment_ledger
+                   WHERE source = 'self'
+                   ORDER BY seen_at DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [self._row_to_comment(r) for r in rows]
+
     def comment_stats(self) -> dict:
         """Ledger summary for diagnostics."""
         with self._lock:
@@ -570,6 +600,11 @@ class ThreadStateEngine:
 
     @staticmethod
     def _row_to_comment(row: sqlite3.Row) -> CommentEntry:
+        # 10F: body_text may not exist in older DBs — graceful fallback
+        try:
+            body_text = row["body_text"]
+        except (IndexError, KeyError):
+            body_text = None
         return CommentEntry(
             comment_id=row["comment_id"],
             discussion_number=row["discussion_number"],
@@ -581,6 +616,7 @@ class ThreadStateEngine:
             enqueued_at=row["enqueued_at"],
             replied_at=row["replied_at"],
             reply_comment_id=row["reply_comment_id"],
+            body_text=body_text,
         )
 
     # ── TTL Cleanup (6C-6) ──────────────────────────────────────────────
