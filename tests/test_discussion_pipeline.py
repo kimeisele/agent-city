@@ -616,6 +616,47 @@ def test_mission_failed_prana(mock_ctx):
     assert new_prana == initial_prana + MISSION_FAILED_PRANA
 
 
+def test_suppressed_posts_ledger():
+    """12D: BrainMemory records and persists suppressed posts."""
+    from city.brain_memory import BrainMemory
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        bm = BrainMemory(path=Path(f.name))
+
+    bm.record_suppressed("TestAgent", 42, heartbeat=100)
+    bm.record_suppressed("OtherAgent", 99, heartbeat=101)
+
+    suppressed = bm.get_suppressed()
+    assert len(suppressed) == 2
+    assert suppressed[0]["agent"] == "TestAgent"
+    assert suppressed[0]["discussion"] == 42
+
+    # Flush and reload — suppressed posts persist
+    bm.flush()
+    bm2 = BrainMemory(path=bm._path)
+    bm2.load()
+    assert len(bm2.get_suppressed()) == 2
+
+    # Clear
+    cleared = bm2.clear_suppressed()
+    assert cleared == 2
+    assert len(bm2.get_suppressed()) == 0
+
+    Path(f.name).unlink(missing_ok=True)
+
+
+def test_suppressed_posts_cap():
+    """12D: Suppressed posts ledger capped at 50 entries."""
+    from city.brain_memory import BrainMemory
+
+    bm = BrainMemory()
+    for i in range(60):
+        bm.record_suppressed(f"agent_{i}", i, heartbeat=i)
+    assert len(bm.get_suppressed()) == 50
+
+
 def test_economy_snapshot(mock_ctx):
     """12C: Pokedex.economy_snapshot() returns aggregate prana stats."""
     mock_ctx.pokedex.register("econ_agent")

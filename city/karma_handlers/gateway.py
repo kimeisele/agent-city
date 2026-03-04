@@ -419,6 +419,11 @@ def _handle_discussion_item(
     if response is None:
         operations.append(f"disc_brain_offline:{agent_name}:#{discussion_number}")
         _learn(ctx, "discussion", "brain_offline", success=False)
+        # 12D: Record suppressed post so Brain detects its own gaps on recovery
+        if ctx.brain_memory is not None:
+            ctx.brain_memory.record_suppressed(
+                agent_name, discussion_number, ctx.heartbeat_count,
+            )
         if _claim_ticket is not None:
             try:
                 _city_reg.release_claim(str(discussion_number), agent_name)

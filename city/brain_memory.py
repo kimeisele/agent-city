@@ -38,7 +38,7 @@ class BrainMemory:
     """
 
     __slots__ = ("_cells", "_entries", "_max_entries", "_path",
-                 "_total_prana_spent")
+                 "_total_prana_spent", "_suppressed_posts")
 
     def __init__(
         self,
@@ -50,6 +50,7 @@ class BrainMemory:
         self._max_entries = max_entries
         self._path = path or Path("data/brain_memory.json")
         self._total_prana_spent: int = 0
+        self._suppressed_posts: list[dict] = []  # 12D: tracks Brain-offline skips
 
     def record(
         self, thought: object, heartbeat: int, *, posted: bool = False,
@@ -166,11 +167,55 @@ class BrainMemory:
         """Number of live cells in memory."""
         return len(self._cells)
 
+    # ── 12D: Suppressed Posts Ledger ────────────────────────────────
+
+    def record_suppressed(
+        self, agent_name: str, discussion_number: int, heartbeat: int,
+        reason: str = "brain_offline",
+    ) -> None:
+        """12D: Record a post that was suppressed because Brain was offline.
+
+        Persisted so the Brain can detect its own gaps on recovery.
+        Capped at 50 entries to prevent unbounded growth during long outages.
+        """
+        self._suppressed_posts.append({
+            "agent": agent_name,
+            "discussion": discussion_number,
+            "heartbeat": heartbeat,
+            "reason": reason,
+        })
+        # Hard cap — oldest entries evicted first
+        if len(self._suppressed_posts) > 50:
+            self._suppressed_posts = self._suppressed_posts[-50:]
+        logger.debug(
+            "BrainMemory: recorded suppressed post for %s on #%d (reason=%s)",
+            agent_name, discussion_number, reason,
+        )
+
+    def get_suppressed(self) -> list[dict]:
+        """12D: Return all suppressed posts (Brain was offline)."""
+        return list(self._suppressed_posts)
+
+    def clear_suppressed(self) -> int:
+        """12D: Clear suppressed posts ledger after Brain has processed them.
+
+        Returns the number of entries cleared.
+        """
+        count = len(self._suppressed_posts)
+        self._suppressed_posts.clear()
+        if count:
+            logger.info("BrainMemory: cleared %d suppressed posts", count)
+        return count
+
     def flush(self) -> None:
         """Persist to disk."""
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(json.dumps(self._entries, indent=2))
+            payload = {
+                "entries": self._entries,
+                "suppressed": self._suppressed_posts,
+            }
+            self._path.write_text(json.dumps(payload, indent=2))
             logger.debug("BrainMemory: flushed %d entries", len(self._entries))
         except Exception as e:
             logger.warning("BrainMemory: flush failed: %s", e)
@@ -183,7 +228,15 @@ class BrainMemory:
         if not self._path.exists():
             return
         try:
-            data = json.loads(self._path.read_text())
+            raw = json.loads(self._path.read_text())
+            # 12D: Support both old format (list) and new format (dict)
+            if isinstance(raw, dict):
+                data = raw.get("entries", [])
+                self._suppressed_posts = raw.get("suppressed", [])
+            elif isinstance(raw, list):
+                data = raw
+            else:
+                data = []
             if isinstance(data, list):
                 self._entries = data[-self._max_entries :]
                 # Recreate cells from entries
