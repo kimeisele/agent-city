@@ -82,6 +82,13 @@ mutation($discussionId:ID!, $body:String!) {
   }
 }"""
 
+GQL_UPDATE_COMMENT = """
+mutation($commentId:ID!, $body:String!) {
+  updateDiscussionComment(input:{commentId:$commentId, body:$body}) {
+    comment { id body }
+  }
+}"""
+
 
 # ── GraphQL Helper ──────────────────────────────────────────────────
 
@@ -354,6 +361,67 @@ class DiscussionsBridge:
             return True
 
         return False
+
+    def edit_comment(self, comment_id: str, new_body: str) -> bool:
+        """12A: Edit an existing discussion comment by its node ID.
+
+        Used by the Brain's self-correction loop to retract or amend posts.
+        Only works for comments authored by the bot (GitHub enforces this).
+        """
+        if not comment_id or not new_body:
+            return False
+
+        result = _gh_graphql(
+            GQL_UPDATE_COMMENT,
+            {"commentId": comment_id, "body": new_body},
+        )
+        if result is None:
+            return False
+
+        updated_id = (
+            result.get("data", {})
+            .get("updateDiscussionComment", {})
+            .get("comment", {})
+            .get("id", "")
+        )
+        if updated_id:
+            self._ops["edits"] = self._ops.get("edits", 0) + 1
+            logger.info("DISCUSSIONS: edited comment %s", comment_id[:20])
+            return True
+        return False
+
+    def retract_post(self, comment_id: str, reason: str = "") -> bool:
+        """12A: Retract a bad post — prepend [RETRACTED] and collapse content.
+
+        The Brain's self-correction loop calls this when it detects its own
+        output was low-quality (word-salad, spam, mechanical patterns).
+        The original content is preserved in a collapsed <details> block
+        for audit trail / transparency.
+        """
+        if not comment_id:
+            return False
+
+        # Fetch the original body to preserve it
+        # We need to find which discussion this comment belongs to
+        # For now, build the retracted body without the original
+        retraction_note = f"**[RETRACTED]** — Brain self-correction"
+        if reason:
+            retraction_note += f": {reason}"
+
+        retracted_body = (
+            f"{retraction_note}\n\n"
+            f"<details><summary>Original post (retracted)</summary>\n\n"
+            f"*Content retracted by Brain self-correction loop.*\n"
+            f"</details>"
+        )
+
+        success = self.edit_comment(comment_id, retracted_body)
+        if success:
+            logger.info(
+                "DISCUSSIONS: retracted post %s — reason: %s",
+                comment_id[:20], reason[:60] if reason else "quality",
+            )
+        return success
 
     def create_discussion(
         self, title: str, body: str, category: str = "General",

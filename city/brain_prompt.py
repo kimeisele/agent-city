@@ -437,7 +437,8 @@ _SCHEMA_EXTENDED = (
     ', "action_hint": "" or "flag_bottleneck:<domain>" or '
     '"investigate:<topic>" or "create_mission:<description>" or '
     '"run_status" or "check_health:<domain>" or '
-    '"assign_agent:<agent_name>:<task>" or "escalate:<reason>", '
+    '"assign_agent:<agent_name>:<task>" or "escalate:<reason>" or '
+    '"retract:<comment_id>" or "quarantine:<agent_name>", '
     '"evidence": ["up to 3 data points"]'
 )
 

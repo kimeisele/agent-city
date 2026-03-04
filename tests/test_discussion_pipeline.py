@@ -531,6 +531,58 @@ def test_routing_diversity_fallback_when_all_responded(mock_ctx):
     assert name == "agent_a"
 
 
+# ── 12A: Self-Correction Tests ─────────────────────────────────────
+
+
+def test_critique_hint_retract(mock_ctx, mock_discussions):
+    """12A: Brain retract hint → edit bad post to [RETRACTED]."""
+    from city.karma_handlers.brain_health import _execute_critique_hint
+
+    mock_discussions.retract_post = MagicMock(return_value=True)
+
+    critique = MagicMock()
+    critique.action_hint = "retract:DC_kwDOTest123"
+    critique.evidence = "mechanical repetition detected"
+
+    operations: list[str] = []
+    _execute_critique_hint(mock_ctx, critique, operations)
+    assert any("critique_retract" in op for op in operations)
+    mock_discussions.retract_post.assert_called_once()
+
+
+def test_critique_hint_retract_offline(mock_ctx):
+    """12A: Retract is skipped in offline mode."""
+    from city.karma_handlers.brain_health import _execute_critique_hint
+
+    mock_ctx.offline_mode = True
+
+    critique = MagicMock()
+    critique.action_hint = "retract:DC_kwDOTest123"
+
+    operations: list[str] = []
+    _execute_critique_hint(mock_ctx, critique, operations)
+    assert not any("critique_retract" in op for op in operations)
+
+
+def test_critique_hint_quarantine(mock_ctx):
+    """12A: Brain quarantine hint → freeze agent."""
+    from city.karma_handlers.brain_health import _execute_critique_hint
+
+    mock_ctx.pokedex.register("bad_agent")
+
+    critique = MagicMock()
+    critique.action_hint = "quarantine:bad_agent"
+    critique.evidence = "agent posting word-salad"
+
+    operations: list[str] = []
+    _execute_critique_hint(mock_ctx, critique, operations)
+    assert any("critique_quarantine" in op for op in operations)
+
+    # Verify agent is frozen
+    agent = mock_ctx.pokedex.get("bad_agent")
+    assert agent["status"] == "frozen"
+
+
 # ── Action Hint Execution Tests ─────────────────────────────────────
 
 

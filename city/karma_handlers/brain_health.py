@@ -190,5 +190,34 @@ def _execute_critique_hint(
         operations.append(f"critique_hint_escalate:{reason[:40]}")
         return
 
+    # 12A: Retract a bad post — edit it to [RETRACTED] on GitHub
+    if hint.startswith("retract:"):
+        comment_id = hint[len("retract:"):].strip()
+        if comment_id and ctx.discussions is not None and not ctx.offline_mode:
+            try:
+                reason = getattr(critique, "evidence", "") or "quality"
+                retracted = ctx.discussions.retract_post(comment_id, reason=reason)
+                if retracted:
+                    operations.append(f"critique_retract:{comment_id[:20]}")
+                    logger.info("BRAIN: Retracted post %s", comment_id[:20])
+                else:
+                    operations.append(f"critique_retract_failed:{comment_id[:20]}")
+            except Exception as e:
+                logger.warning("Critique hint retract failed: %s", e)
+        return
+
+    # 12A: Quarantine an agent — freeze + drain prana
+    if hint.startswith("quarantine:"):
+        agent_name = hint[len("quarantine:"):].strip()
+        if agent_name and ctx.pokedex is not None:
+            try:
+                reason = getattr(critique, "evidence", "") or "brain_critique"
+                ctx.pokedex.freeze(agent_name, f"quarantine:{reason[:60]}")
+                operations.append(f"critique_quarantine:{agent_name}")
+                logger.info("BRAIN: Quarantined agent %s — %s", agent_name, reason[:60])
+            except Exception as e:
+                logger.warning("Critique hint quarantine failed: %s", e)
+        return
+
     # Unknown hint — log for audit trail
     operations.append(f"critique_hint_unknown:{hint[:40]}")
