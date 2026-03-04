@@ -583,6 +583,72 @@ def test_critique_hint_quarantine(mock_ctx):
     assert agent["status"] == "frozen"
 
 
+# ── 12B: Prana Income Tests ────────────────────────────────────────
+
+
+def test_mission_completion_prana(mock_ctx):
+    """12B: Completed missions award prana to the owner."""
+    from city.hooks.moksha.mission_lifecycle import _mint_mission_rewards
+    from city.seed_constants import MISSION_COMPLETION_PRANA
+
+    mock_ctx.pokedex.register("mission_agent")
+    initial_prana = mock_ctx.pokedex.get_prana("mission_agent")
+
+    terminal = [{"id": "heal_eco_1", "status": "completed", "owner": "mission_agent"}]
+    _mint_mission_rewards(mock_ctx, terminal)
+
+    new_prana = mock_ctx.pokedex.get_prana("mission_agent")
+    assert new_prana == initial_prana + MISSION_COMPLETION_PRANA
+
+
+def test_mission_failed_prana(mock_ctx):
+    """12B: Failed missions award small participation prana."""
+    from city.hooks.moksha.mission_lifecycle import _mint_mission_rewards
+    from city.seed_constants import MISSION_FAILED_PRANA
+
+    mock_ctx.pokedex.register("fail_agent")
+    initial_prana = mock_ctx.pokedex.get_prana("fail_agent")
+
+    terminal = [{"id": "exec_fix_1", "status": "failed", "owner": "fail_agent"}]
+    _mint_mission_rewards(mock_ctx, terminal)
+
+    new_prana = mock_ctx.pokedex.get_prana("fail_agent")
+    assert new_prana == initial_prana + MISSION_FAILED_PRANA
+
+
+def test_prana_economics_balance():
+    """12B: Verify the economy is not deflationary — income covers costs."""
+    from city.seed_constants import (
+        DISCUSSION_RESPONSE_REBATE,
+        HUMAN_ENGAGEMENT_PRANA,
+        METABOLIC_COST,
+        MISSION_COMPLETION_PRANA,
+        MISSION_FAILED_PRANA,
+        NAVA,
+        TRINITY,
+    )
+
+    # Cost per response cycle: claim_tax (3) + brain (9) = 12
+    response_cost = TRINITY + NAVA  # 3 + 9 = 12
+    # Income per successful response: rebate (3)
+    response_income = DISCUSSION_RESPONSE_REBATE  # 3
+    # Net cost per response: 9 (still deflationary per-response)
+    assert response_cost > response_income
+
+    # But mission completion (27) offsets ~3 response cycles
+    assert MISSION_COMPLETION_PRANA >= response_cost * 2
+
+    # Human engagement (9) offsets 1 response cycle
+    assert HUMAN_ENGAGEMENT_PRANA >= response_cost - response_income
+
+    # Metabolism per cycle: 3
+    # Mission completion per cycle: 27 (if a mission completes)
+    # Net: +24 per mission completion, -3 per idle cycle
+    # An agent completing 1 mission per 8 cycles breaks even
+    cycles_to_break_even = MISSION_COMPLETION_PRANA // METABOLIC_COST
+    assert cycles_to_break_even >= 8  # sustainable
+
+
 # ── Action Hint Execution Tests ─────────────────────────────────────
 
 

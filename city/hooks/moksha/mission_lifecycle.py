@@ -258,13 +258,19 @@ def _purge_stale_missions(ctx: PhaseContext) -> int:
 
 
 def _mint_mission_rewards(ctx: PhaseContext, terminal_missions: list[dict]) -> list[dict]:
-    """Mint semantic assets as rewards for completed missions.
+    """Mint semantic assets + prana rewards for terminal missions.
 
     Each completed mission → MISSION_REWARD_TOKENS (1) capability_token
-    for the mission's owner agent. The token matches the mission type
-    (exec_ → execute, heal_ → validate, etc.).
+    + MISSION_COMPLETION_PRANA (27) prana for the mission's owner agent.
+    Failed missions → MISSION_FAILED_PRANA (3) participation reward.
+
+    12B: Prana income — without this, the economy is purely deflationary.
     """
-    from city.seed_constants import MISSION_REWARD_TOKENS
+    from city.seed_constants import (
+        MISSION_COMPLETION_PRANA,
+        MISSION_FAILED_PRANA,
+        MISSION_REWARD_TOKENS,
+    )
 
     _REWARD_CAP: dict[str, str] = {
         "heal_": "validate",
@@ -278,15 +284,34 @@ def _mint_mission_rewards(ctx: PhaseContext, terminal_missions: list[dict]) -> l
 
     minted: list[dict] = []
     for mission in terminal_missions:
-        if mission["status"] != "completed":
-            continue
-
         owner = mission.get("owner", "")
         if not owner or owner in ("reported", "unknown"):
             continue
 
-        # Determine reward type from mission prefix
         mission_id = mission["id"]
+
+        # 12B: Prana income for ALL terminal missions (completed or failed)
+        if mission["status"] == "completed":
+            prana_reward = MISSION_COMPLETION_PRANA
+        elif mission["status"] in ("failed", "timeout"):
+            prana_reward = MISSION_FAILED_PRANA
+        else:
+            prana_reward = 0
+
+        if prana_reward > 0:
+            try:
+                ctx.pokedex.award_prana(
+                    owner, prana_reward,
+                    source=f"mission:{mission['status']}:{mission_id[:30]}",
+                )
+            except Exception as e:
+                logger.warning("MOKSHA: Prana reward failed for %s: %s", owner, e)
+
+        # Capability tokens only for completed missions
+        if mission["status"] != "completed":
+            continue
+
+        # Determine reward type from mission prefix
         reward_cap = "propose"  # default
         for prefix, cap in _REWARD_CAP.items():
             if mission_id.startswith(prefix):
@@ -301,12 +326,13 @@ def _mint_mission_rewards(ctx: PhaseContext, terminal_missions: list[dict]) -> l
                 quantity=MISSION_REWARD_TOKENS,
                 source="mission_reward",
             )
-            minted.append({"agent": owner, "asset": reward_cap, "mission": mission_id})
+            minted.append({
+                "agent": owner, "asset": reward_cap,
+                "mission": mission_id, "prana": prana_reward,
+            })
             logger.info(
-                "MOKSHA: Minted %s token for %s (mission %s)",
-                reward_cap,
-                owner,
-                mission_id,
+                "MOKSHA: Minted %s token + %d prana for %s (mission %s)",
+                reward_cap, prana_reward, owner, mission_id,
             )
         except Exception as e:
             logger.warning("MOKSHA: Failed to mint reward for %s: %s", owner, e)

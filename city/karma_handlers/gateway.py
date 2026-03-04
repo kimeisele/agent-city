@@ -476,6 +476,13 @@ def _handle_discussion_item(
             )
             operations.append(f"disc_replied:{agent_name}:#{discussion_number}")
             _learn(ctx, "discussion", "reply", success=True)
+            # 12B: Prana income — rebate for successful Brain-gated post
+            if ctx.pokedex is not None:
+                from city.seed_constants import DISCUSSION_RESPONSE_REBATE
+                ctx.pokedex.award_prana(
+                    agent_name, DISCUSSION_RESPONSE_REBATE,
+                    source=f"disc_response:#{discussion_number}",
+                )
             # 9D: Mark thread + agent as responded for per-cycle dedup/diversity
             responded = getattr(ctx, "_responded_threads", None)
             if responded is not None:
