@@ -432,14 +432,52 @@ def digest_text(text: str, label: str = "") -> DigestCell:
     )
 
 
+# ── Token Budget Estimation ──────────────────────────────────────────
+
+# Rough token-per-char ratio (conservative for mixed prose/data)
+_CHARS_PER_TOKEN = 4
+# Default max chars for field summary (fits ~1000 tokens)
+_DEFAULT_MAX_CHARS = 4000
+# Minimum chars — always allow at least critical items
+_MIN_CHARS = 800
+# Max chars — even with infinite budget, cap total context
+_MAX_CHARS = 12000
+
+
+def estimate_token_budget(
+    remaining_prana: int,
+    prana_per_call: int = 9,
+    base_tokens: int = 1000,
+) -> int:
+    """Estimate how many characters the field summary can use.
+
+    10E: Dynamic budget — more prana = more context for the Brain.
+    The compression ratio adjusts to available resources.
+
+    Formula: base_tokens + (remaining_prana / prana_per_call) * 500 tokens
+    Each additional 'call worth' of prana buys 500 more tokens of context.
+    Clamped to [_MIN_CHARS, _MAX_CHARS].
+    """
+    calls_worth = remaining_prana / max(prana_per_call, 1)
+    extra_tokens = int(calls_worth * 500)
+    total_chars = (base_tokens + extra_tokens) * _CHARS_PER_TOKEN
+    return max(_MIN_CHARS, min(total_chars, _MAX_CHARS))
+
+
 # ── Batch Digest (Field Summary) ────────────────────────────────────
 
 
-def render_field_summary(cells: list[DigestCell]) -> str:
+def render_field_summary(
+    cells: list[DigestCell],
+    max_chars: int = _DEFAULT_MAX_CHARS,
+) -> str:
     """Render a batch of DigestCells as a compact Brain-readable field summary.
 
+    10E: Dynamic budget — max_chars controls total output size.
+    Critical/warning cells always included. Low-severity cells truncated
+    when budget is tight. Higher severity = higher priority for inclusion.
+
     This is the Kshetra (Field) report — what the Kshetrajna (Brain) reads.
-    Sorted by severity (critical first), then by kind.
     """
     if not cells:
         return "[FIELD EMPTY — no artifacts to evaluate]"
@@ -452,15 +490,38 @@ def render_field_summary(cells: list[DigestCell]) -> str:
     warnings = sum(1 for c in cells if c.severity >= Severity.WARNING)
     critical = sum(1 for c in cells if c.severity >= Severity.CRITICAL)
 
-    parts = [
+    header = (
         f"[FIELD SUMMARY] {total} artifacts | "
         f"{critical} critical | {warnings} warnings"
-    ]
+    )
+    parts = [header]
+    used = len(header)
 
     if critical > 0:
-        parts.append("⚠ CRITICAL ISSUES REQUIRE IMMEDIATE ATTENTION:")
+        line = "⚠ CRITICAL ISSUES REQUIRE IMMEDIATE ATTENTION:"
+        parts.append(line)
+        used += len(line)
 
+    # Phase 1: always include critical + warning cells
+    included = 0
+    skipped = 0
     for cell in sorted_cells:
-        parts.append(cell.render_for_brain())
+        rendered = cell.render_for_brain()
+        if cell.severity >= Severity.WARNING:
+            # Always include warnings/critical regardless of budget
+            parts.append(rendered)
+            used += len(rendered)
+            included += 1
+        elif used + len(rendered) <= max_chars:
+            # Include lower severity only if budget allows
+            parts.append(rendered)
+            used += len(rendered)
+            included += 1
+        else:
+            skipped += 1
+
+    if skipped > 0:
+        note = f"[{skipped} low-severity artifacts omitted — budget={max_chars} chars]"
+        parts.append(note)
 
     return "\n".join(parts)
