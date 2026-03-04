@@ -100,6 +100,15 @@ class ReflectionStatsHook(BasePhaseHook):
                 learning_stats["trimmed"] = trimmed
                 reflection["learning_stats"] = learning_stats
 
+        # 12C: GAD-000 Transparency — Prana economy snapshot
+        try:
+            economy = ctx.pokedex.economy_snapshot()
+            if economy:
+                reflection["economy_stats"] = economy
+        except Exception:
+            # economy_snapshot may not exist on older Pokedex versions
+            pass
+
         # Daemon metrics (if running in daemon mode)
         from city.registry import SVC_DAEMON
 

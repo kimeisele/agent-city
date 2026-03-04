@@ -181,6 +181,13 @@ class DiscussionsOutboundHook(BasePhaseHook):
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         reflection = getattr(ctx, "_reflection", {})
 
+        # 12C: GAD-000 — pipe operations into reflection for city report transparency
+        reflection["operations_log"] = list(operations)
+        # Also include brain operations from KARMA (stored on ctx by brain_health)
+        brain_ops = getattr(ctx, "_brain_operations", [])
+        if brain_ops:
+            reflection["brain_operations"] = list(brain_ops)
+
         if not ctx.offline_mode:
             # Smart Heartbeat: only post when something actually happened
             delta = _count_rotation_delta(reflection)

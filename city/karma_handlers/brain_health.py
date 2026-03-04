@@ -89,6 +89,14 @@ class BrainHealthHandler(BaseKarmaHandler):
         # Budget: health check counts as 1 brain call
         ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1
 
+        # 12C: Track brain operations for GAD-000 transparency
+        brain_ops = getattr(ctx, "_brain_operations", [])
+        brain_ops.append(
+            f"health:intent={health_thought.intent.value}"
+            f":confidence={health_thought.confidence:.2f}"
+        )
+        ctx._brain_operations = brain_ops  # type: ignore[attr-defined]
+
         # 10B: Field Critique — Brain as Kshetrajna evaluates system output
         if brain_budget_ok(ctx) and hasattr(ctx.brain, "critique_field"):
             field_summary = build_field_digest(ctx)
@@ -104,6 +112,15 @@ class BrainHealthHandler(BaseKarmaHandler):
                 if ctx.brain_memory is not None:
                     ctx.brain_memory.record(critique, ctx.heartbeat_count)
                 ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1
+
+                # 12C: Track critique for GAD-000 transparency
+                brain_ops = getattr(ctx, "_brain_operations", [])
+                brain_ops.append(
+                    f"critique:intent={critique.intent.value}"
+                    f":confidence={critique.confidence:.2f}"
+                    f":hint={critique.action_hint or 'none'}"
+                )
+                ctx._brain_operations = brain_ops  # type: ignore[attr-defined]
 
                 # 10C: Self-healing loop — execute critique action hints
                 if critique.action_hint:
