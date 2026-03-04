@@ -246,6 +246,31 @@ def build_field_digest(ctx: object) -> str:
     except Exception:
         pass
 
+    # 12D: Suppressed posts — Brain detects its own offline gaps on recovery
+    try:
+        from city.brain_digest import DigestCell
+        brain_memory = ctx.brain_memory  # type: ignore[union-attr]
+        if brain_memory is not None:
+            suppressed = brain_memory.get_suppressed()
+            if suppressed:
+                summary = f"{len(suppressed)} posts suppressed (Brain offline)"
+                details = "; ".join(
+                    f"#{s['discussion']} by {s['agent']} @hb{s['heartbeat']}"
+                    for s in suppressed[:5]
+                )
+                cells.append(DigestCell(
+                    source="brain_memory",
+                    category="suppressed_posts",
+                    severity="high",
+                    summary=f"{summary}: {details}",
+                    value=len(suppressed),
+                    anomaly=len(suppressed) > 0,
+                ))
+                # Clear after ingestion — Brain has now seen its gaps
+                brain_memory.clear_suppressed()
+    except Exception:
+        pass
+
     # 10E: Dynamic budget — adapt field size to remaining prana
     max_chars = 4000  # default
     try:
