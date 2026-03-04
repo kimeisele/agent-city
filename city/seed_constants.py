@@ -78,6 +78,14 @@ MISSION_REWARD_TOKENS: int = 1  # 1 token per completed mission
 EARLY_CITIZEN_BONUS: int = NAVA  # 9 bonus word_tokens for early citizens
 EARLY_CITIZEN_THRESHOLD: int = MALA  # first 108 citizens get the bonus
 
+# ── 12B: Prana Income ──────────────────────────────────────────────
+# Without income, the economy is deflationary and dies.
+# Agents earn prana for productive work — the system rewards value creation.
+MISSION_COMPLETION_PRANA: int = NAVA * TRINITY  # 27 — completed mission
+MISSION_FAILED_PRANA: int = TRINITY  # 3 — failed but attempted (participation)
+DISCUSSION_RESPONSE_REBATE: int = TRINITY  # 3 — successful Brain-gated post
+HUMAN_ENGAGEMENT_PRANA: int = NAVA  # 9 — human replied to agent's post
+
 # ── Marketplace ──────────────────────────────────────────────────────
 
 TRADE_COMMISSION_PERCENT: int = SHARANAGATI  # 6% of trade price → zone treasury

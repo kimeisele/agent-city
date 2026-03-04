@@ -264,6 +264,27 @@ class DiscussionScannerHook(BasePhaseHook):
 
                 # External comment: update thread lifecycle + enqueue for processing
                 if ctx.thread_state is not None:
+                    # 12B: Prana income — human engaging with a thread we responded to
+                    ts = ctx.thread_state.get(signal["number"])
+                    if ts is not None and ts.response_count > 0:
+                        # Thread had bot responses — human engagement = value
+                        try:
+                            from city.seed_constants import HUMAN_ENGAGEMENT_PRANA
+                            # Find last responding agent from comment ledger
+                            own_posts = ctx.thread_state.recent_own_posts(limit=1)
+                            for post in own_posts:
+                                if post.discussion_number == signal["number"] and post.author:
+                                    ctx.pokedex.award_prana(
+                                        post.author, HUMAN_ENGAGEMENT_PRANA,
+                                        source=f"human_engagement:#{signal['number']}:{comment_author}",
+                                    )
+                                    operations.append(
+                                        f"prana_engagement:{post.author}:#{signal['number']}"
+                                    )
+                                    break
+                        except Exception:
+                            pass
+
                     ctx.thread_state.record_human_comment(
                         signal["number"],
                         comment_author,
