@@ -467,8 +467,8 @@ class TestIntegration:
             semantic_signal=None,
             brain_thought=None,
         )
-        assert response.body
-        assert "Comprehension" not in response.body
+        # 9A: Fail Closed — no Brain means no post (returns None)
+        assert response is None
 
     def test_brain_thought_in_response(self):
         """Brain thought appears in discussion response via format_for_post()."""

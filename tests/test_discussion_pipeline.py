@@ -660,6 +660,7 @@ def test_prune_stale_bridge():
 
 def test_different_agents_produce_different_responses():
     """7A-5: Two agents with different specs must produce different output."""
+    from city.brain import Thought
     from city.discussions_inbox import DiscussionSignal, _compose_response
 
     # Vyasa: RAJAS, akasha, parse, compile/orchestrate/oversee
@@ -694,8 +695,9 @@ def test_different_agents_produce_different_responses():
     stats = {"active": 5, "citizen": 3, "total": 10}
     gateway_result = {"buddhi_function": "VISHNU", "seed": 42}
 
-    response_a = _compose_response(spec_vyasa, signal, stats, gateway_result)
-    response_b = _compose_response(spec_nrisimha, signal, stats, gateway_result)
+    _thought = Thought(comprehension="test")
+    response_a = _compose_response(spec_vyasa, signal, stats, gateway_result, brain_thought=_thought)
+    response_b = _compose_response(spec_nrisimha, signal, stats, gateway_result, brain_thought=_thought)
 
     # Responses must be different
     assert response_a != response_b
@@ -720,6 +722,7 @@ def test_different_agents_produce_different_responses():
 
 def test_minimal_spec_still_produces_response():
     """7A-5: Agent with minimal spec doesn't crash, falls back gracefully."""
+    from city.brain import Thought
     from city.discussions_inbox import DiscussionSignal, _compose_response
 
     spec_minimal = {"name": "bare_agent", "domain": "general"}
@@ -727,7 +730,7 @@ def test_minimal_spec_still_produces_response():
     stats = {"active": 1, "total": 1}
     gateway_result = {"seed": 1}
 
-    response = _compose_response(spec_minimal, signal, stats, gateway_result)
+    response = _compose_response(spec_minimal, signal, stats, gateway_result, brain_thought=Thought(comprehension="test"))
     assert "bare_agent" in response
     assert "general" in response
     # No crash, no empty output
@@ -736,6 +739,7 @@ def test_minimal_spec_still_produces_response():
 
 def test_cartridge_cognition_in_response():
     """7A-4: Cartridge process() output is woven into the response."""
+    from city.brain import Thought
     from city.discussions_inbox import DiscussionSignal, _compose_response
 
     spec = {
@@ -753,8 +757,10 @@ def test_cartridge_cognition_in_response():
     stats = {"active": 5, "total": 10}
     gateway_result = {"seed": 42}
 
+    _thought = Thought(comprehension="test")
+
     # Without cartridge cognition
-    response_plain = _compose_response(spec, signal, stats, gateway_result)
+    response_plain = _compose_response(spec, signal, stats, gateway_result, brain_thought=_thought)
 
     # With cartridge cognition
     cognition = {
@@ -763,7 +769,7 @@ def test_cartridge_cognition_in_response():
         "status": "cognized",
     }
     response_cog = _compose_response(
-        spec, signal, stats, gateway_result, cartridge_cognition=cognition,
+        spec, signal, stats, gateway_result, brain_thought=_thought, cartridge_cognition=cognition,
     )
 
     # Cognition output must be present in response
@@ -780,6 +786,7 @@ def test_cartridge_cognition_in_response():
 
 def test_routing_transparency_in_response():
     """7D-2: Response includes routing score + intent when available."""
+    from city.brain import Thought
     from city.discussions_inbox import DiscussionSignal, _compose_response
 
     spec = {
@@ -794,15 +801,17 @@ def test_routing_transparency_in_response():
     signal = DiscussionSignal(42, "Test", "input", "user", [])
     stats = {"active": 5, "total": 10}
 
+    _thought = Thought(comprehension="test")
+
     # With routing info
     gateway_with = {"seed": 42, "routing_score": 0.73, "routing_intent": "analyze"}
-    response = _compose_response(spec, signal, stats, gateway_with)
+    response = _compose_response(spec, signal, stats, gateway_with, brain_thought=_thought)
     assert "Routed:" in response
     assert "0.73" in response
     assert "analyze" in response
 
     # Without routing info (direct mention, no routing)
     gateway_without = {"seed": 42}
-    response_no_route = _compose_response(spec, signal, stats, gateway_without)
+    response_no_route = _compose_response(spec, signal, stats, gateway_without, brain_thought=_thought)
     assert "Routed:" not in response_no_route
 

@@ -148,7 +148,7 @@ class CityDiagnostics:
                 "guardian": spec.get("guardian"),
                 "tier": spec.get("capability_tier"),
                 "score": score,
-                "response": body,
+                "response": body or "(Brain offline — response suppressed)",
             })
 
         agents.sort(key=lambda a: a["score"], reverse=True)

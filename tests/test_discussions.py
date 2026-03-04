@@ -653,6 +653,8 @@ def test_build_action_report_no_composed():
 
 
 def test_dispatch_returns_response():
+    from city.brain import Thought
+
     signal = DiscussionSignal(
         discussion_number=42, title="Test", body="hello @TestBot",
         author="alice", mentioned_agents=["TestBot"],
@@ -664,7 +666,8 @@ def test_dispatch_returns_response():
             "capabilities": ["observe", "report"]}
     city_stats = {"active": 3, "citizen": 2, "total": 10}
 
-    response = dispatch_discussion(signal, gateway_result, spec, city_stats)
+    response = dispatch_discussion(signal, gateway_result, spec, city_stats,
+                                   brain_thought=Thought(comprehension="test"))
     assert isinstance(response, AgentDiscussionResponse)
     assert response.discussion_number == 42
     assert response.agent_name == "TestBot"
@@ -675,15 +678,19 @@ def test_dispatch_returns_response():
 
 def test_dispatch_different_gunas():
     """Each guna produces different frame label."""
+    from city.brain import Thought
+
     signal = DiscussionSignal(1, "T", "B", "alice", [])
     spec_base = {"name": "A", "domain": "D", "element": "e", "guardian": "g",
                  "capability_tier": "t", "capability_protocol": "p",
                  "role": "r", "capabilities": []}
 
+    _thought = Thought(comprehension="test")
     frames = set()
     for guna in ("SATTVA", "RAJAS", "TAMAS"):
         spec = {**spec_base, "guna": guna}
-        resp = dispatch_discussion(signal, {"buddhi_function": "BRAHMA"}, spec, {})
+        resp = dispatch_discussion(signal, {"buddhi_function": "BRAHMA"}, spec, {},
+                                   brain_thought=_thought)
         frames.add(resp.body)
 
     # All three should be different (different frame labels)
