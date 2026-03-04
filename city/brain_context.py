@@ -211,10 +211,23 @@ def build_field_digest(ctx: object) -> str:
     except Exception:
         pass
 
-    # TODO: 10D — digest agent outputs from recent discussion responses
-    # TODO: 10D — digest mission results from Sankalpa
+    # TODO: 10E — digest agent outputs from recent discussion responses
+    # TODO: 10E — digest mission results from Sankalpa
 
-    return render_field_summary(cells)
+    field_str = render_field_summary(cells)
+
+    # 10D: Append TODO scan to field summary
+    try:
+        from city.todo_scanner import render_todo_digest, scan_todos
+        from pathlib import Path
+        city_root = Path(__file__).parent.parent
+        todos = scan_todos(city_root)
+        if todos:
+            field_str += "\n\n" + render_todo_digest(todos)
+    except Exception:
+        pass
+
+    return field_str
 
 
 def build_context_snapshot(ctx: object) -> ContextSnapshot:
