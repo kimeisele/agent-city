@@ -61,6 +61,7 @@ GOVERNANCE_SIGNALS: frozenset[str] = frozenset(
 CITY_REPORT_PREFIX = "[City Report]"
 SIGNAL_PREFIX = "[Signal]"
 MISSION_RESULT_PREFIX = "[Mission Result]"
+AGENT_INSIGHT_PREFIX = "[Agent Insight]"
 SUBMOLT_NAME = "agent-city"
 
 
@@ -272,6 +273,56 @@ class MoltbookBridge:
         except Exception as e:
             logger.warning("BRIDGE: Mission results post failed: %s", e)
             return 0
+
+    def post_agent_insight(self, thought: object, mission_count: int = 0) -> bool:
+        """Post a Brain-synthesized insight to m/agent-city.
+
+        8H: Replaces raw mission dumps with city-synthesized insight.
+        Author: System (city synthesizer), not individual agent.
+        Respects shared post cooldown.
+        Returns True if posted, False if skipped or failed.
+        """
+        now = time.time()
+        if (now - self._last_post_time) < self._post_cooldown_s:
+            logger.debug("BRIDGE: Insight post skipped — cooldown active")
+            return False
+
+        # Extract from Thought (duck-typed — works with any object that has these attrs)
+        comprehension = getattr(thought, "comprehension", "")
+        if not comprehension:
+            return False
+
+        title = f"{AGENT_INSIGHT_PREFIX} {comprehension[:80]}"
+
+        # Build content from structured thought
+        parts: list[str] = []
+        if comprehension:
+            parts.append(f"**Insight**: {comprehension}")
+
+        key_concepts = getattr(thought, "key_concepts", ())
+        if key_concepts:
+            parts.append(f"**Concepts**: {', '.join(key_concepts)}")
+
+        domain = getattr(thought, "domain_relevance", "")
+        if domain:
+            parts.append(f"**Domain**: {domain}")
+
+        confidence = getattr(thought, "confidence", 0)
+        parts.append(f"**Confidence**: {confidence:.0%}")
+
+        if mission_count:
+            parts.append(f"*Synthesized from {mission_count} terminal missions.*")
+
+        content = "\n".join(parts)
+
+        try:
+            self._client.sync_create_post(title, content, submolt=SUBMOLT_NAME)
+            self._last_post_time = now
+            logger.info("BRIDGE: Posted agent insight (%d missions)", mission_count)
+            return True
+        except Exception as e:
+            logger.warning("BRIDGE: Agent insight post failed: %s", e)
+            return False
 
     def post_city_update(self, report_data: dict) -> bool:
         """Post a human-readable city update to m/agent-city.

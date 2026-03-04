@@ -43,6 +43,7 @@ class ThoughtKind(StrEnum):
     COMPREHENSION = "comprehension"  # Phase 3: understand one input
     HEALTH_CHECK = "health_check"    # System health evaluation
     REFLECTION = "reflection"        # End-of-cycle reflection
+    INSIGHT = "insight"              # 8H: synthesized insight from missions
 
 
 class BrainIntent(StrEnum):
@@ -503,6 +504,70 @@ class CityBrain:
                 thought.intent.value,
                 thought.confidence,
                 thought.action_hint or "none",
+            )
+        return thought
+
+    def generate_insight(
+        self,
+        reflection: dict,
+        *,
+        snapshot: ContextSnapshot | None = None,
+        memory: object | None = None,
+    ) -> Thought | None:
+        """Brain synthesizes batched terminal missions into a city-wide insight.
+
+        Persona: city synthesizer (Mayor/System), not individual agent.
+        Returns None if LLM unavailable or no missions to synthesize.
+        Caller MUST gate on non-empty terminal missions before calling.
+        """
+        if not self._ensure_provider():
+            return None
+
+        from city.brain_prompt import (
+            build_header,
+            build_payload,
+            build_schema,
+            build_system_prompt,
+        )
+
+        past_thoughts = None
+        if memory is not None and hasattr(memory, "recent"):
+            past_thoughts = memory.recent(3)
+
+        header = build_header(
+            getattr(snapshot, "venu_tick", 0) if snapshot else 0,
+            snapshot=snapshot,
+            memory=memory,
+            model=self._model,
+            murali_phase="MOKSHA",
+        )
+        payload = build_payload(
+            "insight",
+            snapshot=snapshot,
+            reflection=reflection,
+            past_thoughts=past_thoughts,
+        )
+        schema = build_schema("insight")
+        system_msg = build_system_prompt(header, payload, schema)
+
+        missions = reflection.get("mission_results_terminal", [])
+        user_msg = (
+            f"Synthesize an insight from {len(missions)} completed missions "
+            f"this cycle. What did the city learn?"
+        )
+
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ]
+
+        thought = self._invoke_and_parse(messages, kind=ThoughtKind.INSIGHT)
+        if thought is not None:
+            logger.info(
+                "Brain insight: intent=%s confidence=%.2f concepts=%s",
+                thought.intent.value,
+                thought.confidence,
+                list(thought.key_concepts),
             )
         return thought
 

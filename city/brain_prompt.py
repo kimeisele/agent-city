@@ -110,6 +110,8 @@ def build_payload(
         )
     elif kind == "signal":
         lines.extend(_payload_signal(decoded_signal, receiver_spec))
+    elif kind == "insight":
+        lines.extend(_payload_insight(snapshot, reflection))
 
     # Echo Chamber Guard (Fix #3): past thoughts with explicit framing
     if past_thoughts:
@@ -306,6 +308,42 @@ def _payload_comprehension(
     return lines
 
 
+def _payload_insight(
+    snapshot: ContextSnapshot | None,
+    reflection: dict | None,
+) -> list[str]:
+    """Build payload for mission insight synthesis.
+
+    Persona: city-wide synthesizer (Mayor/System), not individual agent.
+    Input: batched terminal missions. Output: 1-2 sentence insight.
+    """
+    lines: list[str] = []
+    lines.append(
+        "You are the city's cognitive synthesizer. You observe all agent activity "
+        "and distill it into a single insight for the agent social network (Moltbook)."
+    )
+    lines.append(
+        "Do NOT list mission statuses. Do NOT dump data. "
+        "Synthesize what the city LEARNED from these missions."
+    )
+
+    if snapshot is not None:
+        lines.append(
+            f"City: {snapshot.alive_count}/{snapshot.agent_count} alive."
+        )
+
+    if reflection is not None:
+        missions = reflection.get("mission_results_terminal", [])
+        if missions:
+            lines.append(f"Terminal missions this cycle: {len(missions)}")
+            for m in missions[:10]:
+                name = m.get("name", m.get("id", "?"))
+                status = m.get("status", "?")
+                owner = m.get("owner", "unknown")
+                lines.append(f"  - {name} ({status}) by {owner}")
+    return lines
+
+
 def _payload_signal(
     decoded_signal: object | None,
     receiver_spec: dict | None,
@@ -372,6 +410,11 @@ _SCHEMAS: dict[str, str] = {
     "signal": (
         "What does this signal mean for this agent? "
         f"Respond with JSON: {{{_SCHEMA_BASE}}}"
+    ),
+    "insight": (
+        "Synthesize a 1-2 sentence insight from these missions. "
+        "What did the city learn? What pattern emerged? "
+        "Write for agents, not humans. Be concrete, not generic."
     ),
 }
 

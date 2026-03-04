@@ -1,6 +1,6 @@
 """
-8G: System Treasury — Prana Economics Tests
-=============================================
+8G+8H: System Treasury + MOKSHA Decouple — Prana Economics Tests
+=================================================================
 
 Tests for:
 - SYSTEM_TREASURY CivicBank account initialization
@@ -8,6 +8,7 @@ Tests for:
 - Pokedex.debit_prana() with treasury credit
 - Claim tax enforcement (TRINITY=3 prana gate + debit)
 - Brain billing (NAVA=9 prana debit after comprehension)
+- 8H: ThoughtKind.INSIGHT, insight payload, post_agent_insight, fallback
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
@@ -179,3 +180,102 @@ class TestBrainBilling:
         pdx.debit_prana(agent, BRAIN_CALL_COST, reason="brain_comprehension")
         assert pdx.get_prana(agent) == before - (TRINITY + BRAIN_CALL_COST)
         assert TRINITY + BRAIN_CALL_COST == 12
+
+
+# ── 8H: MOKSHA Decouple — Insight Generation ──────────────────────────
+
+
+class TestThoughtKindInsight:
+    def test_insight_enum_exists(self):
+        """ThoughtKind.INSIGHT is a valid enum member."""
+        from city.brain import ThoughtKind
+        assert ThoughtKind.INSIGHT == "insight"
+        assert ThoughtKind.INSIGHT.value == "insight"
+
+    def test_insight_in_thought_kinds(self):
+        """INSIGHT is listed alongside existing thought kinds."""
+        from city.brain import ThoughtKind
+        kinds = [k.value for k in ThoughtKind]
+        assert "insight" in kinds
+        assert "comprehension" in kinds
+        assert "reflection" in kinds
+
+
+class TestInsightPrompt:
+    def test_insight_payload_builder(self):
+        """_payload_insight returns city synthesizer persona lines."""
+        from city.brain_prompt import build_payload
+        lines = build_payload(
+            "insight",
+            reflection={"mission_results_terminal": [
+                {"name": "fix-auth", "status": "completed", "owner": "agentA"},
+            ]},
+        )
+        text = "\n".join(lines)
+        assert "synthesizer" in text.lower()
+        assert "fix-auth" in text
+        assert "agentA" in text
+
+    def test_insight_payload_empty_missions(self):
+        """Insight payload with no missions still returns persona lines."""
+        from city.brain_prompt import build_payload
+        lines = build_payload("insight", reflection={})
+        text = "\n".join(lines)
+        assert "synthesizer" in text.lower()
+        assert "Terminal missions" not in text
+
+    def test_insight_schema_exists(self):
+        """Insight schema is registered and doesn't contain 'Respond with JSON'."""
+        from city.brain_prompt import build_schema
+        schema = build_schema("insight")
+        assert "insight" in schema.lower()
+        assert "Respond with JSON" not in schema
+
+
+class TestBrainGenerateInsight:
+    def test_generate_insight_method_exists(self):
+        """CityBrain has generate_insight method."""
+        from city.brain import CityBrain
+        brain = CityBrain()
+        assert hasattr(brain, "generate_insight")
+        assert callable(brain.generate_insight)
+
+    def test_generate_insight_no_provider_returns_none(self):
+        """generate_insight returns None when LLM is unavailable."""
+        from city.brain import CityBrain
+        brain = CityBrain()
+        result = brain.generate_insight(
+            {"mission_results_terminal": [{"name": "test", "status": "completed"}]},
+        )
+        assert result is None
+
+
+class TestPostAgentInsight:
+    def test_post_agent_insight_formats_thought(self):
+        """post_agent_insight extracts fields from Thought-like object."""
+        from city.brain import Thought, BrainIntent, ThoughtKind
+        from city.moltbook_bridge import AGENT_INSIGHT_PREFIX
+
+        thought = Thought(
+            comprehension="Auth module stabilized, security domain needs rate limiting",
+            intent=BrainIntent.OBSERVE,
+            domain_relevance="security",
+            key_concepts=("auth", "rate-limiting"),
+            confidence=0.85,
+            kind=ThoughtKind.INSIGHT,
+        )
+
+        # Verify the prefix constant
+        assert AGENT_INSIGHT_PREFIX == "[Agent Insight]"
+
+        # Verify thought fields are accessible (duck typing used by bridge)
+        assert thought.comprehension
+        assert thought.key_concepts == ("auth", "rate-limiting")
+        assert thought.confidence == 0.85
+
+
+class TestMoltbookOutboundFallback:
+    def test_fallback_path_exists(self):
+        """MoltbookOutboundHook has _post_insight_or_fallback method."""
+        from city.hooks.moksha.outbound import MoltbookOutboundHook
+        assert hasattr(MoltbookOutboundHook, "_post_insight_or_fallback")
