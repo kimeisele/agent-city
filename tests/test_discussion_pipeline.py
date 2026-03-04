@@ -657,6 +657,75 @@ def test_suppressed_posts_cap():
     assert len(bm.get_suppressed()) == 50
 
 
+def test_system_health_ok(mock_ctx):
+    """12E: Healthy system produces no issues."""
+    from city.hooks.moksha.system_health import SystemHealthHook
+
+    mock_ctx.pokedex.register("healthy_agent")
+    mock_ctx._reflection = {
+        "economy_stats": {
+            "avg_prana": 5000.0, "dormant_count": 0,
+            "living_agents": 10, "total_prana": 50000,
+        },
+    }
+    mock_ctx.brain = MagicMock()  # Brain is online
+
+    hook = SystemHealthHook()
+    operations: list[str] = []
+    hook.execute(mock_ctx, operations)
+    assert any("system_health:ok" in op for op in operations)
+
+
+def test_system_health_brain_offline(mock_ctx):
+    """12E: Brain offline triggers critical alert."""
+    from city.hooks.moksha.system_health import SystemHealthHook
+
+    mock_ctx.pokedex.register("test_agent")
+    mock_ctx._reflection = {
+        "economy_stats": {
+            "avg_prana": 5000.0, "dormant_count": 0,
+            "living_agents": 10, "total_prana": 50000,
+        },
+    }
+    mock_ctx.brain = None  # Brain is offline
+
+    hook = SystemHealthHook()
+    operations: list[str] = []
+    hook.execute(mock_ctx, operations)
+    assert any("system_health:issues" in op for op in operations)
+
+    reflection = getattr(mock_ctx, "_reflection", {})
+    issues = reflection.get("health_issues", [])
+    assert any(i["system"] == "brain" for i in issues)
+    assert any(i["severity"] == "critical" for i in issues)
+
+
+def test_system_health_economy_warning(mock_ctx):
+    """12E: Low average prana triggers economy warning."""
+    from city.hooks.moksha.system_health import SystemHealthHook
+
+    mock_ctx.pokedex.register("poor_agent")
+    mock_ctx._reflection = {
+        "economy_stats": {
+            "avg_prana": 1500.0, "dormant_count": 1,
+            "living_agents": 5, "total_prana": 7500,
+        },
+    }
+    mock_ctx.brain = MagicMock()
+
+    hook = SystemHealthHook()
+    operations: list[str] = []
+    hook.execute(mock_ctx, operations)
+    assert any("system_health:issues" in op for op in operations)
+
+    reflection = getattr(mock_ctx, "_reflection", {})
+    issues = reflection.get("health_issues", [])
+    assert any(
+        i["system"] == "economy" and i["severity"] == "warning"
+        for i in issues
+    )
+
+
 def test_economy_snapshot(mock_ctx):
     """12C: Pokedex.economy_snapshot() returns aggregate prana stats."""
     mock_ctx.pokedex.register("econ_agent")
