@@ -229,7 +229,22 @@ def build_field_digest(ctx: object) -> str:
     except Exception:
         pass
 
-    # TODO: 10G — digest mission results from Sankalpa
+    # 10G: Mission digests from Sankalpa
+    try:
+        from city.brain_digest import digest_mission_result
+        sankalpa = ctx.sankalpa  # type: ignore[union-attr]
+        if sankalpa is not None and hasattr(sankalpa, "registry"):
+            for m in sankalpa.registry.get_active_missions()[:10]:
+                cells.append(digest_mission_result(
+                    {
+                        "status": m.status.value if hasattr(m.status, "value") else str(getattr(m, "status", "")),
+                        "owner": getattr(m, "owner", "unknown"),
+                        "name": getattr(m, "name", ""),
+                    },
+                    mission_id=getattr(m, "id", "?"),
+                ))
+    except Exception:
+        pass
 
     # 10E: Dynamic budget — adapt field size to remaining prana
     max_chars = 4000  # default
