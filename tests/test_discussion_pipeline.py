@@ -452,6 +452,85 @@ def test_triage_handler_gate(mock_ctx):
     assert handler.should_run(mock_ctx) is True
 
 
+# ── 9D: Dedup + Diversity Tests ────────────────────────────────────
+
+
+def test_per_cycle_thread_dedup(mock_ctx):
+    """9D: Same thread should not be processed twice in one cycle."""
+    from city.karma_handlers.gateway import _handle_discussion_item
+
+    mock_ctx.brain = MagicMock()
+    mock_ctx._responded_threads = {42}  # Already responded to #42
+
+    item = {
+        "discussion_number": 42,
+        "text": "hello",
+        "from_agent": "alice",
+    }
+    operations: list[str] = []
+    _handle_discussion_item(mock_ctx, item, {}, {}, {}, operations)
+    assert any("disc_dedup" in op for op in operations)
+
+
+def test_per_cycle_dedup_allows_new_thread(mock_ctx):
+    """9D: Different thread is NOT deduped."""
+    from city.karma_handlers.gateway import _handle_discussion_item
+
+    mock_ctx._responded_threads = {42}  # Only #42 is deduped
+
+    # Thread #99 should pass dedup gate (will fail later at routing, but not dedup)
+    item = {
+        "discussion_number": 99,
+        "text": "hello",
+        "from_agent": "alice",
+        "comment_id": "c1",
+    }
+    operations: list[str] = []
+    _handle_discussion_item(mock_ctx, item, {}, {}, {}, operations)
+    assert not any("disc_dedup" in op for op in operations)
+
+
+def test_routing_diversity_prefers_new_agents(mock_ctx):
+    """9D: Routing prefers agents who haven't responded this cycle."""
+    from city.karma_handlers.gateway import _route_discussion_to_agent
+
+    mock_ctx.active_agents = {"agent_a", "agent_b"}
+    mock_ctx._responded_threads_agents = {"agent_a"}  # A already responded
+
+    _base = {"domain": "general", "capability_tier": "contributor", "capabilities": ["observe"]}
+    specs = {
+        "agent_a": {"name": "agent_a", **_base},
+        "agent_b": {"name": "agent_b", **_base},
+    }
+
+    name, spec, score = _route_discussion_to_agent(
+        mock_ctx, "observe", specs, {}, discussion_text="test",
+    )
+    # Should prefer agent_b (hasn't responded yet)
+    assert name == "agent_b"
+
+
+def test_routing_diversity_fallback_when_all_responded(mock_ctx):
+    """9D: If all agents responded, still route (don't block)."""
+    from city.karma_handlers.gateway import _route_discussion_to_agent
+
+    mock_ctx.active_agents = {"agent_a"}
+    mock_ctx._responded_threads_agents = {"agent_a"}  # Only agent, already responded
+
+    specs = {
+        "agent_a": {
+            "name": "agent_a", "domain": "general",
+            "capability_tier": "contributor", "capabilities": ["observe"],
+        },
+    }
+
+    name, spec, score = _route_discussion_to_agent(
+        mock_ctx, "observe", specs, {}, discussion_text="test",
+    )
+    # Should still route — fallback to full eligible pool
+    assert name == "agent_a"
+
+
 # ── Action Hint Execution Tests ─────────────────────────────────────
 
 
