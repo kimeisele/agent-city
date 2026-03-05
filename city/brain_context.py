@@ -42,6 +42,8 @@ class ContextSnapshot:
     discussion_activity: dict = None  # type: ignore[assignment]  # {unreplied, total_seen, ...}
     active_missions: tuple[dict, ...] = ()    # [{id, name, status, owner}]
     thread_stats: dict = None  # type: ignore[assignment]  # comment ledger stats
+    # Schritt 8: Heartbeat observer self-diagnosis
+    heartbeat_health: dict = None  # type: ignore[assignment]  # {healthy, anomalies, success_rate, ...}
 
     def __post_init__(self) -> None:
         # Replace None with empty dicts (frozen workaround)
@@ -57,6 +59,8 @@ class ContextSnapshot:
             object.__setattr__(self, "discussion_activity", {})
         if self.thread_stats is None:
             object.__setattr__(self, "thread_stats", {})
+        if self.heartbeat_health is None:
+            object.__setattr__(self, "heartbeat_health", {})
 
 
 # ── Snapshot Diffing ──────────────────────────────────────────────────
@@ -117,6 +121,7 @@ def save_before_snapshot(snapshot: ContextSnapshot, state_dir: Path) -> None:
             "discussion_activity": snapshot.discussion_activity,
             "active_missions": list(snapshot.active_missions),
             "thread_stats": snapshot.thread_stats,
+            "heartbeat_health": snapshot.heartbeat_health,
         }
         path.write_text(json.dumps(data, indent=2))
         logger.debug("Saved before_snapshot to %s", path)
@@ -150,6 +155,7 @@ def load_before_snapshot(state_dir: Path) -> ContextSnapshot | None:
             discussion_activity=data.get("discussion_activity", {}),
             active_missions=tuple(data.get("active_missions", [])),
             thread_stats=data.get("thread_stats", {}),
+            heartbeat_health=data.get("heartbeat_health", {}),
         )
         # Clean up after loading (one-shot: prevents stale reads)
         path.unlink(missing_ok=True)
@@ -495,6 +501,19 @@ def build_context_snapshot(ctx: object) -> ContextSnapshot:
     except Exception:
         pass
 
+    # Schritt 8: Heartbeat observer self-diagnosis
+    heartbeat_health: dict = {}
+    diag = getattr(ctx, "_heartbeat_diagnosis", None)
+    if diag is not None:
+        heartbeat_health = {
+            "healthy": diag.healthy,
+            "success_rate": diag.success_rate,
+            "anomalies": diag.anomalies[:5],
+            "runs_observed": len(diag.recent_runs),
+            "total_discussion_comments": diag.total_comments,
+            "last_discussion_update": diag.last_discussion_update,
+        }
+
     return ContextSnapshot(
         agent_count=total,
         alive_count=active,
@@ -515,4 +534,5 @@ def build_context_snapshot(ctx: object) -> ContextSnapshot:
         discussion_activity=discussion_activity,
         active_missions=tuple(active_missions_data),
         thread_stats=thread_stats,
+        heartbeat_health=heartbeat_health,
     )
