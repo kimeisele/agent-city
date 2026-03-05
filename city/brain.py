@@ -258,6 +258,16 @@ class CityBrain:
         self._available: bool | None = None  # None = not checked yet
         self._model = "deepseek/deepseek-v3.2"
 
+    @property
+    def is_available(self) -> bool:
+        """Whether this Brain has a working LLM provider.
+
+        Forces provider init on first call. External code MUST use this
+        instead of checking `brain is None` — the Brain object always exists
+        but may be brain-dead (NoOp provider).
+        """
+        return self._ensure_provider()
+
     def _ensure_provider(self) -> bool:
         """Lazy init. Returns False if no LLM available."""
         if self._available is not None:

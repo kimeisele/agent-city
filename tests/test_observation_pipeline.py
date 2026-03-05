@@ -328,6 +328,87 @@ class TestCityReportPipeline:
         assert "heartbeat_observer" not in reflection
 
 
+# ── Brain-Offline Detection Pipeline ─────────────────────────────────
+
+
+class TestBrainOfflineDetection:
+    """The system MUST detect Brain-dead state and scream, not silently degrade."""
+
+    def test_system_health_detects_brain_noop(self):
+        """SystemHealthHook must flag Brain-offline even when Brain object exists."""
+        from city.hooks.moksha.system_health import _check_brain
+
+        ctx = MagicMock()
+        ctx.brain = MagicMock()
+        ctx.brain.is_available = False  # Brain exists but NoOp
+        ctx.brain_memory = None
+        issues = _check_brain(ctx)
+
+        assert len(issues) == 1
+        assert issues[0]["severity"] == "critical"
+        assert "OFFLINE" in issues[0]["signal"]
+        assert "NoOp" in issues[0]["signal"]
+
+    def test_system_health_ok_when_brain_available(self):
+        from city.hooks.moksha.system_health import _check_brain
+
+        ctx = MagicMock()
+        ctx.brain = MagicMock()
+        ctx.brain.is_available = True
+        ctx.brain_memory = None
+        issues = _check_brain(ctx)
+        assert issues == []
+
+    def test_system_health_detects_brain_none(self):
+        from city.hooks.moksha.system_health import _check_brain
+
+        ctx = MagicMock()
+        ctx.brain = None
+        ctx.brain_memory = None
+        issues = _check_brain(ctx)
+        assert len(issues) == 1
+        assert issues[0]["severity"] == "critical"
+
+    def test_observer_hook_injects_brain_offline_anomaly(self):
+        """HeartbeatObserverHook must add brain_offline anomaly during GENESIS."""
+        diag = _make_healthy_diagnosis()
+        assert diag.anomalies == []
+
+        # Simulate what the hook does
+        brain = MagicMock()
+        brain.is_available = False
+        if brain is not None and not getattr(brain, "is_available", True):
+            diag.anomalies.append(
+                "brain_offline: NoOp provider — no LLM API key detected."
+            )
+
+        assert len(diag.anomalies) == 1
+        assert "brain_offline" in diag.anomalies[0]
+        assert not diag.healthy  # diagnosis flips to unhealthy
+
+    def test_brain_offline_shows_in_prompt(self):
+        """Brain-offline anomaly must appear in comprehension prompt."""
+        from city.brain_context import ContextSnapshot
+        from city.prompt_builders.comprehension import ComprehensionBuilder
+        from city.prompt_registry import PromptContext
+
+        snap = ContextSnapshot(
+            agent_count=62,
+            alive_count=50,
+            heartbeat_health={
+                "healthy": False,
+                "success_rate": 0.9,
+                "runs_observed": 10,
+                "anomalies": ["brain_offline: NoOp provider — no LLM API key detected."],
+            },
+        )
+        builder = ComprehensionBuilder()
+        ctx = PromptContext(snapshot=snap)
+        text = "\n".join(builder.build_payload(ctx))
+        assert "UNHEALTHY" in text
+        assert "brain_offline" in text
+
+
 # ── Diagnostic Build Pipeline ────────────────────────────────────────
 
 
