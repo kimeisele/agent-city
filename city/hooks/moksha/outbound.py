@@ -98,14 +98,17 @@ class MoltbookOutboundHook(BasePhaseHook):
             )
             reflection["mission_insight_posted"] = insight_posted
 
-        # Smart Heartbeat: skip city update when nothing happened
-        delta = _count_rotation_delta(reflection)
-        if delta > 0:
+        # Smart Heartbeat: skip city update when GovernanceLayer says no report needed
+        from city.governance_layer import get_governance_layer
+
+        governance = get_governance_layer()
+        actions = governance.evaluate_governance_actions(ctx)
+        if actions.should_post_city_report:
             post_data = _build_post_data(ctx, reflection)
             posted = ctx.moltbook_bridge.post_city_update(post_data)
             reflection["moltbook_update_posted"] = posted
         else:
-            operations.append("moltbook_outbound_skipped:no_delta")
+            operations.append("moltbook_outbound_skipped:no_governance_action")
 
         # Moltbook Assistant: reflect on engagement metrics
         if ctx.moltbook_assistant is not None:
