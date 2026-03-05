@@ -53,6 +53,7 @@ SVC_BRAIN_MEMORY = "brain_memory"
 SVC_WIKI_PORTAL = "wiki_portal"
 SVC_THREAD_STATE = "thread_state"
 SVC_CONVERSATION_TRACKER = "conversation_tracker"
+SVC_ROUTER = "router"
 
 
 class CityServiceRegistry:

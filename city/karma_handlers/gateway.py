@@ -775,24 +775,38 @@ def _route_discussion_to_agent(
     diagnostics scoring if resonator unavailable.
     """
     from city.discussions_inbox import INTENT_REQUIREMENTS
-    from city.mission_router import check_capability_gate
 
     reqs = INTENT_REQUIREMENTS.get(intent, INTENT_REQUIREMENTS["observe"])
-    gate_req = {
-        "required": reqs.get("required_caps", []),
-        "preferred": [],
-        "min_tier": "contributor",
-    }
+    required_caps = reqs.get("required_caps", [])
 
-    # Pre-filter: only active agents that pass capability gate
-    eligible_specs: dict[str, dict] = {}
-    for name, spec in all_specs.items():
-        if name not in ctx.active_agents:
-            continue
-        inventory = all_inventories.get(name)
-        if not check_capability_gate(spec, gate_req, inventory):
-            continue
-        eligible_specs[name] = spec
+    # Schritt 4: O(1) pre-filter via CityRouter (Lotus lookup + set intersection)
+    from city.registry import SVC_ROUTER
+    router = ctx.registry.get(SVC_ROUTER) if ctx.registry else None
+
+    if router is not None:
+        # O(1) capability + tier lookup → frozenset of agent names
+        eligible_names = router.agents_for_requirement(
+            required_caps=required_caps, min_tier="contributor",
+        )
+        # Intersect with active agents (O(|active|))
+        eligible_names = eligible_names & ctx.active_agents
+        eligible_specs = {n: all_specs[n] for n in eligible_names if n in all_specs}
+    else:
+        # Fallback: O(n) linear scan (pre-Schritt-4 path)
+        from city.mission_router import check_capability_gate
+        gate_req = {
+            "required": required_caps,
+            "preferred": [],
+            "min_tier": "contributor",
+        }
+        eligible_specs = {}
+        for name, spec in all_specs.items():
+            if name not in ctx.active_agents:
+                continue
+            inventory = all_inventories.get(name)
+            if not check_capability_gate(spec, gate_req, inventory):
+                continue
+            eligible_specs[name] = spec
 
     if not eligible_specs:
         return None, None, -1.0

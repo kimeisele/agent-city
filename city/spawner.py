@@ -38,6 +38,7 @@ class AgentSpawner:
     _cartridge_loader: object = None  # city.cartridge_loader.CityCartridgeLoader
     _cartridge_factory: object = None  # city.cartridge_factory.CartridgeFactory
     _city_builder: object = None  # city.city_builder.CityBuilder
+    _router: object = None  # city.router.CityRouter
     _agent_cartridges: dict[str, str] = field(default_factory=dict)
     _system_agents: list[str] = field(default_factory=list)
     _promoted_total: int = 0
@@ -81,6 +82,9 @@ class AgentSpawner:
                 if self._city_builder is not None:
                     self._city_builder.materialize(agent_name)
 
+                # Index in CityRouter for O(1) routing
+                self._index_agent(agent_name)
+
                 spawned.append(agent_name)
                 logger.info("Spawned system agent: %s → cartridge %s", agent_name, cart_name)
             except Exception as e:
@@ -117,6 +121,9 @@ class AgentSpawner:
                 # Materialize physical agent directory
                 if self._city_builder is not None:
                     self._city_builder.materialize(name)
+
+                # Index in CityRouter for O(1) routing
+                self._index_agent(name)
 
                 promoted.append(name)
                 self._promoted_total += 1
@@ -170,6 +177,9 @@ class AgentSpawner:
             if self._city_builder is not None:
                 self._city_builder.materialize(name)
 
+            # Index in CityRouter for O(1) routing
+            self._index_agent(name)
+
             count += 1
         return count
 
@@ -189,6 +199,14 @@ class AgentSpawner:
             "promoted_total": self._promoted_total,
             "network_registered": self._network_registered,
         }
+
+    def _index_agent(self, name: str) -> None:
+        """Register agent in CityRouter for O(1) capability/domain/tier lookup."""
+        if self._router is None or self._cartridge_factory is None:
+            return
+        spec = self._cartridge_factory.get_spec(name)
+        if spec is not None:
+            self._router.register(name, spec)
 
     def _bind_and_register(self, agent_name: str, cartridge_name: str) -> None:
         """Bind cartridge + register in network (if cell alive)."""
