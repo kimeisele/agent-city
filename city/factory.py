@@ -192,6 +192,7 @@ def default_definitions(
         SVC_DIAGNOSTICS,
         SVC_DISCUSSIONS,
         SVC_ROUTER,
+        SVC_INTENT_EXECUTOR,
         SVC_THREAD_STATE,
         SVC_WIKI_PORTAL,
     )
@@ -260,6 +261,10 @@ def default_definitions(
             ServiceDefinition(
                 name=SVC_ROUTER,
                 factory=lambda ctx: _build_router(),
+            ),
+            ServiceDefinition(
+                name=SVC_INTENT_EXECUTOR,
+                factory=lambda ctx: _build_intent_executor(),
             ),
             ServiceDefinition(
                 name=SVC_CARTRIDGE_FACTORY,
@@ -357,6 +362,12 @@ def _build_router() -> object:
     from city.router import CityRouter
 
     return CityRouter()
+
+
+def _build_intent_executor() -> object:
+    from city.intent_executor import CityIntentExecutor
+
+    return CityIntentExecutor()
 
 
 def _build_reactor() -> object:

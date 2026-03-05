@@ -153,14 +153,19 @@ class ZoneHealthHook(BasePhaseHook):
         if reactor is not None:
             if zones:
                 reactor.record("zone_population", zones=zones)
-            # Detect pain and route via CityAttention
-            from city.registry import SVC_ATTENTION
+            # Detect pain → route via CityAttention → execute via CityIntentExecutor
+            from city.registry import SVC_ATTENTION, SVC_INTENT_EXECUTOR
 
             attention = ctx.registry.get(SVC_ATTENTION)
+            executor = ctx.registry.get(SVC_INTENT_EXECUTOR)
             pain_intents = reactor.detect_pain()
             for intent in pain_intents:
                 handler = attention.route(intent.signal) if attention else None
-                operations.append(f"pain:{intent.signal}:{intent.priority}")
+                if executor is not None:
+                    result = executor.execute(ctx, intent, handler)
+                    operations.append(f"pain:{intent.signal}:{intent.priority}:{result}")
+                else:
+                    operations.append(f"pain:{intent.signal}:{intent.priority}")
                 logger.warning(
                     "DHARMA PAIN: %s (priority=%s, handler=%s, ctx=%s)",
                     intent.signal,
@@ -188,6 +193,11 @@ def _hibernate_low_prana(ctx: PhaseContext, threshold: int) -> list[str]:
         if cell.prana < threshold:
             try:
                 ctx.pokedex.freeze(name, "auto_hibernation:low_prana")
+                # Deindex from CityRouter so frozen agent is not routed to
+                from city.registry import SVC_ROUTER
+                router = ctx.registry.get(SVC_ROUTER) if ctx.registry else None
+                if router is not None:
+                    router.remove(name)
                 hibernated.append(name)
                 logger.info(
                     "DHARMA: Agent %s hibernated (prana=%d < %d)",
