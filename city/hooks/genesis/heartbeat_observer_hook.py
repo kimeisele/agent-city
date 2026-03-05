@@ -53,12 +53,12 @@ class HeartbeatObserverHook(BasePhaseHook):
         from city.heartbeat_observer import HeartbeatObserver
 
         cfg = get_config()
-        repo_full = cfg.get("github", {}).get("repo", "")
-        if not repo_full or "/" not in repo_full:
-            logger.debug("HeartbeatObserver: no github.repo configured, skipping")
+        disc_cfg = cfg.get("discussions", {})
+        owner = disc_cfg.get("owner", "")
+        repo = disc_cfg.get("repo", "")
+        if not owner or not repo:
+            logger.debug("HeartbeatObserver: no discussions.owner/repo configured, skipping")
             return
-
-        owner, repo = repo_full.split("/", 1)
 
         observer = HeartbeatObserver(
             _owner=owner,
