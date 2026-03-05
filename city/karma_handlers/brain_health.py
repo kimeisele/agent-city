@@ -175,6 +175,15 @@ def _execute_critique_hint(
             "BRAIN: %s rejected — confidence %.2f below threshold",
             action.verb.value, confidence,
         )
+        # Track rejection for Brain feedback loop
+        rejected = getattr(ctx, "_rejected_actions", [])
+        rejected.append({
+            "verb": action.verb.value,
+            "target": action.target,
+            "reason": f"confidence {confidence:.2f} below enforcement threshold",
+            "source": "critique",
+        })
+        ctx._rejected_actions = rejected  # type: ignore[attr-defined]
         return
 
     verb = action.verb

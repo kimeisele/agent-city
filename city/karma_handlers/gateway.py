@@ -642,6 +642,15 @@ def _execute_action_hint(
             "KARMA: action_hint '%s' denied for @%s (not citizen/operator)",
             hint[:40], comment_author,
         )
+        # Track rejection for Brain feedback loop
+        rejected = getattr(ctx, "_rejected_actions", [])
+        rejected.append({
+            "verb": hint.split(":")[0] if ":" in hint else hint,
+            "target": hint.split(":", 1)[1][:40] if ":" in hint else "",
+            "reason": f"auth denied for @{comment_author} on #{discussion_number}",
+            "source": "discussion",
+        })
+        ctx._rejected_actions = rejected  # type: ignore[attr-defined]
         return
 
     # Parse into typed action
