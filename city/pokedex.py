@@ -122,6 +122,9 @@ class Pokedex:
         # Lifecycle callbacks: fn(name, from_status, to_status, reason)
         self._on_transition: list = []
 
+        # Stufe 2: Optional PranaEngine cache (set by factory after boot)
+        self._prana_engine: object | None = None
+
         # Initialize system + zone treasuries in the bank
         if self._bank.get_balance(SYSTEM_TREASURY) == 0:
             self._bank.transfer("MINT", SYSTEM_TREASURY, 1, "treasury_genesis", "genesis")
@@ -723,6 +726,10 @@ class Pokedex:
             )
             self._conn.commit()
 
+            # Stufe 2: keep engine cache in sync
+            if self._prana_engine is not None and self._prana_engine.has(name):
+                self._prana_engine.credit(name, amount)
+
             self._record_event(
                 name,
                 "prana_award",
@@ -753,7 +760,12 @@ class Pokedex:
 
         Returns 0 for frozen/archived agents (they can't spend).
         Raises KeyError if agent doesn't exist.
+        Stufe 2: Reads from PranaEngine cache when available.
         """
+        # Stufe 2: memory-first read
+        if self._prana_engine is not None and self._prana_engine.has(name):
+            return self._prana_engine.get(name)
+
         with self._lock:
             cur = self._conn.cursor()
             cur.execute("SELECT prana, status FROM agents WHERE name = ?", (name,))
@@ -798,6 +810,10 @@ class Pokedex:
                 (amount, name),
             )
             self._conn.commit()
+
+            # Stufe 2: keep engine cache in sync
+            if self._prana_engine is not None and self._prana_engine.has(name):
+                self._prana_engine.debit(name, amount)
 
             # Credit SystemTreasury in CivicBank
             try:
