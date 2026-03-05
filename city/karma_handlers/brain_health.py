@@ -263,6 +263,10 @@ def _execute_critique_hint(
             try:
                 reason = getattr(critique, "evidence", "") or "brain_critique"
                 ctx.pokedex.freeze(agent_name, f"quarantine:{reason[:60]}")
+                from city.registry import SVC_ROUTER
+                router = ctx.registry.get(SVC_ROUTER) if ctx.registry else None
+                if router is not None:
+                    router.remove(agent_name)
                 operations.append(f"critique_quarantine:{agent_name}")
                 logger.info("BRAIN: Quarantined agent %s — %s", agent_name, reason[:60])
             except Exception as e:

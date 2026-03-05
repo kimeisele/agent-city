@@ -54,6 +54,7 @@ SVC_WIKI_PORTAL = "wiki_portal"
 SVC_THREAD_STATE = "thread_state"
 SVC_CONVERSATION_TRACKER = "conversation_tracker"
 SVC_ROUTER = "router"
+SVC_INTENT_EXECUTOR = "intent_executor"
 
 
 class CityServiceRegistry:
