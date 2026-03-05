@@ -193,6 +193,7 @@ def default_definitions(
         SVC_DISCUSSIONS,
         SVC_ROUTER,
         SVC_INTENT_EXECUTOR,
+        SVC_PRANA_ENGINE,
         SVC_THREAD_STATE,
         SVC_WIKI_PORTAL,
     )
@@ -265,6 +266,10 @@ def default_definitions(
             ServiceDefinition(
                 name=SVC_INTENT_EXECUTOR,
                 factory=lambda ctx: _build_intent_executor(),
+            ),
+            ServiceDefinition(
+                name=SVC_PRANA_ENGINE,
+                factory=lambda ctx: _build_prana_engine(ctx),
             ),
             ServiceDefinition(
                 name=SVC_CARTRIDGE_FACTORY,
@@ -368,6 +373,22 @@ def _build_intent_executor() -> object:
     from city.intent_executor import CityIntentExecutor
 
     return CityIntentExecutor()
+
+
+def _build_prana_engine(ctx: BuildContext) -> object | None:
+    from city.prana_engine import PranaEngine
+
+    if ctx.pokedex is None:
+        return None
+    engine = PranaEngine()
+    try:
+        conn = ctx.pokedex._conn
+        agent_classes = getattr(ctx.pokedex, "_agent_classes", {})
+        engine.boot(conn, agent_classes)
+    except Exception as e:
+        logger.warning("PranaEngine boot failed: %s", e)
+        return None
+    return engine
 
 
 def _build_reactor() -> object:
