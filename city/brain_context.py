@@ -44,6 +44,8 @@ class ContextSnapshot:
     thread_stats: dict = None  # type: ignore[assignment]  # comment ledger stats
     # Schritt 8: Heartbeat observer self-diagnosis
     heartbeat_health: dict = None  # type: ignore[assignment]  # {healthy, anomalies, success_rate, ...}
+    # Schritt 9: Contract failure diagnostics (structured)
+    contract_diagnostics: tuple[dict, ...] = ()  # [{name, message, details}]
 
     def __post_init__(self) -> None:
         # Replace None with empty dicts (frozen workaround)
@@ -348,13 +350,19 @@ def build_context_snapshot(ctx: object) -> ContextSnapshot:
     except Exception:
         pass
 
-    # Failing contracts
+    # Failing contracts (names + structured diagnostics)
     failing: list[str] = []
+    contract_diags: list[dict] = []
     try:
         contracts = ctx.contracts  # type: ignore[union-attr]
         if contracts is not None:
             for c in contracts.failing():
                 failing.append(c.name)
+                contract_diags.append({
+                    "name": c.name,
+                    "message": getattr(c, "message", ""),
+                    "details": list(getattr(c, "details", []))[:5],
+                })
     except Exception:
         pass
 
@@ -520,6 +528,7 @@ def build_context_snapshot(ctx: object) -> ContextSnapshot:
         dead_count=total - active,
         chain_valid=chain_valid,
         failing_contracts=tuple(failing[:10]),
+        contract_diagnostics=tuple(contract_diags[:5]),
         learning_stats=learning_stats,
         immune_stats=immune_stats,
         council_summary=council_summary,
