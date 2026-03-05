@@ -41,9 +41,11 @@ def _build_registry():
         AgentIntroHook,
         DiscussionScannerHook,
     )
+    from city.hooks.genesis.heartbeat_observer_hook import HeartbeatObserverHook
 
     registry = PhaseHookRegistry()
     registry.register(CensusHook())              # pri=0   setup
+    registry.register(HeartbeatObserverHook())   # pri=5   self-observation
     registry.register(MoltbookFeedScanHook())     # pri=10  discovery
     registry.register(DMInboxHook())              # pri=15  inbox
     registry.register(SubmoltScanHook())           # pri=20  submolt

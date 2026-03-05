@@ -75,6 +75,9 @@ class SystemHealthHook(BasePhaseHook):
         # 4. Thread health
         issues.extend(_check_threads(ctx))
 
+        # 5. Heartbeat observer anomalies (Schritt 8)
+        issues.extend(_check_heartbeat_observer(ctx))
+
         if not issues:
             operations.append("system_health:ok")
             return
@@ -220,6 +223,28 @@ def _check_threads(ctx: PhaseContext) -> list[dict]:
                 })
     except Exception:
         pass
+
+    return issues
+
+
+def _check_heartbeat_observer(ctx: PhaseContext) -> list[dict]:
+    """Surface anomalies from HeartbeatObserver (Schritt 8)."""
+    issues: list[dict] = []
+
+    diag = getattr(ctx, "_heartbeat_diagnosis", None)
+    if diag is None:
+        return issues
+
+    for anomaly in diag.anomalies:
+        severity = "critical" if "crash_loop" in anomaly or "failing" in anomaly else "warning"
+        issues.append({
+            "severity": severity,
+            "system": "observer",
+            "signal": anomaly,
+            "detail": f"Success rate: {diag.success_rate:.0%}, "
+                       f"runs observed: {len(diag.recent_runs)}, "
+                       f"discussions: {diag.total_comments} total comments",
+        })
 
     return issues
 
