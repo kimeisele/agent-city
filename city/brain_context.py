@@ -246,6 +246,26 @@ def build_field_digest(ctx: object) -> str:
     except Exception:
         pass
 
+    # Schritt 2: Rejected BrainActions — Brain learns its commands were denied
+    try:
+        from city.brain_digest import DigestCell as _DC
+        rejected_actions = getattr(ctx, "_rejected_actions", [])
+        if rejected_actions:
+            details = "; ".join(
+                f"{r['verb']}→{r['reason']}"
+                for r in rejected_actions[:5]
+            )
+            cells.append(_DC(
+                source="brain_action",
+                category="rejected_actions",
+                severity="medium",
+                summary=f"{len(rejected_actions)} action(s) rejected: {details}",
+                value=len(rejected_actions),
+                anomaly=True,
+            ))
+    except Exception:
+        pass
+
     # 12D: Suppressed posts — Brain detects its own offline gaps on recovery
     try:
         from city.brain_digest import DigestCell

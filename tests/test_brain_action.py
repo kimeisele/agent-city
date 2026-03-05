@@ -219,3 +219,86 @@ class TestReadOnlyVerbs:
         assert ActionVerb.RETRACT not in READ_ONLY_VERBS
         assert ActionVerb.QUARANTINE not in READ_ONLY_VERBS
         assert ActionVerb.CREATE_MISSION not in READ_ONLY_VERBS
+
+
+# ── SCHEMA_EXTENDED SSOT Tests (Fix 1) ──────────────────────────────
+
+
+class TestSchemaExtendedSSOT:
+    """SCHEMA_EXTENDED must be generated from ActionVerb enum — no drift."""
+
+    def test_all_verbs_in_schema(self):
+        from city.prompt_registry import SCHEMA_EXTENDED
+
+        for verb in ActionVerb:
+            assert verb.value in SCHEMA_EXTENDED, (
+                f"ActionVerb.{verb.name} ({verb.value}) missing from SCHEMA_EXTENDED"
+            )
+
+    def test_no_phantom_verbs(self):
+        """SCHEMA_EXTENDED shouldn't contain verb:target patterns not in ActionVerb."""
+        from city.prompt_registry import SCHEMA_EXTENDED
+
+        # Extract "verb:<target>" patterns — the actual action_hint format
+        import re
+        verb_target = re.findall(r'"([a-z_]+)(?::<[^"]*>)"', SCHEMA_EXTENDED)
+        bare_verbs = re.findall(r'"([a-z_]+)"', SCHEMA_EXTENDED)
+        verb_values = {v.value for v in ActionVerb}
+        # Non-verb field names in the schema
+        _SCHEMA_FIELDS = {"action_hint", "evidence"}
+        for q in verb_target + bare_verbs:
+            if q in _SCHEMA_FIELDS:
+                continue
+            assert q in verb_values, f"Phantom verb '{q}' in SCHEMA_EXTENDED but not in ActionVerb"
+
+    def test_schema_extended_is_string(self):
+        from city.prompt_registry import SCHEMA_EXTENDED
+
+        assert isinstance(SCHEMA_EXTENDED, str)
+        assert len(SCHEMA_EXTENDED) > 50
+
+
+# ── Rejected Actions Feedback Loop Tests (Fix 2) ────────────────────
+
+
+class TestRejectedActionsFeedback:
+    """Rejected BrainActions must surface in Field Digest."""
+
+    def test_low_confidence_enforcement_tracked(self):
+        """Enforcement verb with low confidence is tracked on ctx."""
+        from unittest.mock import MagicMock
+        from city.karma_handlers.brain_health import _execute_critique_hint
+
+        ctx = MagicMock()
+        ctx._rejected_actions = []
+        critique = MagicMock()
+        critique.action_hint = "retract:DC_kwDOTest123"
+        critique.confidence = 0.3  # Below 0.7 threshold
+        critique.evidence = ""
+
+        ops = []
+        _execute_critique_hint(ctx, critique, ops)
+
+        assert len(ctx._rejected_actions) == 1
+        assert ctx._rejected_actions[0]["verb"] == "retract"
+        assert "confidence" in ctx._rejected_actions[0]["reason"]
+        assert any("low_confidence" in op for op in ops)
+
+    def test_high_confidence_enforcement_not_tracked(self):
+        """Enforcement verb with high confidence is NOT tracked as rejected."""
+        from unittest.mock import MagicMock
+        from city.karma_handlers.brain_health import _execute_critique_hint
+
+        ctx = MagicMock()
+        ctx._rejected_actions = []
+        ctx.offline_mode = False
+        ctx.discussions.retract_post.return_value = True
+        critique = MagicMock()
+        critique.action_hint = "retract:DC_kwDOTest123"
+        critique.confidence = 0.85  # Above threshold
+        critique.evidence = "bad quality"
+
+        ops = []
+        _execute_critique_hint(ctx, critique, ops)
+
+        assert len(ctx._rejected_actions) == 0
