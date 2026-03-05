@@ -248,6 +248,9 @@ class CityBrain:
     The brain is a jar. It has no hands, no mouth, no network access.
     It receives structured input and returns structured output.
     The architecture decides what to DO with the output.
+
+    8I: Unified _think() path. Each public method builds a PromptContext
+    and delegates to _think(kind, ctx). No more per-method boilerplate.
     """
 
     def __init__(self) -> None:
@@ -277,6 +280,108 @@ class CityBrain:
             self._available = False
             return False
 
+    # ── Unified Think Path (8I) ────────────────────────────────────────
+
+    def _think(
+        self,
+        kind: str,
+        ctx: PromptContext,
+        *,
+        murali_phase: str = "KARMA",
+        memory: object | None = None,
+        user_message_override: str = "",
+    ) -> Thought | None:
+        """Unified cognition path. All public methods delegate here.
+
+        1. Ensure provider available
+        2. Build header → payload → schema → system prompt (via PromptRegistry)
+        3. Construct messages with builder's user_message (or override)
+        4. Invoke LLM and parse response
+        5. Validate (buddhi gate for health/reflection)
+
+        Returns None on any failure — caller continues deterministic path.
+        """
+        if not self._ensure_provider():
+            return None
+
+        from city.brain_prompt import (
+            build_header,
+            build_payload,
+            build_schema,
+            build_system_prompt,
+            get_prompt_registry,
+        )
+
+        # Collect past thoughts for echo chamber guard
+        past_thoughts = None
+        if memory is not None and hasattr(memory, "recent"):
+            past_thoughts = memory.recent(3)
+
+        snapshot = ctx.snapshot
+        heartbeat = getattr(snapshot, "venu_tick", 0) if snapshot else 0
+
+        header = build_header(
+            heartbeat,
+            snapshot=snapshot,
+            memory=memory,
+            model=self._model,
+            murali_phase=murali_phase,
+        )
+
+        # Build payload via registry (delegates to the correct builder)
+        payload = build_payload(
+            kind,
+            snapshot=snapshot,
+            agent_spec=ctx.agent_spec,
+            gateway_result=ctx.gateway_result,
+            kg_context=ctx.kg_context,
+            signal_reading=ctx.signal_reading,
+            decoded_signal=ctx.decoded_signal,
+            receiver_spec=ctx.receiver_spec,
+            reflection=ctx.reflection,
+            outcome_diff=ctx.outcome_diff,
+            field_summary=ctx.field_summary,
+            past_thoughts=past_thoughts,
+        )
+        schema = build_schema(kind)
+        system_msg = build_system_prompt(header, payload, schema)
+
+        # User message: override or from builder
+        if user_message_override:
+            user_msg = user_message_override
+        else:
+            registry = get_prompt_registry()
+            user_msg = registry.build_user_message(kind, ctx)
+            if not user_msg:
+                user_msg = f"Process this {kind} request."
+
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ]
+
+        thought_kind = ThoughtKind(kind) if kind in ThoughtKind.__members__.values() else ThoughtKind.COMPREHENSION
+        thought = self._invoke_and_parse(messages, kind=thought_kind)
+
+        if thought is not None:
+            self._log_thought(kind, thought)
+
+        return thought
+
+    @staticmethod
+    def _log_thought(kind: str, thought: Thought) -> None:
+        """Consolidated logging for brain thoughts."""
+        logger.info(
+            "Brain %s: intent=%s confidence=%.2f hint=%s concepts=%s",
+            kind,
+            thought.intent.value,
+            thought.confidence,
+            thought.action_hint or "none",
+            list(thought.key_concepts),
+        )
+
+    # ── Public API (backward-compatible thin wrappers) ─────────────────
+
     def comprehend_discussion(
         self,
         discussion_text: str,
@@ -291,89 +396,34 @@ class CityBrain:
         Returns None if: LLM unavailable, timeout, or parse failure.
         Caller continues with deterministic path on None.
         """
-        if not self._ensure_provider():
-            return None
+        from city.prompt_registry import PromptContext
 
-        from city.brain_prompt import (
-            build_header,
-            build_payload,
-            build_schema,
-            build_system_prompt,
-        )
-
-        header = build_header(
-            0, model=self._model, murali_phase="KARMA", snapshot=snapshot,
-        )
-        payload = build_payload(
-            "comprehension",
+        ctx = PromptContext(
             snapshot=snapshot,
             agent_spec=agent_spec,
             gateway_result=gateway_result,
             kg_context=kg_context,
             signal_reading=signal_reading,
         )
-        schema = build_schema("comprehension")
-        system_msg = build_system_prompt(header, payload, schema)
-
-        messages = [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": f"Comprehend this discussion:\n\n{discussion_text[:2000]}"},
-        ]
-
-        thought = self._invoke_and_parse(messages)
-        if thought is not None:
-            logger.info(
-                "Brain comprehended discussion: intent=%s confidence=%.2f "
-                "concepts=%s domain=%s",
-                thought.intent.value,
-                thought.confidence,
-                list(thought.key_concepts),
-                thought.domain_relevance,
-            )
-        return thought
+        return self._think(
+            "comprehension",
+            ctx,
+            user_message_override=f"Comprehend this discussion:\n\n{discussion_text[:2000]}",
+        )
 
     def comprehend_signal(
         self,
         decoded_signal: object,
         receiver_spec: dict,
     ) -> Thought | None:
-        """Brain comprehends why a signal resonates with this receiver.
+        """Brain comprehends why a signal resonates with this receiver."""
+        from city.prompt_registry import PromptContext
 
-        Returns None if unavailable. Used for medium-affinity signals (0.3-0.8)
-        where the deterministic layer can route but can't fully understand.
-        """
-        if not self._ensure_provider():
-            return None
-
-        from city.brain_prompt import (
-            build_header,
-            build_payload,
-            build_schema,
-            build_system_prompt,
-        )
-
-        header = build_header(0, model=self._model, murali_phase="KARMA")
-        payload = build_payload(
-            "signal",
+        ctx = PromptContext(
             decoded_signal=decoded_signal,
             receiver_spec=receiver_spec,
         )
-        schema = build_schema("signal")
-        system_msg = build_system_prompt(header, payload, schema)
-
-        messages = [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": "What does this signal mean for this agent?"},
-        ]
-
-        thought = self._invoke_and_parse(messages)
-        if thought is not None:
-            logger.info(
-                "Brain comprehended signal: intent=%s confidence=%.2f",
-                thought.intent.value,
-                thought.confidence,
-            )
-        return thought
+        return self._think("signal", ctx)
 
     def evaluate_health(
         self,
@@ -382,52 +432,10 @@ class CityBrain:
         memory: object | None = None,
     ) -> Thought | None:
         """Brain evaluates system health. 1 call per KARMA, highest priority."""
-        if not self._ensure_provider():
-            return None
+        from city.prompt_registry import PromptContext
 
-        from city.brain_prompt import (
-            build_header,
-            build_payload,
-            build_schema,
-            build_system_prompt,
-        )
-
-        # Collect past thoughts for echo chamber guard
-        past_thoughts = None
-        if memory is not None and hasattr(memory, "recent"):
-            past_thoughts = memory.recent(3)
-
-        header = build_header(
-            getattr(snapshot, "venu_tick", 0),
-            snapshot=snapshot,
-            memory=memory,
-            model=self._model,
-            murali_phase="KARMA",
-        )
-        payload = build_payload(
-            "health_check",
-            snapshot=snapshot,
-            past_thoughts=past_thoughts,
-        )
-        schema = build_schema("health_check")
-        system_msg = build_system_prompt(header, payload, schema)
-
-        messages = [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": "Evaluate the current system health."},
-        ]
-
-        thought = self._invoke_and_parse(
-            messages, kind=ThoughtKind.HEALTH_CHECK,
-        )
-        if thought is not None:
-            logger.info(
-                "Brain health check: intent=%s confidence=%.2f hint=%s",
-                thought.intent.value,
-                thought.confidence,
-                thought.action_hint or "none",
-            )
-        return thought
+        ctx = PromptContext(snapshot=snapshot)
+        return self._think("health_check", ctx, memory=memory)
 
     def reflect_on_cycle(
         self,
@@ -437,76 +445,14 @@ class CityBrain:
         memory: object | None = None,
     ) -> Thought | None:
         """Brain reflects on what happened this rotation. 1 call per MOKSHA."""
-        if not self._ensure_provider():
-            return None
+        from city.prompt_registry import PromptContext
 
-        from city.brain_prompt import (
-            build_header,
-            build_payload,
-            build_schema,
-            build_system_prompt,
-        )
-
-        # Collect past thoughts for echo chamber guard
-        past_thoughts = None
-        if memory is not None and hasattr(memory, "recent"):
-            past_thoughts = memory.recent(3)
-
-        header = build_header(
-            getattr(snapshot, "venu_tick", 0),
-            snapshot=snapshot,
-            memory=memory,
-            model=self._model,
-            murali_phase="MOKSHA",
-        )
-        payload = build_payload(
-            "reflection",
+        ctx = PromptContext(
             snapshot=snapshot,
             reflection=reflection,
             outcome_diff=reflection.get("outcome_diff"),
-            past_thoughts=past_thoughts,
         )
-        schema = build_schema("reflection")
-        system_msg = build_system_prompt(header, payload, schema)
-
-        # Summarize reflection dict for user message
-        user_parts: list[str] = ["Reflect on this MURALI rotation:"]
-        if reflection.get("learning_stats"):
-            ls = reflection["learning_stats"]
-            user_parts.append(
-                f"Learning: {ls.get('synapses', 0)} synapses, "
-                f"decayed={ls.get('decayed', 0)}, trimmed={ls.get('trimmed', 0)}."
-            )
-        if reflection.get("immune_stats"):
-            ims = reflection["immune_stats"]
-            user_parts.append(
-                f"Immune: {ims.get('heals_attempted', 0)} heals, "
-                f"{ims.get('heals_succeeded', 0)} succeeded."
-            )
-        if reflection.get("mission_results_terminal"):
-            user_parts.append(
-                f"Missions completed: {len(reflection['mission_results_terminal'])}."
-            )
-        events = reflection.get("events_since_last", 0)
-        if events:
-            user_parts.append(f"Events this rotation: {events}.")
-
-        messages = [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": " ".join(user_parts)},
-        ]
-
-        thought = self._invoke_and_parse(
-            messages, kind=ThoughtKind.REFLECTION,
-        )
-        if thought is not None:
-            logger.info(
-                "Brain reflection: intent=%s confidence=%.2f hint=%s",
-                thought.intent.value,
-                thought.confidence,
-                thought.action_hint or "none",
-            )
-        return thought
+        return self._think("reflection", ctx, murali_phase="MOKSHA", memory=memory)
 
     def generate_insight(
         self,
@@ -515,62 +461,14 @@ class CityBrain:
         snapshot: ContextSnapshot | None = None,
         memory: object | None = None,
     ) -> Thought | None:
-        """Brain synthesizes batched terminal missions into a city-wide insight.
+        """Brain synthesizes batched terminal missions into a city-wide insight."""
+        from city.prompt_registry import PromptContext
 
-        Persona: city synthesizer (Mayor/System), not individual agent.
-        Returns None if LLM unavailable or no missions to synthesize.
-        Caller MUST gate on non-empty terminal missions before calling.
-        """
-        if not self._ensure_provider():
-            return None
-
-        from city.brain_prompt import (
-            build_header,
-            build_payload,
-            build_schema,
-            build_system_prompt,
-        )
-
-        past_thoughts = None
-        if memory is not None and hasattr(memory, "recent"):
-            past_thoughts = memory.recent(3)
-
-        header = build_header(
-            getattr(snapshot, "venu_tick", 0) if snapshot else 0,
-            snapshot=snapshot,
-            memory=memory,
-            model=self._model,
-            murali_phase="MOKSHA",
-        )
-        payload = build_payload(
-            "insight",
+        ctx = PromptContext(
             snapshot=snapshot,
             reflection=reflection,
-            past_thoughts=past_thoughts,
         )
-        schema = build_schema("insight")
-        system_msg = build_system_prompt(header, payload, schema)
-
-        missions = reflection.get("mission_results_terminal", [])
-        user_msg = (
-            f"Synthesize an insight from {len(missions)} completed missions "
-            f"this cycle. What did the city learn?"
-        )
-
-        messages = [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": user_msg},
-        ]
-
-        thought = self._invoke_and_parse(messages, kind=ThoughtKind.INSIGHT)
-        if thought is not None:
-            logger.info(
-                "Brain insight: intent=%s confidence=%.2f concepts=%s",
-                thought.intent.value,
-                thought.confidence,
-                list(thought.key_concepts),
-            )
-        return thought
+        return self._think("insight", ctx, murali_phase="MOKSHA", memory=memory)
 
     def critique_field(
         self,
@@ -582,64 +480,14 @@ class CityBrain:
         """Brain critically evaluates the Field (system output quality).
 
         10B: The Brain is the Kshetrajna (Knower of the Field).
-        It receives a BrainDigest field_summary and must:
-        - Evaluate output quality, language, workflow health
-        - Detect agent misbehavior, mechanical patterns, spam
-        - Propose actionable fixes via action_hint
-
-        Returns None if LLM unavailable.
-        Caller provides field_summary from render_field_summary().
         """
-        if not self._ensure_provider():
-            return None
+        from city.prompt_registry import PromptContext
 
-        from city.brain_prompt import (
-            build_header,
-            build_payload,
-            build_schema,
-            build_system_prompt,
-        )
-
-        past_thoughts = None
-        if memory is not None and hasattr(memory, "recent"):
-            past_thoughts = memory.recent(3)
-
-        header = build_header(
-            getattr(snapshot, "venu_tick", 0) if snapshot else 0,
-            snapshot=snapshot,
-            memory=memory,
-            model=self._model,
-            murali_phase="KARMA",
-        )
-        payload = build_payload(
-            "critique",
+        ctx = PromptContext(
             snapshot=snapshot,
             field_summary=field_summary,
-            past_thoughts=past_thoughts,
         )
-        schema = build_schema("critique")
-        system_msg = build_system_prompt(header, payload, schema)
-
-        messages = [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": (
-                "Critically evaluate the Field Summary below. "
-                "Are outputs clean? Is language proper? Are workflows healthy? "
-                "Flag any anomalies and propose fixes.\n\n"
-                f"{field_summary}"
-            )},
-        ]
-
-        thought = self._invoke_and_parse(messages, kind=ThoughtKind.CRITIQUE)
-        if thought is not None:
-            logger.info(
-                "Brain critique: intent=%s confidence=%.2f hint=%s anomalies=%d",
-                thought.intent.value,
-                thought.confidence,
-                thought.action_hint or "none",
-                len(thought.evidence),
-            )
-        return thought
+        return self._think("critique", ctx, memory=memory)
 
     def _invoke_and_parse(
         self,
