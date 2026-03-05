@@ -188,29 +188,69 @@ class DiscussionsOutboundHook(BasePhaseHook):
         if brain_ops:
             reflection["brain_operations"] = list(brain_ops)
 
-        if not ctx.offline_mode:
-            # Smart Heartbeat: only post when something actually happened
-            delta = _count_rotation_delta(reflection)
+        # Schritt 8: Heartbeat observer diagnosis
+        hb_diag = getattr(ctx, "_heartbeat_diagnosis", None)
+        if hb_diag is not None:
+            reflection["heartbeat_observer"] = {
+                "healthy": hb_diag.healthy,
+                "success_rate": hb_diag.success_rate,
+                "runs_observed": len(hb_diag.recent_runs),
+                "anomalies": hb_diag.anomalies[:5],
+                "total_discussion_comments": hb_diag.total_comments,
+            }
 
-            if delta > 0:
+        if not ctx.offline_mode:
+            # Governance Layer: evaluate all governance rules deterministically
+            from city.governance_layer import get_governance_layer
+            
+            governance = get_governance_layer()
+            actions = governance.evaluate_governance_actions(ctx)
+            
+            # Execute governance actions
+            posted_any = False
+            
+            if actions.should_post_city_report:
                 report_posted = ctx.discussions.post_city_report(
                     ctx.heartbeat_count,
                     reflection,
                 )
                 reflection["discussions_report_posted"] = report_posted
+                posted_any = True
+                operations.append("disc_outbound:city_report")
+            
+            if actions.should_post_health_diagnostic:
+                # Health diagnostic already posted by SystemHealthHook if issues found
+                operations.append("disc_outbound:health_diagnostic")
+            
+            # Mission results cross-post (independent of governance rules)
+            mission_results = reflection.get("mission_results_terminal", [])
+            if mission_results:
+                crossposted = ctx.discussions.cross_post_mission_results(mission_results)
+                reflection["discussions_crossposted"] = crossposted
+                if crossposted:
+                    posted_any = True
+                    operations.append("disc_outbound:mission_crosspost")
 
-                mission_results = reflection.get("mission_results_terminal", [])
-                if mission_results:
-                    crossposted = ctx.discussions.cross_post_mission_results(mission_results)
-                    reflection["discussions_crossposted"] = crossposted
-
-                # Pulse to welcome thread
-                pulse_stats = reflection.get("city_stats", {})
-                pulsed = ctx.discussions.post_pulse(ctx.heartbeat_count, pulse_stats)
-                reflection["discussions_pulse_posted"] = pulsed
-                reflection["discussions_pulse_delta"] = delta
-            else:
-                operations.append("disc_outbound_skipped:no_delta")
+            # Pulse to welcome thread (regular heartbeat)
+            pulse_stats = reflection.get("city_stats", {})
+            pulsed = ctx.discussions.post_pulse(ctx.heartbeat_count, pulse_stats)
+            reflection["discussions_pulse_posted"] = pulsed
+            if pulsed:
+                posted_any = True
+                operations.append("disc_outbound:pulse")
+            
+            # Store governance stats in reflection
+            reflection["governance_stats"] = governance.get_governance_stats()
+            reflection["governance_actions"] = {
+                "triggered_rules": len(actions.triggered_rules),
+                "deliberations": len(actions.deliberation_results),
+                "referendums": len(actions.finalized_referendums),
+            }
+            
+            if not posted_any:
+                operations.append("disc_outbound:skipped:no_governance_actions")
+        else:
+            operations.append("disc_outbound:offline_mode")
 
         reflection["discussions"] = ctx.discussions.stats()
 
@@ -245,16 +285,8 @@ class WikiSyncHook(BasePhaseHook):
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _count_rotation_delta(reflection: dict) -> int:
-    """Count real events in this MURALI rotation. 0 = nothing happened."""
-    delta = 0
-    delta += len(reflection.get("mission_results_terminal", []))
-    immune = reflection.get("immune_stats", {})
-    delta += immune.get("heals_attempted", 0)
-    spawner = reflection.get("spawner_stats", {})
-    delta += spawner.get("spawned_this_cycle", 0)
-    delta += len(reflection.get("council_executed", []))
-    return delta
+# _count_rotation_delta removed — replaced by GovernanceLayer CivicProtocol
+# All posting decisions now flow through deterministic rule evaluation
 
 
 def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
