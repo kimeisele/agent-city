@@ -156,25 +156,49 @@ def check_ruff_clean(cwd: Path) -> ContractResult:
 
 
 def check_tests_pass(cwd: Path) -> ContractResult:
-    """Contract: pytest -x -q --tb=no must pass."""
+    """Contract: pytest must pass. Captures structured failure diagnostics."""
     try:
         result = subprocess.run(
-            ["python", "-m", "pytest", "-x", "-q", "--tb=no", str(cwd)],
+            ["python", "-m", "pytest", "-x", "-q", "--tb=line", str(cwd)],
             capture_output=True,
             text=True,
             timeout=get_config().get("contracts", {}).get("pytest_timeout_s", 120),
         )
+        stdout = result.stdout or ""
+        lines = stdout.strip().split("\n")
+
+        # Parse summary line (e.g. "3 failed, 10 passed in 5.2s")
+        summary = lines[-1] if lines else ""
+
         if result.returncode == 0:
             return ContractResult(
                 name="tests_pass",
                 status=ContractStatus.PASSING,
-                message="All tests passed",
+                message=summary or "All tests passed",
             )
+
+        # Extract structured failure details from --tb=line output
+        failures: list[str] = []
+        for line in lines:
+            # --tb=line format: "FAILED tests/test_foo.py::test_bar - AssertionError: ..."
+            if line.startswith("FAILED "):
+                failures.append(line[7:].strip())
+            # Also catch "E   ..." single-line tracebacks
+            elif line.startswith("E ") and len(failures) < 10:
+                # Attach to last failure context
+                pass
+
+        details = failures[:10] if failures else lines[-5:]
+        fail_count = len(failures)
+        msg = f"{fail_count} test(s) failed" if fail_count else "Tests failed"
+        if summary:
+            msg = f"{msg} — {summary}"
+
         return ContractResult(
             name="tests_pass",
             status=ContractStatus.FAILING,
-            message="Tests failed",
-            details=result.stdout.strip().split("\n")[-5:] if result.stdout else [],
+            message=msg,
+            details=details,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         return ContractResult(

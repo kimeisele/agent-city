@@ -73,6 +73,10 @@ class ComprehensionBuilder:
                 lines.append(
                     f"  Failing contracts: {', '.join(ctx.snapshot.failing_contracts[:5])}."
                 )
+                for cd in ctx.snapshot.contract_diagnostics[:3]:
+                    lines.append(f"    [{cd['name']}] {cd.get('message', '')}")
+                    for detail in cd.get("details", [])[:3]:
+                        lines.append(f"      - {detail}")
             if ctx.snapshot.thread_stats:
                 ts = ctx.snapshot.thread_stats
                 lines.append(f"  Discussion threads: {ts.get('total', 0)} comments tracked.")
