@@ -191,6 +191,7 @@ def default_definitions(
         SVC_PATHOGEN_INDEX,
         SVC_DIAGNOSTICS,
         SVC_DISCUSSIONS,
+        SVC_ROUTER,
         SVC_THREAD_STATE,
         SVC_WIKI_PORTAL,
     )
@@ -257,6 +258,10 @@ def default_definitions(
                 factory=lambda ctx: _build_reactor(),
             ),
             ServiceDefinition(
+                name=SVC_ROUTER,
+                factory=lambda ctx: _build_router(),
+            ),
+            ServiceDefinition(
                 name=SVC_CARTRIDGE_FACTORY,
                 factory=lambda ctx: _build_cartridge_factory(ctx),
             ),
@@ -272,7 +277,7 @@ def default_definitions(
             ServiceDefinition(
                 name=SVC_SPAWNER,
                 factory=lambda ctx: _build_spawner(ctx),
-                deps=(SVC_CARTRIDGE_LOADER, SVC_CARTRIDGE_FACTORY, SVC_CITY_BUILDER),
+                deps=(SVC_CARTRIDGE_LOADER, SVC_CARTRIDGE_FACTORY, SVC_CITY_BUILDER, SVC_ROUTER),
             ),
             ServiceDefinition(
                 name=SVC_FEDERATION_NADI,
@@ -346,6 +351,12 @@ def _build_attention() -> object:
     from city.attention import CityAttention
 
     return CityAttention()
+
+
+def _build_router() -> object:
+    from city.router import CityRouter
+
+    return CityRouter()
 
 
 def _build_reactor() -> object:
@@ -549,12 +560,14 @@ def _build_spawner(ctx: BuildContext) -> object | None:
     loader = ctx.registry.get("cartridge_loader")
     factory = ctx.registry.get("cartridge_factory")
     builder = ctx.registry.get("city_builder")
+    router = ctx.registry.get("router")
     return AgentSpawner(
         _pokedex=ctx.pokedex,
         _network=ctx.network,
         _cartridge_loader=loader,
         _cartridge_factory=factory,
         _city_builder=builder,
+        _router=router,
     )
 
 

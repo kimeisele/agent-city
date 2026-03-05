@@ -216,6 +216,7 @@ def route_mission(
     specs: dict[str, dict],
     active_agents: set[str],
     inventories: dict[str, list[dict]] | None = None,
+    router: object | None = None,
 ) -> RoutingResult:
     """Route one mission to the best-fit agent.
 
@@ -224,6 +225,7 @@ def route_mission(
         specs: All agent specs {name: AgentSpec dict}.
         active_agents: Set of currently active agent names.
         inventories: Optional {agent_name: [asset_dicts]} for dynamic capability bypass.
+        router: Optional CityRouter for O(1) pre-filter (Schritt 4).
 
     Returns:
         RoutingResult with best agent, score, or blocked=True.
@@ -234,17 +236,33 @@ def route_mission(
     candidates: list[tuple[str, float]] = []
     blocked_count = 0
 
-    for name, spec in specs.items():
-        if name not in active_agents:
-            continue
+    # Schritt 4: O(1) pre-filter via CityRouter when available
+    if router is not None:
+        eligible_names = router.agents_for_requirement(
+            required_caps=requirement["required"],
+            min_tier=requirement["min_tier"],
+        )
+        eligible_names = eligible_names & active_agents
+        for name in eligible_names:
+            spec = specs.get(name)
+            if spec is None:
+                continue
+            score = score_agent_for_mission(spec, mission_id, requirement)
+            candidates.append((name, score))
+        blocked_count = len(active_agents) - len(eligible_names)
+    else:
+        # Fallback: O(n) linear scan (pre-Schritt-4 path)
+        for name, spec in specs.items():
+            if name not in active_agents:
+                continue
 
-        inventory = inventories.get(name) if inventories else None
-        if not check_capability_gate(spec, requirement, inventory):
-            blocked_count += 1
-            continue
+            inventory = inventories.get(name) if inventories else None
+            if not check_capability_gate(spec, requirement, inventory):
+                blocked_count += 1
+                continue
 
-        score = score_agent_for_mission(spec, mission_id, requirement)
-        candidates.append((name, score))
+            score = score_agent_for_mission(spec, mission_id, requirement)
+            candidates.append((name, score))
 
     if not candidates:
         return RoutingResult(
