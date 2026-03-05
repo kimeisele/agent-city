@@ -149,13 +149,15 @@ def _check_brain(ctx: PhaseContext) -> list[dict]:
     """Check Brain health — offline gaps, suppressed posts."""
     issues: list[dict] = []
 
-    # Brain offline right now
-    if ctx.brain is None:
+    # Brain offline right now — check actual provider availability, not just object existence
+    brain = ctx.brain
+    brain_offline = brain is None or not getattr(brain, "is_available", True)
+    if brain_offline:
         issues.append({
             "severity": "critical",
             "system": "brain",
-            "signal": "Brain is OFFLINE — all agent responses suppressed",
-            "detail": "Kill switch active. No posts until Brain recovers.",
+            "signal": "Brain is OFFLINE — NoOp provider, no LLM API key detected",
+            "detail": "All agent cognition suppressed. Check OPENROUTER_API_KEY / OPENAI_API_KEY secrets.",
         })
 
     # Suppressed posts from recent outage

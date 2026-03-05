@@ -67,6 +67,18 @@ class HeartbeatObserverHook(BasePhaseHook):
 
         diag = observer.observe()
 
+        # Schritt 9: Brain-alive check — detect NoOp provider EARLY
+        brain = ctx.brain
+        if brain is not None and not getattr(brain, "is_available", True):
+            diag.anomalies.append(
+                "brain_offline: NoOp provider — no LLM API key detected. "
+                "All agent cognition is suppressed."
+            )
+            logger.critical(
+                "OBSERVER CRITICAL: Brain is brain-dead (NoOp provider). "
+                "Set OPENROUTER_API_KEY or OPENAI_API_KEY in GitHub Secrets."
+            )
+
         # Store on ctx for downstream hooks
         ctx._heartbeat_diagnosis = diag  # type: ignore[attr-defined]
 
