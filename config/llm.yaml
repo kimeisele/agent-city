@@ -1,0 +1,7 @@
+providers:
+  openrouter:
+    default_model: deepseek/deepseek-v3.2
+    api_key_env: OPENROUTER_API_KEY
+  google:
+    default_model: gemini-2.0-flash
+    api_key_env: GOOGLE_API_KEY
