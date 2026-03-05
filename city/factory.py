@@ -385,6 +385,8 @@ def _build_prana_engine(ctx: BuildContext) -> object | None:
         conn = ctx.pokedex._conn
         agent_classes = getattr(ctx.pokedex, "_agent_classes", {})
         engine.boot(conn, agent_classes)
+        # Wire engine back into Pokedex as cache layer
+        ctx.pokedex._prana_engine = engine
     except Exception as e:
         logger.warning("PranaEngine boot failed: %s", e)
         return None
