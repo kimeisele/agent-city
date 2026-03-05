@@ -146,32 +146,58 @@ def _execute_critique_hint(
 
     Unlike discussion hints, these are system-level (no discussion context).
     The Brain is authorized to act on its own field critique.
+
+    Schritt 2: Uses typed ActionParser instead of startswith() chains.
     """
-    hint = critique.action_hint
+    from city.brain_action import ActionVerb, parse_action_hint
+
+    hint = getattr(critique, "action_hint", "")
     if not hint:
         return
 
-    if hint.startswith("flag_bottleneck:"):
-        domain = hint[len("flag_bottleneck:"):].strip()
+    try:
+        confidence = float(getattr(critique, "confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    action = parse_action_hint(hint, confidence=confidence)
+
+    if action is None:
+        operations.append(f"critique_hint_unknown:{hint[:40]}")
+        return
+
+    # Enforcement verbs require minimum confidence
+    if action.is_enforcement and not action.confidence_sufficient:
+        operations.append(
+            f"critique_hint_low_confidence:{action.verb.value}"
+            f":conf={confidence:.2f}"
+        )
+        logger.info(
+            "BRAIN: %s rejected — confidence %.2f below threshold",
+            action.verb.value, confidence,
+        )
+        return
+
+    verb = action.verb
+
+    if verb == ActionVerb.FLAG_BOTTLENECK:
         if hasattr(ctx, "reactor") and ctx.reactor is not None:
             try:
                 ctx.reactor.emit_pain(
                     source="brain_critique",
                     severity=0.6,
-                    detail=f"Field critique: bottleneck in {domain}",
+                    detail=f"Field critique: bottleneck in {action.target}",
                 )
-                operations.append(f"critique_hint_bottleneck:{domain}")
+                operations.append(action.to_ops_string())
             except Exception as e:
                 logger.warning("Critique hint flag_bottleneck failed: %s", e)
         return
 
-    if hint.startswith("investigate:"):
-        topic = hint[len("investigate:"):].strip()
-        if topic and ctx.sankalpa is not None:
+    if verb == ActionVerb.INVESTIGATE:
+        if action.target and ctx.sankalpa is not None:
             try:
                 from city.missions import create_discussion_mission
                 mission_id = create_discussion_mission(
-                    ctx, 0, f"Brain critique: {topic}", "inquiry",
+                    ctx, 0, f"Brain critique: {action.target}", "inquiry",
                 )
                 if mission_id:
                     operations.append(f"critique_hint_investigate:{mission_id}")
@@ -179,37 +205,35 @@ def _execute_critique_hint(
                 logger.warning("Critique hint investigate failed: %s", e)
         return
 
-    if hint.startswith("check_health:"):
-        domain = hint[len("check_health:"):].strip()
+    if verb == ActionVerb.CHECK_HEALTH:
         if hasattr(ctx, "reactor") and ctx.reactor is not None:
             try:
                 ctx.reactor.emit_pain(
                     source="brain_critique",
                     severity=0.3,
-                    detail=f"Field critique: health check needed for {domain}",
+                    detail=f"Field critique: health check needed for {action.target}",
                 )
             except Exception as e:
                 logger.warning("Critique hint check_health failed: %s", e)
-        operations.append(f"critique_hint_check_health:{domain}")
+        operations.append(action.to_ops_string())
         return
 
-    if hint.startswith("escalate:"):
-        reason = hint[len("escalate:"):].strip()
+    if verb == ActionVerb.ESCALATE:
         if hasattr(ctx, "reactor") and ctx.reactor is not None:
             try:
                 ctx.reactor.emit_pain(
                     source="brain_critique",
                     severity=0.8,
-                    detail=f"ESCALATION from field critique: {reason}",
+                    detail=f"ESCALATION from field critique: {action.target}",
                 )
             except Exception as e:
                 logger.warning("Critique hint escalate failed: %s", e)
-        operations.append(f"critique_hint_escalate:{reason[:40]}")
+        operations.append(action.to_ops_string())
         return
 
     # 12A: Retract a bad post — edit it to [RETRACTED] on GitHub
-    if hint.startswith("retract:"):
-        comment_id = hint[len("retract:"):].strip()
+    if verb == ActionVerb.RETRACT:
+        comment_id = action.target
         if comment_id and ctx.discussions is not None and not ctx.offline_mode:
             try:
                 reason = getattr(critique, "evidence", "") or "quality"
@@ -224,8 +248,8 @@ def _execute_critique_hint(
         return
 
     # 12A: Quarantine an agent — freeze + drain prana
-    if hint.startswith("quarantine:"):
-        agent_name = hint[len("quarantine:"):].strip()
+    if verb == ActionVerb.QUARANTINE:
+        agent_name = action.target
         if agent_name and ctx.pokedex is not None:
             try:
                 reason = getattr(critique, "evidence", "") or "brain_critique"
@@ -236,5 +260,5 @@ def _execute_critique_hint(
                 logger.warning("Critique hint quarantine failed: %s", e)
         return
 
-    # Unknown hint — log for audit trail
-    operations.append(f"critique_hint_unknown:{hint[:40]}")
+    # Verb recognized but no handler — log for audit trail
+    operations.append(f"critique_hint_unhandled:{action.verb.value}")

@@ -853,7 +853,7 @@ def test_action_hint_investigate(mock_ctx):
 
 
 def test_action_hint_unknown_logged(mock_ctx):
-    """Unknown action_hint is logged but doesn't crash."""
+    """Unknown action_hint is rejected at authorization gate (Schritt 2)."""
     from city.karma_handlers.gateway import _execute_action_hint
 
     _make_citizen(mock_ctx)
@@ -866,7 +866,8 @@ def test_action_hint_unknown_logged(mock_ctx):
         mock_ctx, thought, 42, "TestAgent", operations,
         comment_author="CitizenUser",
     )
-    assert any("brain_hint_unknown" in op for op in operations)
+    # Schritt 2: unknown verbs are rejected at auth gate, not let through
+    assert any("brain_hint_denied" in op for op in operations)
 
 
 def test_action_hint_empty_noop(mock_ctx):

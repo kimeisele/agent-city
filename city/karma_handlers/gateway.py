@@ -574,10 +574,9 @@ def _handle_agent_intro(
             operations.append(f"intro_rate_limited:{agent_name}")
 
 
-# 6C-8: Action hints that mutate state require citizen/operator access.
-# Read-only hints are allowed from anyone.
-_READ_ONLY_HINTS = frozenset({"run_status"})
-_READ_ONLY_PREFIXES = ("check_health:",)
+# 6C-9: Track executed action_hints per comment_id to prevent duplicate fires on edits.
+_executed_hints: dict[str, str] = {}  # comment_id → last executed hint
+_EXECUTED_HINTS_MAX = 500
 
 
 def _authorize_action_hint(
@@ -585,16 +584,18 @@ def _authorize_action_hint(
 ) -> bool:
     """Check if comment author is authorized to trigger this action_hint.
 
-    Read-only hints (run_status, check_health) → always allowed.
-    State-mutating hints (create_mission, assign_agent, escalate, etc.) →
-    requires the author to be a registered citizen OR operator.
+    Schritt 2: Uses typed BrainAction.auth_tier instead of hardcoded string sets.
+    PUBLIC tier → always allowed. CITIZEN → needs citizen/operator. OPERATOR → needs operator.
     """
-    # Read-only hints pass unconditionally
-    if hint in _READ_ONLY_HINTS:
+    from city.brain_action import AuthTier, parse_action_hint
+
+    action = parse_action_hint(hint)
+    if action is None:
+        return False  # Unknown verb = rejected
+
+    # PUBLIC (read-only) hints pass unconditionally
+    if action.auth_tier == AuthTier.PUBLIC:
         return True
-    for prefix in _READ_ONLY_PREFIXES:
-        if hint.startswith(prefix):
-            return True
 
     # State-mutating: author must be a citizen or registered operator
     if not author:
@@ -608,11 +609,6 @@ def _authorize_action_hint(
     if operator is not None:
         return True
     return False
-
-
-# 6C-9: Track executed action_hints per comment_id to prevent duplicate fires on edits.
-_executed_hints: dict[str, str] = {}  # comment_id → last executed hint
-_EXECUTED_HINTS_MAX = 500
 
 
 def _execute_action_hint(
@@ -629,7 +625,10 @@ def _execute_action_hint(
 
     6C-8: Authorization-gated — state-mutating hints require citizen/operator.
     6C-9: Edit-dedup — same hint for same comment_id is skipped.
+    Schritt 2: Uses typed ActionParser instead of startswith() chains.
     """
+    from city.brain_action import ActionVerb, parse_action_hint
+
     hint = thought.action_hint
     if not hint:
         return
@@ -643,6 +642,17 @@ def _execute_action_hint(
             "KARMA: action_hint '%s' denied for @%s (not citizen/operator)",
             hint[:40], comment_author,
         )
+        return
+
+    # Parse into typed action
+    try:
+        confidence = float(getattr(thought, "confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    action = parse_action_hint(hint, confidence=confidence)
+
+    if action is None:
+        operations.append(f"brain_hint_unknown:{hint[:40]}:#{discussion_number}")
         return
 
     # 6C-9: Edit dedup — skip if same hint already executed for this comment
@@ -660,91 +670,86 @@ def _execute_action_hint(
                 del _executed_hints[old_key]
         _executed_hints[comment_id] = hint
 
-    if hint.startswith("create_mission:"):
-        desc = hint[len("create_mission:"):].strip()
-        if desc and ctx.sankalpa is not None:
+    ctx_suffix = f"#{discussion_number}"
+    verb = action.verb
+
+    if verb == ActionVerb.CREATE_MISSION:
+        if action.target and ctx.sankalpa is not None:
             from city.missions import create_discussion_mission
             mission_id = create_discussion_mission(
-                ctx, discussion_number, desc, thought.intent.value,
+                ctx, discussion_number, action.target, thought.intent.value,
             )
             if mission_id:
-                operations.append(f"brain_hint_mission:{mission_id}:#{discussion_number}")
-            return
+                operations.append(f"brain_hint_mission:{mission_id}:{ctx_suffix}")
+        return
 
-    if hint.startswith("investigate:"):
-        topic = hint[len("investigate:"):].strip()
-        if topic and ctx.sankalpa is not None:
+    if verb == ActionVerb.INVESTIGATE:
+        if action.target and ctx.sankalpa is not None:
             from city.missions import create_discussion_mission
             mission_id = create_discussion_mission(
-                ctx, discussion_number, f"Investigate: {topic}", "inquiry",
+                ctx, discussion_number, f"Investigate: {action.target}", "inquiry",
             )
             if mission_id:
-                operations.append(f"brain_hint_investigate:{mission_id}:#{discussion_number}")
-            return
+                operations.append(f"brain_hint_investigate:{mission_id}:{ctx_suffix}")
+        return
 
-    if hint.startswith("flag_bottleneck:"):
-        domain = hint[len("flag_bottleneck:"):].strip()
+    if verb == ActionVerb.FLAG_BOTTLENECK:
         if hasattr(ctx, "reactor") and ctx.reactor is not None:
             try:
                 ctx.reactor.emit_pain(
                     source="brain_discussion",
                     severity=0.5,
-                    detail=f"Bottleneck flagged in {domain} from #{discussion_number}",
+                    detail=f"Bottleneck flagged in {action.target} from #{discussion_number}",
                 )
-                operations.append(f"brain_hint_bottleneck:{domain}:#{discussion_number}")
+                operations.append(action.to_ops_string(ctx_suffix))
             except Exception as e:
                 logger.warning("Brain hint flag_bottleneck failed: %s", e)
-            return
-
-    if hint == "run_status":
-        operations.append(f"brain_hint_run_status:#{discussion_number}")
         return
 
-    if hint.startswith("check_health:"):
-        domain = hint[len("check_health:"):].strip()
+    if verb == ActionVerb.RUN_STATUS:
+        operations.append(f"brain_hint_run_status:{ctx_suffix}")
+        return
+
+    if verb == ActionVerb.CHECK_HEALTH:
         if hasattr(ctx, "reactor") and ctx.reactor is not None:
             try:
                 ctx.reactor.emit_pain(
                     source="brain_discussion",
                     severity=0.3,
-                    detail=f"Health check requested for {domain} from #{discussion_number}",
+                    detail=f"Health check requested for {action.target} from #{discussion_number}",
                 )
             except Exception as e:
                 logger.warning("Brain hint check_health failed: %s", e)
-        operations.append(f"brain_hint_check_health:{domain}:#{discussion_number}")
+        operations.append(action.to_ops_string(ctx_suffix))
         return
 
-    if hint.startswith("assign_agent:"):
-        parts = hint[len("assign_agent:"):].split(":", 1)
-        target_agent = parts[0].strip() if parts else ""
-        task_desc = parts[1].strip() if len(parts) > 1 else ""
-        if target_agent and task_desc:
+    if verb == ActionVerb.ASSIGN_AGENT:
+        if action.target and action.detail:
             from city.missions import create_community_mission
             mission_id = create_community_mission(
-                ctx, discussion_number, f"Assigned: {task_desc[:60]}", "propose",
+                ctx, discussion_number, f"Assigned: {action.detail[:60]}", "propose",
             )
             if mission_id:
                 operations.append(
-                    f"brain_hint_assign:{target_agent}:{mission_id}:#{discussion_number}"
+                    f"brain_hint_assign:{action.target}:{mission_id}:{ctx_suffix}"
                 )
         return
 
-    if hint.startswith("escalate:"):
-        reason = hint[len("escalate:"):].strip()
+    if verb == ActionVerb.ESCALATE:
         if hasattr(ctx, "reactor") and ctx.reactor is not None:
             try:
                 ctx.reactor.emit_pain(
                     source="brain_discussion",
                     severity=0.7,
-                    detail=f"Escalation from #{discussion_number}: {reason[:100]}",
+                    detail=f"Escalation from #{discussion_number}: {action.target[:100]}",
                 )
             except Exception as e:
                 logger.warning("Brain hint escalate failed: %s", e)
-        operations.append(f"brain_hint_escalate:{reason[:40]}:#{discussion_number}")
+        operations.append(action.to_ops_string(ctx_suffix))
         return
 
-    # Unknown hint — log but don't fail
-    operations.append(f"brain_hint_unknown:{hint[:40]}:#{discussion_number}")
+    # Verb recognized but no discussion-level handler
+    operations.append(f"brain_hint_unhandled:{action.verb.value}:{ctx_suffix}")
 
 
 def _route_discussion_to_agent(

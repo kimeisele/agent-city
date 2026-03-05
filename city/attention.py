@@ -34,6 +34,13 @@ _BUILTIN_INTENTS: Dict[str, str] = {
     "prana_underflow": "emergency_energy_injection",
 }
 
+# Schritt 2: Brain-originated intent signals (from BrainAction vocabulary).
+# These are typed actions the Brain proposes, routable through CityAttention.
+try:
+    from city.brain_action import BRAIN_INTENT_SIGNALS as _BRAIN_INTENTS
+except ImportError:
+    _BRAIN_INTENTS: Dict[str, str] = {}  # type: ignore[no-redef]
+
 
 # =============================================================================
 # CITY ATTENTION
@@ -53,10 +60,14 @@ class CityAttention:
         self._register_builtins()
 
     def _register_builtins(self) -> None:
-        """Register built-in city intents."""
+        """Register built-in city intents (Reactor pain + Brain actions)."""
         for intent, handler in _BUILTIN_INTENTS.items():
             self._attention.memorize(intent, handler)
-        logger.debug("Registered %d built-in city intents", len(_BUILTIN_INTENTS))
+        for intent, handler in _BRAIN_INTENTS.items():
+            self._attention.memorize(intent, handler)
+        total = len(_BUILTIN_INTENTS) + len(_BRAIN_INTENTS)
+        logger.debug("Registered %d city intents (%d reactor + %d brain)",
+                     total, len(_BUILTIN_INTENTS), len(_BRAIN_INTENTS))
 
     def register(self, intent: str, handler: Any) -> int:
         """Register a custom intent → handler mapping.
