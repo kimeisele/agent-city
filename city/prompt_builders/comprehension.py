@@ -76,6 +76,17 @@ class ComprehensionBuilder:
             if ctx.snapshot.thread_stats:
                 ts = ctx.snapshot.thread_stats
                 lines.append(f"  Discussion threads: {ts.get('total', 0)} comments tracked.")
+            if ctx.snapshot.heartbeat_health:
+                hh = ctx.snapshot.heartbeat_health
+                health_str = "healthy" if hh.get("healthy") else "UNHEALTHY"
+                lines.append(
+                    f"  Heartbeat: {health_str}, "
+                    f"success_rate={hh.get('success_rate', 0):.0%}, "
+                    f"runs={hh.get('runs_observed', 0)}."
+                )
+                anomalies = hh.get("anomalies", [])
+                if anomalies:
+                    lines.append(f"  Anomalies: {'; '.join(anomalies[:3])}.")
 
         if ctx.kg_context:
             lines.append(f"Domain knowledge: {ctx.kg_context[:500]}")
