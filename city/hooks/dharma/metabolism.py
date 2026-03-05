@@ -67,15 +67,31 @@ class MetabolizeHook(BasePhaseHook):
             spawner.mark_citizens_active(ctx.active_agents)
 
         # Metabolize all living agents
+        # Stufe 2: PranaEngine in-memory hot path when available
+        from city.registry import SVC_PRANA_ENGINE, SVC_REACTOR
+
+        engine = ctx.registry.get(SVC_PRANA_ENGINE) if ctx.registry else None
+
         _t0 = time.monotonic()
-        dead = ctx.pokedex.metabolize_all(active_agents=ctx.active_agents)
+        if engine is not None and engine.booted:
+            dormant_names = engine.metabolize_batch(active_agents=ctx.active_agents)
+            engine.flush(ctx.pokedex._conn)
+            dead = []
+            for name in dormant_names:
+                try:
+                    ctx.pokedex.freeze(name, "dormant:prana_exhaustion")
+                    dead.append(name)
+                except Exception as e:
+                    logger.warning("PranaEngine: freeze %s failed: %s", name, e)
+                engine.remove_agent(name)
+        else:
+            dead = ctx.pokedex.metabolize_all(active_agents=ctx.active_agents)
         _metabolize_ms = (time.monotonic() - _t0) * 1000
         for name in dead:
             operations.append(f"dormant:{name}:prana_exhaustion")
             logger.info("DHARMA: Agent %s dormant (prana exhaustion)", name)
 
         # Feed CityReactor with metabolize timing + death count
-        from city.registry import SVC_REACTOR
 
         reactor = ctx.registry.get(SVC_REACTOR)
         if reactor is not None:
