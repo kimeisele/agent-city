@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from city.executor import FixResult, IntentExecutor, PRResult
+from city.heal_executor import FixResult, HealExecutor, PRResult
 
 
 # ── Executor Agent Attribution (7C-2) ──────────────────────────────
@@ -22,7 +22,7 @@ from city.executor import FixResult, IntentExecutor, PRResult
 
 def test_create_fix_pr_dry_run_with_agent_name():
     """7C-2: create_fix_pr includes agent_name in dry_run result."""
-    executor = IntentExecutor(_cwd=Path("/tmp"), _dry_run=True)
+    executor = HealExecutor(_cwd=Path("/tmp"), _dry_run=True)
     fix = FixResult(
         contract_name="ruff_clean",
         success=True,
@@ -38,7 +38,7 @@ def test_create_fix_pr_dry_run_with_agent_name():
 
 def test_create_fix_pr_dry_run_without_agent_name():
     """7C-2: create_fix_pr works without agent_name (backward compat)."""
-    executor = IntentExecutor(_cwd=Path("/tmp"), _dry_run=True)
+    executor = HealExecutor(_cwd=Path("/tmp"), _dry_run=True)
     fix = FixResult(
         contract_name="audit_clean",
         success=True,
@@ -53,7 +53,7 @@ def test_create_fix_pr_dry_run_without_agent_name():
 
 def test_create_fix_pr_returns_none_on_failure():
     """create_fix_pr returns None when fix was not successful."""
-    executor = IntentExecutor(_cwd=Path("/tmp"), _dry_run=True)
+    executor = HealExecutor(_cwd=Path("/tmp"), _dry_run=True)
     fix = FixResult(
         contract_name="ruff_clean",
         success=False,
@@ -64,7 +64,7 @@ def test_create_fix_pr_returns_none_on_failure():
 
 def test_create_fix_pr_returns_none_on_no_files():
     """create_fix_pr returns None when no files changed."""
-    executor = IntentExecutor(_cwd=Path("/tmp"), _dry_run=True)
+    executor = HealExecutor(_cwd=Path("/tmp"), _dry_run=True)
     fix = FixResult(
         contract_name="ruff_clean",
         success=True,

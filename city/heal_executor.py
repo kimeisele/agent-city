@@ -1,6 +1,6 @@
 """
-INTENT EXECUTOR — Action Delegation for HEAL Missions
-=======================================================
+HEAL EXECUTOR — Action Delegation for HEAL Missions
+=====================================================
 
 Maps contract failure names to concrete fix actions.
 Successful fixes produce git branches + commits + PRs via subprocess.
@@ -95,7 +95,7 @@ class PRResult:
 
 
 @dataclass
-class IntentExecutor:
+class HealExecutor:
     """Executes HEAL intents by mapping contract names to fix actions.
 
     _dry_run: When True, skips all subprocess/git calls (for tests).

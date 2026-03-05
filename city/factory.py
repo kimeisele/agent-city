@@ -383,9 +383,9 @@ def _build_contracts(ctx: BuildContext) -> object:
 
 
 def _build_executor(ctx: BuildContext) -> object:
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
-    return IntentExecutor(_cwd=Path.cwd())
+    return HealExecutor(_cwd=Path.cwd())
 
 
 def _build_issues(ctx: BuildContext) -> object:

@@ -485,7 +485,7 @@ def test_auto_vote_and_execute():
     """Open proposals get auto-voted and executed in KARMA."""
     from city.contracts import ContractRegistry, ContractResult, ContractStatus, QualityContract
     from city.council import CityCouncil, ProposalStatus
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
     tmpdir = Path(tempfile.mkdtemp())
     mayor, pdx = _make_mayor(tmpdir)
@@ -511,7 +511,7 @@ def test_auto_vote_and_execute():
         )
     )
     mayor._contracts = registry
-    mayor._executor = IntentExecutor(_cwd=tmpdir, _dry_run=True)
+    mayor._executor = HealExecutor(_cwd=tmpdir, _dry_run=True)
 
     # GENESIS → DHARMA (election + proposal) → KARMA (vote + execute)
     results = mayor.run_cycle(3)
@@ -541,7 +541,7 @@ def test_full_feedback_loop():
     """
     from city.contracts import ContractRegistry, ContractResult, ContractStatus, QualityContract
     from city.council import CityCouncil, ProposalStatus
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
     tmpdir = Path(tempfile.mkdtemp())
 
@@ -581,7 +581,7 @@ def test_full_feedback_loop():
         )
     )
     mayor._contracts = registry
-    mayor._executor = IntentExecutor(_cwd=tmpdir, _dry_run=True)
+    mayor._executor = HealExecutor(_cwd=tmpdir, _dry_run=True)
 
     # Full MURALI rotation
     results = mayor.run_cycle(4)

@@ -18,11 +18,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def test_ruff_fix_runs_subprocess():
     """Ruff fix runs subprocess with correct args."""
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
-    executor = IntentExecutor(_cwd=Path("/tmp/test"))
+    executor = HealExecutor(_cwd=Path("/tmp/test"))
 
-    with patch("city.executor.subprocess.run") as mock_run:
+    with patch("city.heal_executor.subprocess.run") as mock_run:
         # First call: ruff --fix (success)
         # Second call: ruff re-check (success, returncode=0)
         # Third call: git diff --name-only (changed files)
@@ -46,11 +46,11 @@ def test_ruff_fix_runs_subprocess():
 
 def test_ruff_fix_still_failing_escalates():
     """Ruff fix runs but re-check still fails — escalate."""
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
-    executor = IntentExecutor(_cwd=Path("/tmp/test"))
+    executor = HealExecutor(_cwd=Path("/tmp/test"))
 
-    with patch("city.executor.subprocess.run") as mock_run:
+    with patch("city.heal_executor.subprocess.run") as mock_run:
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="", stderr=""),  # ruff --fix
             MagicMock(returncode=1, stdout="test.py:1: F821\n", stderr=""),  # re-check fails
@@ -65,9 +65,9 @@ def test_ruff_fix_still_failing_escalates():
 
 def test_audit_clean_tries_healer_then_escalates():
     """audit_clean attempts CellularHealer, escalates if no match."""
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
-    executor = IntentExecutor(_cwd=Path("/tmp/test"))
+    executor = HealExecutor(_cwd=Path("/tmp/test"))
     # Detail text doesn't match any known remedy → falls through to escalate
     result = executor.execute_heal("audit_clean", ["DriftAuditor: lineage broken"])
 
@@ -77,9 +77,9 @@ def test_audit_clean_tries_healer_then_escalates():
 
 def test_tests_escalate():
     """tests_pass always escalates (cannot auto-fix test failures)."""
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
-    executor = IntentExecutor(_cwd=Path("/tmp/test"))
+    executor = HealExecutor(_cwd=Path("/tmp/test"))
     result = executor.execute_heal("tests_pass", ["FAILED test_foo.py"])
 
     assert result.success is False
@@ -89,9 +89,9 @@ def test_tests_escalate():
 
 def test_unknown_contract_escalates():
     """Unknown contract name escalates."""
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
-    executor = IntentExecutor(_cwd=Path("/tmp/test"))
+    executor = HealExecutor(_cwd=Path("/tmp/test"))
     result = executor.execute_heal("unknown_contract", ["something"])
 
     assert result.success is False
@@ -101,11 +101,11 @@ def test_unknown_contract_escalates():
 
 def test_dry_run_no_subprocess():
     """dry_run=True skips all subprocess calls."""
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
-    executor = IntentExecutor(_cwd=Path("/tmp/test"), _dry_run=True)
+    executor = HealExecutor(_cwd=Path("/tmp/test"), _dry_run=True)
 
-    with patch("city.executor.subprocess.run") as mock_run:
+    with patch("city.heal_executor.subprocess.run") as mock_run:
         result = executor.execute_heal("ruff_clean", ["F811 test.py:1"])
 
     # No subprocess calls in dry_run mode
@@ -132,9 +132,9 @@ def test_cellular_heal_available():
 
 def test_audit_clean_dry_run_uses_healer():
     """audit_clean in dry_run mode confirms healer is available."""
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
-    executor = IntentExecutor(_cwd=Path("/tmp/test"), _dry_run=True)
+    executor = HealExecutor(_cwd=Path("/tmp/test"), _dry_run=True)
     result = executor.execute_heal("audit_clean", ["DriftAuditor: f811 redefinition"])
 
     assert result.contract_name == "audit_clean"
@@ -145,7 +145,7 @@ def test_audit_clean_dry_run_uses_healer():
 
 def test_extract_rule_id_mapping():
     """_extract_rule_id maps audit details to remedy rule_ids."""
-    from city.executor import _extract_rule_id
+    from city.heal_executor import _extract_rule_id
 
     assert _extract_rule_id("TypeAuditor: any_type usage detected") == "any_type_usage"
     assert _extract_rule_id("RuffAuditor: F811 redefinition in module.py") == "f811_redefinition"
@@ -158,9 +158,9 @@ def test_extract_rule_id_mapping():
 
 def test_create_pr_success():
     """Successful fix creates branch, commit, and PR."""
-    from city.executor import FixResult, IntentExecutor
+    from city.heal_executor import FixResult, HealExecutor, PRResult
 
-    executor = IntentExecutor(_cwd=Path("/tmp/test"))
+    executor = HealExecutor(_cwd=Path("/tmp/test"))
 
     fix = FixResult(
         contract_name="ruff_clean",
@@ -171,7 +171,7 @@ def test_create_pr_success():
     )
 
     with patch.object(executor, "_run_git") as mock_git, \
-         patch("city.executor.subprocess.run") as mock_run:
+         patch("city.heal_executor.subprocess.run") as mock_run:
         # git checkout -b → ok
         # git add -A → ok
         # git diff --staged --quiet → returncode=1 (changes exist)
@@ -202,9 +202,9 @@ def test_create_pr_success():
 
 def test_create_pr_no_changes_aborts():
     """No staged changes → no PR created."""
-    from city.executor import FixResult, IntentExecutor
+    from city.heal_executor import FixResult, HealExecutor, PRResult
 
-    executor = IntentExecutor(_cwd=Path("/tmp/test"))
+    executor = HealExecutor(_cwd=Path("/tmp/test"))
 
     fix = FixResult(
         contract_name="ruff_clean",
@@ -232,9 +232,9 @@ def test_create_pr_no_changes_aborts():
 
 def test_create_pr_dry_run():
     """dry_run returns mock PRResult without git calls."""
-    from city.executor import FixResult, IntentExecutor
+    from city.heal_executor import FixResult, HealExecutor, PRResult
 
-    executor = IntentExecutor(_cwd=Path("/tmp/test"), _dry_run=True)
+    executor = HealExecutor(_cwd=Path("/tmp/test"), _dry_run=True)
 
     fix = FixResult(
         contract_name="ruff_clean",
@@ -244,7 +244,7 @@ def test_create_pr_dry_run():
         message="Fixed",
     )
 
-    with patch("city.executor.subprocess.run") as mock_run:
+    with patch("city.heal_executor.subprocess.run") as mock_run:
         pr = executor.create_fix_pr(fix, heartbeat_count=3)
 
     mock_run.assert_not_called()
@@ -288,7 +288,7 @@ def test_karma_executes_heal_on_failing_contract():
         ContractStatus,
         QualityContract,
     )
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
     tmpdir = Path(tempfile.mkdtemp())
 
@@ -305,7 +305,7 @@ def test_karma_executes_heal_on_failing_contract():
         name="ruff_clean", description="Ruff", check=fail_check,
     ))
 
-    executor = IntentExecutor(_cwd=tmpdir, _dry_run=True)
+    executor = HealExecutor(_cwd=tmpdir, _dry_run=True)
     mayor = _make_mayor(tmpdir, _contracts=contracts, _executor=executor)
 
     # Run GENESIS + DHARMA (contracts checked) + KARMA (heal attempted)
@@ -329,7 +329,7 @@ def test_karma_creates_pr_after_fix():
         ContractStatus,
         QualityContract,
     )
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
 
     tmpdir = Path(tempfile.mkdtemp())
 
@@ -347,7 +347,7 @@ def test_karma_creates_pr_after_fix():
     ))
 
     # dry_run executor returns success with files_changed
-    executor = IntentExecutor(_cwd=tmpdir, _dry_run=True)
+    executor = HealExecutor(_cwd=tmpdir, _dry_run=True)
     mayor = _make_mayor(tmpdir, _contracts=contracts, _executor=executor)
 
     results = mayor.run_cycle(3)
@@ -404,7 +404,7 @@ def test_full_rotation_heal_cycle():
         ContractStatus,
         QualityContract,
     )
-    from city.executor import IntentExecutor
+    from city.heal_executor import HealExecutor
     from vibe_core.mahamantra.substrate.sankalpa.will import SankalpaOrchestrator
 
     tmpdir = Path(tempfile.mkdtemp())
@@ -422,7 +422,7 @@ def test_full_rotation_heal_cycle():
         name="audit_clean", description="Audit clean", check=fail_check,
     ))
 
-    executor = IntentExecutor(_cwd=tmpdir, _dry_run=True)
+    executor = HealExecutor(_cwd=tmpdir, _dry_run=True)
     sankalpa = SankalpaOrchestrator(workspace=tmpdir)
 
     mayor = _make_mayor(
