@@ -214,7 +214,7 @@ def default_definitions(
                 ),
                 ServiceDefinition(
                     name=SVC_ISSUES,
-                    factory=lambda ctx: _build_issues(),
+                    factory=lambda ctx: _build_issues(ctx),
                 ),
                 ServiceDefinition(
                     name=SVC_COUNCIL,
