@@ -186,92 +186,17 @@ def _execute_critique_hint(
         ctx._rejected_actions = rejected  # type: ignore[attr-defined]
         return
 
-    verb = action.verb
+    # Schritt 6B: Unified dispatch via CityIntentExecutor
+    from city.registry import SVC_ATTENTION, SVC_INTENT_EXECUTOR
 
-    if verb == ActionVerb.FLAG_BOTTLENECK:
-        if hasattr(ctx, "reactor") and ctx.reactor is not None:
-            try:
-                ctx.reactor.emit_pain(
-                    source="brain_critique",
-                    severity=0.6,
-                    detail=f"Field critique: bottleneck in {action.target}",
-                )
-                operations.append(action.to_ops_string())
-            except Exception as e:
-                logger.warning("Critique hint flag_bottleneck failed: %s", e)
-        return
+    executor = ctx.registry.get(SVC_INTENT_EXECUTOR) if ctx.registry else None
+    attention = ctx.registry.get(SVC_ATTENTION) if ctx.registry else None
 
-    if verb == ActionVerb.INVESTIGATE:
-        if action.target and ctx.sankalpa is not None:
-            try:
-                from city.missions import create_discussion_mission
-                mission_id = create_discussion_mission(
-                    ctx, 0, f"Brain critique: {action.target}", "inquiry",
-                )
-                if mission_id:
-                    operations.append(f"critique_hint_investigate:{mission_id}")
-            except Exception as e:
-                logger.warning("Critique hint investigate failed: %s", e)
-        return
-
-    if verb == ActionVerb.CHECK_HEALTH:
-        if hasattr(ctx, "reactor") and ctx.reactor is not None:
-            try:
-                ctx.reactor.emit_pain(
-                    source="brain_critique",
-                    severity=0.3,
-                    detail=f"Field critique: health check needed for {action.target}",
-                )
-            except Exception as e:
-                logger.warning("Critique hint check_health failed: %s", e)
-        operations.append(action.to_ops_string())
-        return
-
-    if verb == ActionVerb.ESCALATE:
-        if hasattr(ctx, "reactor") and ctx.reactor is not None:
-            try:
-                ctx.reactor.emit_pain(
-                    source="brain_critique",
-                    severity=0.8,
-                    detail=f"ESCALATION from field critique: {action.target}",
-                )
-            except Exception as e:
-                logger.warning("Critique hint escalate failed: %s", e)
-        operations.append(action.to_ops_string())
-        return
-
-    # 12A: Retract a bad post — edit it to [RETRACTED] on GitHub
-    if verb == ActionVerb.RETRACT:
-        comment_id = action.target
-        if comment_id and ctx.discussions is not None and not ctx.offline_mode:
-            try:
-                reason = getattr(critique, "evidence", "") or "quality"
-                retracted = ctx.discussions.retract_post(comment_id, reason=reason)
-                if retracted:
-                    operations.append(f"critique_retract:{comment_id[:20]}")
-                    logger.info("BRAIN: Retracted post %s", comment_id[:20])
-                else:
-                    operations.append(f"critique_retract_failed:{comment_id[:20]}")
-            except Exception as e:
-                logger.warning("Critique hint retract failed: %s", e)
-        return
-
-    # 12A: Quarantine an agent — freeze + drain prana
-    if verb == ActionVerb.QUARANTINE:
-        agent_name = action.target
-        if agent_name and ctx.pokedex is not None:
-            try:
-                reason = getattr(critique, "evidence", "") or "brain_critique"
-                ctx.pokedex.freeze(agent_name, f"quarantine:{reason[:60]}")
-                from city.registry import SVC_ROUTER
-                router = ctx.registry.get(SVC_ROUTER) if ctx.registry else None
-                if router is not None:
-                    router.remove(agent_name)
-                operations.append(f"critique_quarantine:{agent_name}")
-                logger.info("BRAIN: Quarantined agent %s — %s", agent_name, reason[:60])
-            except Exception as e:
-                logger.warning("Critique hint quarantine failed: %s", e)
-        return
-
-    # Verb recognized but no handler — log for audit trail
-    operations.append(f"critique_hint_unhandled:{action.verb.value}")
+    if executor is not None:
+        evidence = getattr(critique, "evidence", "") or ""
+        intent = action.to_city_intent(source="critique", detail=evidence[:60])
+        handler_name = attention.route(intent.signal) if attention else None
+        result = executor.execute(ctx, intent, handler_name)
+        operations.append(f"critique_action:{action.verb.value}:{result}")
+    else:
+        operations.append(f"critique_hint_unhandled:{action.verb.value}")

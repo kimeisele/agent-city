@@ -75,18 +75,24 @@ def mock_discussions():
 def mock_ctx(tmp, pokedex, thread_state, brain_memory, conversation_tracker, mock_discussions):
     """Build a mock PhaseContext with real Pokedex + ThreadState + BrainMemory."""
     from city.registry import (
+        SVC_ATTENTION,
         SVC_BRAIN_MEMORY,
         SVC_CONVERSATION_TRACKER,
         SVC_DISCUSSIONS,
+        SVC_INTENT_EXECUTOR,
         SVC_THREAD_STATE,
         CityServiceRegistry,
     )
+    from city.attention import CityAttention
+    from city.intent_executor import CityIntentExecutor
 
     registry = CityServiceRegistry()
     registry.register(SVC_THREAD_STATE, thread_state)
     registry.register(SVC_BRAIN_MEMORY, brain_memory)
     registry.register(SVC_DISCUSSIONS, mock_discussions)
     registry.register(SVC_CONVERSATION_TRACKER, conversation_tracker)
+    registry.register(SVC_ATTENTION, CityAttention())
+    registry.register(SVC_INTENT_EXECUTOR, CityIntentExecutor())
 
     ctx = MagicMock()
     ctx.pokedex = pokedex
@@ -546,7 +552,7 @@ def test_critique_hint_retract(mock_ctx, mock_discussions):
 
     operations: list[str] = []
     _execute_critique_hint(mock_ctx, critique, operations)
-    assert any("critique_retract" in op for op in operations)
+    assert any("retract" in op and "retracted" in op for op in operations)
     mock_discussions.retract_post.assert_called_once()
 
 
@@ -561,7 +567,7 @@ def test_critique_hint_retract_offline(mock_ctx):
 
     operations: list[str] = []
     _execute_critique_hint(mock_ctx, critique, operations)
-    assert not any("critique_retract" in op for op in operations)
+    assert not any("retracted:DC" in op for op in operations)
 
 
 def test_critique_hint_quarantine(mock_ctx):
@@ -576,7 +582,7 @@ def test_critique_hint_quarantine(mock_ctx):
 
     operations: list[str] = []
     _execute_critique_hint(mock_ctx, critique, operations)
-    assert any("critique_quarantine" in op for op in operations)
+    assert any("quarantine" in op and "quarantined" in op for op in operations)
 
     # Verify agent is frozen
     agent = mock_ctx.pokedex.get("bad_agent")
@@ -828,7 +834,7 @@ def test_action_hint_create_mission(mock_ctx):
         mock_ctx, thought, 42, "TestAgent", operations,
         comment_author="CitizenUser",
     )
-    assert any("brain_hint_mission" in op for op in operations)
+    assert any("brain_action:create_mission" in op for op in operations)
 
 
 def test_action_hint_investigate(mock_ctx):
@@ -849,7 +855,7 @@ def test_action_hint_investigate(mock_ctx):
         mock_ctx, thought, 42, "TestAgent", operations,
         comment_author="CitizenUser",
     )
-    assert any("brain_hint_investigate" in op for op in operations)
+    assert any("brain_action:investigate" in op for op in operations)
 
 
 def test_action_hint_unknown_logged(mock_ctx):
@@ -899,7 +905,7 @@ def test_action_hint_denied_for_unknown_user(mock_ctx):
         comment_author="RandomUser",
     )
     assert any("brain_hint_denied" in op for op in operations)
-    assert not any("brain_hint_mission" in op for op in operations)
+    assert not any("brain_action:create_mission" in op for op in operations)
 
 
 def test_action_hint_readonly_allowed_for_anyone(mock_ctx):
@@ -916,7 +922,7 @@ def test_action_hint_readonly_allowed_for_anyone(mock_ctx):
         mock_ctx, thought, 42, "TestAgent", operations,
         comment_author="AnyoneAtAll",
     )
-    assert any("brain_hint_run_status" in op for op in operations)
+    assert any("brain_action:run_status" in op for op in operations)
     assert not any("denied" in op for op in operations)
 
 
@@ -942,7 +948,7 @@ def test_action_hint_edit_dedup(mock_ctx):
         mock_ctx, thought, 42, "TestAgent", ops1,
         comment_author="CitizenUser", comment_id="comment_abc",
     )
-    assert any("brain_hint_mission" in op for op in ops1)
+    assert any("brain_action:create_mission" in op for op in ops1)
 
     # Second fire with same comment_id + same hint: should dedup
     ops2 = []
@@ -951,7 +957,7 @@ def test_action_hint_edit_dedup(mock_ctx):
         comment_author="CitizenUser", comment_id="comment_abc",
     )
     assert any("brain_hint_dedup" in op for op in ops2)
-    assert not any("brain_hint_mission" in op for op in ops2)
+    assert not any("brain_action:create_mission" in op for op in ops2)
 
     # Third fire with same comment_id + DIFFERENT hint: should execute (not dedup)
     thought2 = MagicMock()
@@ -963,7 +969,7 @@ def test_action_hint_edit_dedup(mock_ctx):
         mock_ctx, thought2, 42, "TestAgent", ops3,
         comment_author="CitizenUser", comment_id="comment_abc",
     )
-    assert any("brain_hint_investigate" in op for op in ops3)
+    assert any("brain_action:investigate" in op for op in ops3)
     assert not any("dedup" in op for op in ops3)
 
 

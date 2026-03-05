@@ -193,11 +193,6 @@ def _hibernate_low_prana(ctx: PhaseContext, threshold: int) -> list[str]:
         if cell.prana < threshold:
             try:
                 ctx.pokedex.freeze(name, "auto_hibernation:low_prana")
-                # Deindex from CityRouter so frozen agent is not routed to
-                from city.registry import SVC_ROUTER
-                router = ctx.registry.get(SVC_ROUTER) if ctx.registry else None
-                if router is not None:
-                    router.remove(name)
                 hibernated.append(name)
                 logger.info(
                     "DHARMA: Agent %s hibernated (prana=%d < %d)",
