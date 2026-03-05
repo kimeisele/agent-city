@@ -572,6 +572,19 @@ def _build_spawner(ctx: BuildContext) -> object | None:
     factory = ctx.registry.get("cartridge_factory")
     builder = ctx.registry.get("city_builder")
     router = ctx.registry.get("router")
+
+    # Schritt 6A: Lifecycle callback — Router stays in sync with Pokedex transitions
+    if router is not None and factory is not None and ctx.pokedex is not None:
+        def _on_transition(name, from_status, to_status, reason):
+            if to_status in ("frozen", "archived", "exiled"):
+                router.remove(name)
+            elif to_status == "active" and from_status == "frozen":
+                spec = factory.get_spec(name)
+                if spec is not None:
+                    router.register(name, spec)
+        ctx.pokedex.on_transition(_on_transition)
+        logger.info("CityRouter: lifecycle callback wired to Pokedex")
+
     return AgentSpawner(
         _pokedex=ctx.pokedex,
         _network=ctx.network,

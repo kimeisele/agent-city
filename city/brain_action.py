@@ -138,6 +138,25 @@ class BrainAction:
         """
         return f"brain:{self.verb.value}"
 
+    def to_city_intent(self, source: str = "brain", **extra_context) -> "CityIntent":
+        """Convert to a CityIntent for unified executor dispatch.
+
+        Schritt 6B: Bridges BrainAction → CityIntent → CityIntentExecutor.
+        """
+        from city.reactor import CityIntent
+        ctx = {
+            "target": self.target,
+            "detail": self.detail,
+            "source": source,
+            "confidence": self.source_confidence,
+        }
+        ctx.update(extra_context)
+        return CityIntent(
+            signal=self.to_city_intent_signal(),
+            priority="high" if self.is_enforcement else "normal",
+            context=ctx,
+        )
+
     def to_ops_string(self, context_suffix: str = "") -> str:
         """Format for operations log."""
         parts = [f"brain_action:{self.verb.value}"]

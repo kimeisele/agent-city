@@ -679,86 +679,24 @@ def _execute_action_hint(
                 del _executed_hints[old_key]
         _executed_hints[comment_id] = hint
 
-    ctx_suffix = f"#{discussion_number}"
-    verb = action.verb
+    # Schritt 6B: Unified dispatch via CityIntentExecutor
+    from city.registry import SVC_ATTENTION, SVC_INTENT_EXECUTOR
 
-    if verb == ActionVerb.CREATE_MISSION:
-        if action.target and ctx.sankalpa is not None:
-            from city.missions import create_discussion_mission
-            mission_id = create_discussion_mission(
-                ctx, discussion_number, action.target, thought.intent.value,
-            )
-            if mission_id:
-                operations.append(f"brain_hint_mission:{mission_id}:{ctx_suffix}")
-        return
+    executor = ctx.registry.get(SVC_INTENT_EXECUTOR) if ctx.registry else None
+    attention = ctx.registry.get(SVC_ATTENTION) if ctx.registry else None
 
-    if verb == ActionVerb.INVESTIGATE:
-        if action.target and ctx.sankalpa is not None:
-            from city.missions import create_discussion_mission
-            mission_id = create_discussion_mission(
-                ctx, discussion_number, f"Investigate: {action.target}", "inquiry",
-            )
-            if mission_id:
-                operations.append(f"brain_hint_investigate:{mission_id}:{ctx_suffix}")
-        return
-
-    if verb == ActionVerb.FLAG_BOTTLENECK:
-        if hasattr(ctx, "reactor") and ctx.reactor is not None:
-            try:
-                ctx.reactor.emit_pain(
-                    source="brain_discussion",
-                    severity=0.5,
-                    detail=f"Bottleneck flagged in {action.target} from #{discussion_number}",
-                )
-                operations.append(action.to_ops_string(ctx_suffix))
-            except Exception as e:
-                logger.warning("Brain hint flag_bottleneck failed: %s", e)
-        return
-
-    if verb == ActionVerb.RUN_STATUS:
-        operations.append(f"brain_hint_run_status:{ctx_suffix}")
-        return
-
-    if verb == ActionVerb.CHECK_HEALTH:
-        if hasattr(ctx, "reactor") and ctx.reactor is not None:
-            try:
-                ctx.reactor.emit_pain(
-                    source="brain_discussion",
-                    severity=0.3,
-                    detail=f"Health check requested for {action.target} from #{discussion_number}",
-                )
-            except Exception as e:
-                logger.warning("Brain hint check_health failed: %s", e)
-        operations.append(action.to_ops_string(ctx_suffix))
-        return
-
-    if verb == ActionVerb.ASSIGN_AGENT:
-        if action.target and action.detail:
-            from city.missions import create_community_mission
-            mission_id = create_community_mission(
-                ctx, discussion_number, f"Assigned: {action.detail[:60]}", "propose",
-            )
-            if mission_id:
-                operations.append(
-                    f"brain_hint_assign:{action.target}:{mission_id}:{ctx_suffix}"
-                )
-        return
-
-    if verb == ActionVerb.ESCALATE:
-        if hasattr(ctx, "reactor") and ctx.reactor is not None:
-            try:
-                ctx.reactor.emit_pain(
-                    source="brain_discussion",
-                    severity=0.7,
-                    detail=f"Escalation from #{discussion_number}: {action.target[:100]}",
-                )
-            except Exception as e:
-                logger.warning("Brain hint escalate failed: %s", e)
-        operations.append(action.to_ops_string(ctx_suffix))
-        return
-
-    # Verb recognized but no discussion-level handler
-    operations.append(f"brain_hint_unhandled:{action.verb.value}:{ctx_suffix}")
+    if executor is not None:
+        # Enrich intent with discussion context
+        intent = action.to_city_intent(
+            source="discussion",
+            discussion_number=discussion_number,
+            intent_type=getattr(thought, "intent", None) and thought.intent.value or "observe",
+        )
+        handler_name = attention.route(intent.signal) if attention else None
+        result = executor.execute(ctx, intent, handler_name)
+        operations.append(f"brain_action:{action.verb.value}:{result}:#{discussion_number}")
+    else:
+        operations.append(f"brain_hint_unhandled:{action.verb.value}:#{discussion_number}")
 
 
 def _route_discussion_to_agent(

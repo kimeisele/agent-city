@@ -105,6 +105,16 @@ class CityIntentExecutor:
             )
             return f"error:{handler_name}:{e}"
 
+    def execute_brain_action(self, ctx: Any, action: Any, attention: Any = None) -> str:
+        """Unified dispatch for BrainActions.
+
+        Schritt 6B: Single entry point for both gateway + brain_health.
+        BrainAction → CityIntent → CityAttention.route() → execute().
+        """
+        intent = action.to_city_intent()
+        handler_name = attention.route(intent.signal) if attention else None
+        return self.execute(ctx, intent, handler_name)
+
     def execute_batch(self, ctx: Any, intents_and_handlers: list[tuple[Any, str | None]]) -> list[str]:
         """Execute multiple intents at once."""
         return [self.execute(ctx, intent, handler) for intent, handler in intents_and_handlers]
@@ -121,12 +131,24 @@ class CityIntentExecutor:
 
     def _register_builtins(self) -> None:
         """Register handlers for all _BUILTIN_INTENTS from attention.py."""
+        # Reactor pain handlers
         self.register("upgrade_prana_engine", _handle_upgrade_prana_engine)
         self.register("spawn_agents", _handle_spawn_agents)
         self.register("investigate_prana_drain", _handle_investigate_prana_drain)
         self.register("create_healing_mission", _handle_create_healing_mission)
         self.register("scale_down_cycles", _handle_scale_down_cycles)
         self.register("emergency_energy_injection", _handle_emergency_energy_injection)
+
+        # Brain action handlers (Schritt 6B: unified dispatch)
+        self.register("handle_brain_flag_bottleneck", _handle_brain_flag_bottleneck)
+        self.register("handle_brain_check_health", _handle_brain_check_health)
+        self.register("handle_brain_investigate", _handle_brain_investigate)
+        self.register("handle_brain_create_mission", _handle_brain_create_mission)
+        self.register("handle_brain_assign_agent", _handle_brain_assign_agent)
+        self.register("handle_brain_escalate", _handle_brain_escalate)
+        self.register("handle_brain_retract", _handle_brain_retract)
+        self.register("handle_brain_quarantine", _handle_brain_quarantine)
+        self.register("handle_brain_run_status", _handle_brain_run_status)
 
 
 # =============================================================================
@@ -204,7 +226,7 @@ def _handle_scale_down_cycles(ctx: Any, intent: Any) -> str:
     return "scale_down_recommended"
 
 
-def _handle_emergency_energy_injection(ctx: Any, intent: Any) -> str:
+def _handle_emergency_energy_injection(ctx: Any, intent: Any) -> str:  # noqa: E302
     """prana_underflow → inject emergency prana from treasury."""
     if ctx.pokedex is None:
         return "skip:no_pokedex"
@@ -223,3 +245,144 @@ def _handle_emergency_energy_injection(ctx: Any, intent: Any) -> str:
         return f"injection_failed:{e}"
 
     return f"injected:{injected}_agents"
+
+
+# =============================================================================
+# BRAIN ACTION HANDLERS (Schritt 6B: unified dispatch)
+# =============================================================================
+# These handlers execute BrainActions routed via CityAttention.
+# Intent.context carries the BrainAction fields: verb, target, detail, source.
+
+
+def _handle_brain_flag_bottleneck(ctx: Any, intent: Any) -> str:
+    """Brain flagged a bottleneck → emit reactor pain signal."""
+    target = intent.context.get("target", "unknown")
+    source = intent.context.get("source", "brain")
+    if hasattr(ctx, "reactor") and ctx.reactor is not None:
+        try:
+            ctx.reactor.emit_pain(
+                source=f"brain_{source}",
+                severity=0.5,
+                detail=f"Bottleneck flagged: {target}",
+            )
+            return f"bottleneck_flagged:{target}"
+        except Exception as e:
+            return f"error:flag_bottleneck:{e}"
+    return f"logged:bottleneck:{target}"
+
+
+def _handle_brain_check_health(ctx: Any, intent: Any) -> str:
+    """Brain requested health check → emit reactor pain signal."""
+    target = intent.context.get("target", "unknown")
+    if hasattr(ctx, "reactor") and ctx.reactor is not None:
+        try:
+            ctx.reactor.emit_pain(
+                source="brain_health_check",
+                severity=0.3,
+                detail=f"Health check requested for {target}",
+            )
+        except Exception:
+            pass
+    return f"health_check:{target}"
+
+
+def _handle_brain_investigate(ctx: Any, intent: Any) -> str:
+    """Brain wants investigation → create investigation mission."""
+    target = intent.context.get("target", "unknown")
+    discussion_number = intent.context.get("discussion_number", 0)
+    if target and ctx.sankalpa is not None:
+        try:
+            from city.missions import create_discussion_mission
+            mission_id = create_discussion_mission(
+                ctx, discussion_number, f"Investigate: {target}", "inquiry",
+            )
+            if mission_id:
+                return f"investigate_mission:{mission_id}"
+        except Exception as e:
+            return f"error:investigate:{e}"
+    return f"logged:investigate:{target}"
+
+
+def _handle_brain_create_mission(ctx: Any, intent: Any) -> str:
+    """Brain wants to create a mission."""
+    target = intent.context.get("target", "")
+    discussion_number = intent.context.get("discussion_number", 0)
+    intent_type = intent.context.get("intent_type", "propose")
+    if target and ctx.sankalpa is not None:
+        try:
+            from city.missions import create_discussion_mission
+            mission_id = create_discussion_mission(
+                ctx, discussion_number, target, intent_type,
+            )
+            if mission_id:
+                return f"mission_created:{mission_id}"
+        except Exception as e:
+            return f"error:create_mission:{e}"
+    return f"logged:create_mission:{target[:40]}"
+
+
+def _handle_brain_assign_agent(ctx: Any, intent: Any) -> str:
+    """Brain wants to assign an agent to a task."""
+    target = intent.context.get("target", "")
+    detail = intent.context.get("detail", "")
+    discussion_number = intent.context.get("discussion_number", 0)
+    if target and detail:
+        try:
+            from city.missions import create_community_mission
+            mission_id = create_community_mission(
+                ctx, discussion_number, f"Assigned: {detail[:60]}", "propose",
+            )
+            if mission_id:
+                return f"assigned:{target}:{mission_id}"
+        except Exception as e:
+            return f"error:assign_agent:{e}"
+    return f"logged:assign:{target}"
+
+
+def _handle_brain_escalate(ctx: Any, intent: Any) -> str:
+    """Brain escalates an issue → emit high-severity reactor pain."""
+    target = intent.context.get("target", "unknown")
+    source = intent.context.get("source", "brain")
+    if hasattr(ctx, "reactor") and ctx.reactor is not None:
+        try:
+            ctx.reactor.emit_pain(
+                source=f"brain_{source}",
+                severity=0.7,
+                detail=f"Escalation: {target[:100]}",
+            )
+        except Exception:
+            pass
+    return f"escalated:{target[:40]}"
+
+
+def _handle_brain_retract(ctx: Any, intent: Any) -> str:
+    """Brain wants to retract a bad post."""
+    comment_id = intent.context.get("target", "")
+    reason = intent.context.get("detail", "quality")
+    if comment_id and ctx.discussions is not None and not getattr(ctx, "offline_mode", False):
+        try:
+            retracted = ctx.discussions.retract_post(comment_id, reason=reason)
+            if retracted:
+                return f"retracted:{comment_id[:20]}"
+            return f"retract_failed:{comment_id[:20]}"
+        except Exception as e:
+            return f"error:retract:{e}"
+    return f"logged:retract:{comment_id[:20]}"
+
+
+def _handle_brain_quarantine(ctx: Any, intent: Any) -> str:
+    """Brain wants to quarantine an agent."""
+    agent_name = intent.context.get("target", "")
+    reason = intent.context.get("detail", "brain_action")
+    if agent_name and ctx.pokedex is not None:
+        try:
+            ctx.pokedex.freeze(agent_name, f"quarantine:{reason[:60]}")
+            return f"quarantined:{agent_name}"
+        except Exception as e:
+            return f"error:quarantine:{e}"
+    return f"logged:quarantine:{agent_name}"
+
+
+def _handle_brain_run_status(ctx: Any, intent: Any) -> str:
+    """Brain requested status — read-only, just acknowledge."""
+    return "status_acknowledged"

@@ -119,6 +119,9 @@ class Pokedex:
         self._constitution_path = Path(constitution_path or "docs/CONSTITUTION.md")
         self._constitution_hash = self._compute_constitution_hash()
 
+        # Lifecycle callbacks: fn(name, from_status, to_status, reason)
+        self._on_transition: list = []
+
         # Initialize system + zone treasuries in the bank
         if self._bank.get_balance(SYSTEM_TREASURY) == 0:
             self._bank.transfer("MINT", SYSTEM_TREASURY, 1, "treasury_genesis", "genesis")
@@ -1244,6 +1247,10 @@ class Pokedex:
 
     # ── Internal ──────────────────────────────────────────────────────
 
+    def on_transition(self, callback) -> None:
+        """Register a lifecycle callback: fn(name, from_status, to_status, reason)."""
+        self._on_transition.append(callback)
+
     def _transition(self, name: str, from_status: str, to_status: str, reason: str) -> dict:
         """Execute a lifecycle transition with event recording."""
         now = datetime.now(timezone.utc).isoformat()
@@ -1254,6 +1261,12 @@ class Pokedex:
         )
         self._record_event(name, f"transition_{to_status}", from_status, to_status, reason)
         self._conn.commit()
+        # Fire lifecycle callbacks
+        for cb in self._on_transition:
+            try:
+                cb(name, from_status, to_status, reason)
+            except Exception as e:
+                logger.warning("Lifecycle callback failed for %s: %s", name, e)
         return self.get(name)
 
     def _record_event(

@@ -187,6 +187,90 @@ class TestEnergyInjectionHandler:
 # ── Router Deindex on Freeze ─────────────────────────────────────────
 
 
+class TestBrainActionDispatch:
+    """Schritt 6B: Unified BrainAction → CityIntent → Executor dispatch."""
+
+    def test_execute_brain_action(self):
+        from city.attention import CityAttention
+        from city.brain_action import ActionVerb, BrainAction
+
+        ex = CityIntentExecutor()
+        att = CityAttention()
+
+        action = BrainAction(verb=ActionVerb.RUN_STATUS, source_confidence=0.5)
+        result = ex.execute_brain_action(MagicMock(), action, attention=att)
+        assert result == "status_acknowledged"
+
+    def test_brain_action_to_city_intent(self):
+        from city.brain_action import ActionVerb, BrainAction
+
+        action = BrainAction(
+            verb=ActionVerb.FLAG_BOTTLENECK,
+            target="engineering",
+            source_confidence=0.6,
+        )
+        intent = action.to_city_intent(source="discussion", discussion_number=42)
+        assert intent.signal == "brain:flag_bottleneck"
+        assert intent.context["target"] == "engineering"
+        assert intent.context["discussion_number"] == 42
+        assert intent.context["source"] == "discussion"
+
+    def test_brain_escalate_handler(self):
+        reactor = MagicMock()
+        ctx = _mock_ctx()
+        ctx.reactor = reactor
+
+        ex = CityIntentExecutor()
+        result = ex.execute(ctx, _intent("brain:escalate", target="memory leak"), "handle_brain_escalate")
+        assert "escalated" in result
+        reactor.emit_pain.assert_called_once()
+
+    def test_brain_quarantine_handler(self):
+        ctx = _mock_ctx()
+        ex = CityIntentExecutor()
+        result = ex.execute(ctx, _intent("brain:quarantine", target="bad_bot", detail="spam"), "handle_brain_quarantine")
+        assert "quarantined" in result
+        ctx.pokedex.freeze.assert_called_once()
+
+    def test_all_brain_handlers_registered(self):
+        from city.brain_action import ActionVerb
+        ex = CityIntentExecutor()
+        for verb in ActionVerb:
+            handler_name = f"handle_brain_{verb.value}"
+            assert handler_name in ex.stats()["handlers"], f"Missing handler: {handler_name}"
+
+
+class TestPokedexLifecycleCallback:
+    """Schritt 6A: Pokedex._transition fires callbacks for Router sync."""
+
+    def test_callback_fires_on_freeze(self, tmp_path):
+        from city.pokedex import Pokedex
+        p = Pokedex(db_path=str(tmp_path / "test.db"))
+        p.discover("cb_agent")
+        p.register("cb_agent")
+
+        fired = []
+        p.on_transition(lambda name, fr, to, reason: fired.append((name, fr, to)))
+
+        p.freeze("cb_agent", "test")
+        assert len(fired) == 1
+        assert fired[0] == ("cb_agent", "citizen", "frozen")
+
+    def test_callback_fires_on_unfreeze(self, tmp_path):
+        from city.pokedex import Pokedex
+        p = Pokedex(db_path=str(tmp_path / "test.db"))
+        p.discover("cb_agent2")
+        p.register("cb_agent2")
+        p.freeze("cb_agent2", "test")
+
+        fired = []
+        p.on_transition(lambda name, fr, to, reason: fired.append((name, fr, to)))
+
+        p.unfreeze("cb_agent2", "amnesty")
+        assert len(fired) == 1
+        assert fired[0] == ("cb_agent2", "frozen", "active")
+
+
 class TestRouterDeindex:
     def test_router_remove_concept(self):
         """CityRouter.remove() is called when agent is frozen — verify concept."""
