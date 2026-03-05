@@ -89,6 +89,12 @@ class AgentSpec(TypedDict, total=False):
     # Merged capabilities (element + guardian + tier — the FULL set)
     capabilities: list[str]
 
+    # Prana biology (from agent_classes config, Mahamantra-derived)
+    prana_class: str  # "ephemeral" | "standard" | "resilient" | "immortal"
+    genesis_prana: int  # Starting prana budget for this class
+    metabolic_cost: int  # Prana burned per heartbeat
+    max_age: int  # Maximum cell_cycle before dormancy (-1 = immortal)
+
     # Provenance: where domain + capabilities came from
     spec_source: str  # "cartridge" | "jiva_fallback"
 
@@ -414,6 +420,28 @@ def build_agent_spec(
             seen.add(cap)
             merged.append(cap)
 
+    # ── Prana biology (from Pokedex prana_class + seed_constants) ──
+    prana_class = agent_data.get("prana_class", "standard")
+    try:
+        from city.seed_constants import (
+            GENESIS_PRANA_EPHEMERAL,
+            GENESIS_PRANA_RESILIENT,
+            GENESIS_PRANA_STANDARD,
+            MAX_AGE_EPHEMERAL,
+            MAX_AGE_RESILIENT,
+            MAX_AGE_STANDARD,
+            METABOLIC_COST,
+        )
+        _PRANA_BUDGET: dict[str, dict[str, int]] = {
+            "ephemeral": {"genesis_prana": GENESIS_PRANA_EPHEMERAL, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_EPHEMERAL},
+            "standard": {"genesis_prana": GENESIS_PRANA_STANDARD, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_STANDARD},
+            "resilient": {"genesis_prana": GENESIS_PRANA_RESILIENT, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_RESILIENT},
+            "immortal": {"genesis_prana": -1, "metabolic_cost": 0, "max_age": -1},
+        }
+        budget = _PRANA_BUDGET.get(prana_class, _PRANA_BUDGET["standard"])
+    except ImportError:
+        budget = {"genesis_prana": 13700, "metabolic_cost": 3, "max_age": 432}
+
     # ── Build spec ──
     spec: AgentSpec = {
         "name": name,
@@ -450,6 +478,11 @@ def build_agent_spec(
         "tier_capabilities": tier_caps,
         # Merged capabilities
         "capabilities": merged,
+        # Prana biology
+        "prana_class": prana_class,
+        "genesis_prana": budget["genesis_prana"],
+        "metabolic_cost": budget["metabolic_cost"],
+        "max_age": budget["max_age"],
         # Provenance
         "spec_source": "cartridge" if cartridge_caps else "jiva_fallback",
     }

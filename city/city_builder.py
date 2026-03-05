@@ -115,14 +115,36 @@ class CityBuilder:
         return {"total": len(agents), "agents": sorted(agents)}
 
     def _write_cell(self, name: str, agent_dir: Path) -> None:
-        """Write cell.json with current prana/cycle state."""
+        """Write cell.json with current prana/cycle state + budget.
+
+        Schritt 3: includes prana_class, metabolic_cost, max_age so the Brain
+        can see the full Prana biology of each agent, not just current value.
+        """
         cell = self._pokedex.get_cell(name)
         if cell is None:
             return
+
+        # Resolve prana budget from agent_data
+        agent_data = self._pokedex.get(name)
+        prana_class = (agent_data or {}).get("prana_class", "standard")
+        try:
+            from city.seed_constants import METABOLIC_COST
+            from config import get_config
+            classes = get_config().get("agent_classes", {})
+            cls_cfg = classes.get(prana_class, {})
+            metabolic_cost = cls_cfg.get("metabolic_cost", METABOLIC_COST)
+            max_age = cls_cfg.get("max_age", 432)
+        except Exception:
+            metabolic_cost = 3
+            max_age = 432
+
         cell_data = {
             "prana": cell.prana,
             "is_alive": cell.is_alive,
             "age": cell.age,
+            "prana_class": prana_class,
+            "metabolic_cost": metabolic_cost,
+            "max_age": max_age,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         (agent_dir / "cell.json").write_text(json.dumps(cell_data, indent=2))
