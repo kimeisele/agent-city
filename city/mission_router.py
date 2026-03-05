@@ -290,6 +290,8 @@ def authorize_mission(
     specs: dict[str, dict],
     active_agents: set[str],
     inventories: dict[str, list[dict]] | None = None,
+    *,
+    router: object | None = None,
 ) -> bool:
     """Universal authorization gate for dedicated processors.
 
@@ -300,8 +302,22 @@ def authorize_mission(
 
     The city won't attempt operations unless citizens have the
     required capabilities.
+
+    Schritt 7: When router (CityRouter) is provided, uses O(1) Lotus
+    lookup instead of O(n) linear scan.
     """
     requirement = get_requirement(mission_id)
+
+    # O(1) path via CityRouter
+    if router is not None:
+        try:
+            qualified = router.agents_for_requirement(
+                required_caps=requirement["required"],
+                min_tier=requirement["min_tier"],
+            )
+            return bool(qualified & active_agents)
+        except Exception:
+            pass  # Fall through to O(n) path
 
     for name, spec in specs.items():
         if name not in active_agents:

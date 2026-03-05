@@ -60,6 +60,9 @@ def _process_issue_missions(
         return
 
     from city.mission_router import authorize_mission
+    from city.registry import SVC_ROUTER
+
+    router = ctx.registry.get(SVC_ROUTER) if ctx.registry else None
 
     try:
         active = ctx.sankalpa.registry.get_active_missions()
@@ -68,7 +71,7 @@ def _process_issue_missions(
 
     for mission in active:
         if mission.id.startswith("exec_"):
-            if not authorize_mission(mission.id, all_specs, ctx.active_agents, all_inventories):
+            if not authorize_mission(mission.id, all_specs, ctx.active_agents, all_inventories, router=router):
                 logger.info(
                     "KARMA: No agent with execute capability"
                     " — executor handles exec mission %s as system service",
@@ -98,7 +101,7 @@ def _process_issue_missions(
         if not mission.id.startswith("issue_"):
             continue
 
-        if not authorize_mission(mission.id, all_specs, ctx.active_agents, all_inventories):
+        if not authorize_mission(mission.id, all_specs, ctx.active_agents, all_inventories, router=router):
             operations.append(f"issue_blocked:{mission.id}:capability_gate")
             logger.info(
                 "KARMA: Issue mission %s blocked — no agent with execute capability",
