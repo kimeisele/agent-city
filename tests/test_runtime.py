@@ -17,12 +17,14 @@ from city.runtime import (
     build_daemon_service,
     persist_city_runtime,
 )
+from city.mayor_lifecycle import MayorLifecycleBridge
 from city.supervision import CitySupervisionBridge
 
 
 def test_runtime_state_paths_from_db_path(tmp_path):
     paths = RuntimeStatePaths.from_db_path(tmp_path / "city.db")
 
+    assert paths.mayor_state_path == tmp_path / "mayor_state.json"
     assert paths.bridge_state_path == tmp_path / "bridge_state.json"
     assert paths.assistant_state_path == tmp_path / "assistant_state.json"
     assert paths.discussions_state_path == tmp_path / "discussions_state.json"
@@ -114,7 +116,8 @@ def test_persist_city_runtime_saves_snapshots_and_checkpoints(tmp_path, monkeypa
 def test_build_daemon_service_reuses_runtime_supervision():
     mayor = SimpleNamespace()
     supervision = CitySupervisionBridge(mayor=mayor, frequency_hz=2.0)
-    runtime = SimpleNamespace(mayor=mayor, supervision=supervision)
+    lifecycle = MayorLifecycleBridge(state_path=Path("data/mayor_state.json"))
+    runtime = SimpleNamespace(mayor=mayor, supervision=supervision, mayor_lifecycle=lifecycle)
 
     daemon = build_daemon_service(runtime)
 

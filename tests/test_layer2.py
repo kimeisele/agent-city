@@ -289,6 +289,7 @@ def test_mayor_heartbeat_cycle():
         assert "heartbeat" in r
         assert "timestamp" in r
         assert "department" in r
+        assert "department_idx" in r
 
     shutil.rmtree(tmpdir)
 
