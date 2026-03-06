@@ -212,6 +212,139 @@ class DiscussionsBridge:
         """Check if a comment author is our own bot (skip self-replies)."""
         return author == _SKIP_OWN_USERNAME
 
+    # ── Internal GraphQL Posting Primitives ──────────────────────────
+
+    def _fetch_discussion(self, discussion_number: int) -> dict | None:
+        """Fetch a discussion node by public number."""
+        data = _gh_graphql(
+            GQL_GET_DISCUSSION,
+            {"owner": self._owner, "repo": self._repo, "number": discussion_number},
+        )
+        if data is None:
+            return None
+
+        disc = (
+            data.get("data", {})
+            .get("repository", {})
+            .get("discussion")
+        )
+        if disc is None:
+            logger.warning("DISCUSSIONS: discussion #%d not found", discussion_number)
+            return None
+        return disc
+
+    @staticmethod
+    def _extract_comment_id(result: dict | None, mutation_key: str) -> str:
+        if result is None:
+            return ""
+        return (
+            result.get("data", {})
+            .get(mutation_key, {})
+            .get("comment", {})
+            .get("id", "")
+        )
+
+    def _add_comment_by_discussion_id(self, discussion_id: str, body: str) -> str:
+        """Add a comment given an opaque discussion node ID."""
+        return self._extract_comment_id(
+            _gh_graphql(
+                GQL_ADD_COMMENT,
+                {"discussionId": discussion_id, "body": body},
+            ),
+            "addDiscussionComment",
+        )
+
+    def _update_comment_body(self, comment_id: str, new_body: str) -> str:
+        """Update an existing comment body and return updated id if successful."""
+        return self._extract_comment_id(
+            _gh_graphql(
+                GQL_UPDATE_COMMENT,
+                {"commentId": comment_id, "body": new_body},
+            ),
+            "updateDiscussionComment",
+        )
+
+    def _create_discussion_number(
+        self,
+        title: str,
+        body: str,
+        *,
+        category_id: str,
+    ) -> int | None:
+        """Create a discussion and return its public number."""
+        result = _gh_graphql(
+            GQL_CREATE_DISCUSSION,
+            {"repoId": self._repo_id, "catId": category_id, "title": title, "body": body},
+        )
+        if result is None:
+            return None
+
+        disc = (
+            result.get("data", {})
+            .get("createDiscussion", {})
+            .get("discussion", {})
+        )
+        number = disc.get("number")
+        return int(number) if number else None
+
+    def _list_discussion_nodes(self, limit: int) -> list[dict] | None:
+        """List recent discussion nodes from GitHub Discussions."""
+        data = _gh_graphql(
+            GQL_LIST_DISCUSSIONS,
+            {"owner": self._owner, "repo": self._repo, "limit": limit},
+        )
+        if data is None:
+            return None
+
+        return (
+            data.get("data", {})
+            .get("repository", {})
+            .get("discussions", {})
+            .get("nodes", [])
+        )
+
+    def _collect_unseen_comments(
+        self,
+        discussion_number: int,
+        comments: list[dict],
+    ) -> list[dict]:
+        """Return new or edited comments and update seen state."""
+        new_comments: list[dict] = []
+        for c in comments:
+            cid = c.get("id", "")
+            if not cid:
+                continue
+            body = c.get("body", "")
+            body_hash = hashlib.sha256(body.encode()).hexdigest()[:16]
+            c_author = (c.get("author") or {}).get("login", "")
+
+            prev_hash = self._seen_comment_hashes.get(cid)
+            if prev_hash is None:
+                self._seen_comment_hashes[cid] = body_hash
+                self._seen_comment_ids.add(cid)
+                new_comments.append({
+                    "id": cid,
+                    "body": body,
+                    "author": c_author,
+                    "edited": False,
+                })
+                continue
+
+            if prev_hash != body_hash:
+                self._seen_comment_hashes[cid] = body_hash
+                new_comments.append({
+                    "id": cid,
+                    "body": body,
+                    "author": c_author,
+                    "edited": True,
+                })
+                logger.info(
+                    "DISCUSSIONS: edit detected on comment %s in #%d",
+                    cid[:12], discussion_number,
+                )
+
+        return new_comments
+
     # ── Phase Handlers ──────────────────────────────────────────────
 
     def scan(self, limit: int | None = None) -> list[dict]:
@@ -223,19 +356,9 @@ class DiscussionsBridge:
         if limit is None:
             limit = _SCAN_LIMIT
 
-        data = _gh_graphql(
-            GQL_LIST_DISCUSSIONS,
-            {"owner": self._owner, "repo": self._repo, "limit": limit},
-        )
-        if data is None:
+        nodes = self._list_discussion_nodes(limit)
+        if nodes is None:
             return []
-
-        nodes = (
-            data.get("data", {})
-            .get("repository", {})
-            .get("discussions", {})
-            .get("nodes", [])
-        )
 
         self._ops["scans"] += 1
         signals: list[dict] = []
@@ -247,41 +370,7 @@ class DiscussionsBridge:
 
             author = (node.get("author") or {}).get("login", "")
             comments = (node.get("comments") or {}).get("nodes", [])
-
-            # Collect unseen + edited comments
-            new_comments: list[dict] = []
-            for c in comments:
-                cid = c.get("id", "")
-                if not cid:
-                    continue
-                body = c.get("body", "")
-                body_hash = hashlib.sha256(body.encode()).hexdigest()[:16]
-                c_author = (c.get("author") or {}).get("login", "")
-
-                prev_hash = self._seen_comment_hashes.get(cid)
-                if prev_hash is None:
-                    # Brand-new comment
-                    self._seen_comment_hashes[cid] = body_hash
-                    self._seen_comment_ids.add(cid)
-                    new_comments.append({
-                        "id": cid,
-                        "body": body,
-                        "author": c_author,
-                        "edited": False,
-                    })
-                elif prev_hash != body_hash:
-                    # Edited comment — re-emit for re-processing
-                    self._seen_comment_hashes[cid] = body_hash
-                    new_comments.append({
-                        "id": cid,
-                        "body": body,
-                        "author": c_author,
-                        "edited": True,
-                    })
-                    logger.info(
-                        "DISCUSSIONS: edit detected on comment %s in #%d",
-                        cid[:12], number,
-                    )
+            new_comments = self._collect_unseen_comments(number, comments)
 
             is_new = number not in self._seen_discussion_numbers
             self._seen_discussion_numbers.add(number)
@@ -319,40 +408,15 @@ class DiscussionsBridge:
             )
             return False
 
-        # Get discussion node ID
-        data = _gh_graphql(
-            GQL_GET_DISCUSSION,
-            {"owner": self._owner, "repo": self._repo, "number": discussion_number},
-        )
-        if data is None:
-            return False
-
-        disc = (
-            data.get("data", {})
-            .get("repository", {})
-            .get("discussion")
-        )
+        disc = self._fetch_discussion(discussion_number)
         if disc is None:
-            logger.warning("DISCUSSIONS: discussion #%d not found", discussion_number)
             return False
 
         disc_id = disc.get("id", "")
         if not disc_id:
             return False
 
-        result = _gh_graphql(
-            GQL_ADD_COMMENT,
-            {"discussionId": disc_id, "body": body},
-        )
-        if result is None:
-            return False
-
-        comment_id = (
-            result.get("data", {})
-            .get("addDiscussionComment", {})
-            .get("comment", {})
-            .get("id", "")
-        )
+        comment_id = self._add_comment_by_discussion_id(disc_id, body)
         if comment_id:
             self._seen_comment_ids.add(comment_id)
             self._posted_hashes.add(content_hash)
@@ -371,19 +435,7 @@ class DiscussionsBridge:
         if not comment_id or not new_body:
             return False
 
-        result = _gh_graphql(
-            GQL_UPDATE_COMMENT,
-            {"commentId": comment_id, "body": new_body},
-        )
-        if result is None:
-            return False
-
-        updated_id = (
-            result.get("data", {})
-            .get("updateDiscussionComment", {})
-            .get("comment", {})
-            .get("id", "")
-        )
+        updated_id = self._update_comment_body(comment_id, new_body)
         if updated_id:
             self._ops["edits"] = self._ops.get("edits", 0) + 1
             logger.info("DISCUSSIONS: edited comment %s", comment_id[:20])
@@ -401,19 +453,7 @@ class DiscussionsBridge:
         if not comment_id:
             return False
 
-        # Fetch the original body to preserve it
-        # We need to find which discussion this comment belongs to
-        # For now, build the retracted body without the original
-        retraction_note = f"**[RETRACTED]** — Brain self-correction"
-        if reason:
-            retraction_note += f": {reason}"
-
-        retracted_body = (
-            f"{retraction_note}\n\n"
-            f"<details><summary>Original post (retracted)</summary>\n\n"
-            f"*Content retracted by Brain self-correction loop.*\n"
-            f"</details>"
-        )
+        retracted_body = self._build_retracted_body(reason)
 
         success = self.edit_comment(comment_id, retracted_body)
         if success:
@@ -435,52 +475,118 @@ class DiscussionsBridge:
             )
             return None
 
-        result = _gh_graphql(
-            GQL_CREATE_DISCUSSION,
-            {"repoId": self._repo_id, "catId": cat_id, "title": title, "body": body},
-        )
-        if result is None:
-            return None
-
-        disc = (
-            result.get("data", {})
-            .get("createDiscussion", {})
-            .get("discussion", {})
-        )
-        number = disc.get("number")
+        number = self._create_discussion_number(title, body, category_id=cat_id)
         if number:
             self._seen_discussion_numbers.add(number)
             self._ops["posts"] += 1
             logger.info("DISCUSSIONS: created #%d — %s", number, title[:60])
         return number
 
-    def post_city_report(self, heartbeat: int, reflection: dict) -> bool:
-        """MOKSHA: Post city report as Announcement discussion.
+    @staticmethod
+    def _build_retracted_body(reason: str = "") -> str:
+        """Build a transparent retraction notice for edited bad posts."""
+        retraction_note = "**[RETRACTED]** — Brain self-correction"
+        if reason:
+            retraction_note += f": {reason}"
+        return (
+            f"{retraction_note}\n\n"
+            f"<details><summary>Original post (retracted)</summary>\n\n"
+            f"*Content retracted by Brain self-correction loop.*\n"
+            f"</details>"
+        )
 
-        Rate-limited: 1 report per N MOKSHA cycles (config: report_every_n_moksha).
-        """
-        if heartbeat <= self._last_report_hb:
-            return False
+    @staticmethod
+    def _brain_hidden_payload(payload: dict) -> str:
+        """Encode machine-readable Brain payload as hidden HTML comment."""
+        return f"\n\n<!--BRAIN_JSON:{json.dumps(payload)}-->"
 
-        moksha_gap = heartbeat - self._last_report_hb
-        if self._last_report_hb > 0 and moksha_gap < _REPORT_EVERY_N:
-            return False
+    @staticmethod
+    def _build_brain_visible_heading(prefix: str, heartbeat: int, thought: object) -> str:
+        """Build the human-visible heading + rendered thought block."""
+        return f"{prefix} #{heartbeat}**\n\n{thought.format_for_post()}"  # type: ignore[union-attr]
 
+    @staticmethod
+    def _build_reflection_delta_summary(outcome_diff: dict | None) -> str:
+        """Build a compact cycle delta summary for reflection posts."""
+        if not outcome_diff:
+            return ""
+
+        delta_lines = []
+        pop_delta = outcome_diff.get("population_delta", 0)
+        if pop_delta:
+            delta_lines.append(f"Population Δ{pop_delta:+d}")
+        new_failures = outcome_diff.get("new_failures", [])
+        if new_failures:
+            delta_lines.append(f"New failures: {', '.join(new_failures)}")
+        resolved = outcome_diff.get("resolved_failures", [])
+        if resolved:
+            delta_lines.append(f"Resolved: {', '.join(resolved)}")
+        if not delta_lines:
+            return ""
+        return "\n\n**Cycle Delta**: " + " | ".join(delta_lines)
+
+    def _build_brain_thought_body(self, thought: object, heartbeat: int) -> str:
+        """Build a Brain thought comment body."""
+        thought_dict = thought.to_dict()  # type: ignore[union-attr]
+        thought_dict["heartbeat"] = heartbeat
+        visible = self._build_brain_visible_heading(
+            "**[Brain] Heartbeat",
+            heartbeat,
+            thought,
+        )
+        return visible + self._brain_hidden_payload(thought_dict)
+
+    def _build_brain_reflection_body(
+        self,
+        thought: object,
+        heartbeat: int,
+        outcome_diff: dict | None = None,
+    ) -> str | None:
+        """Build an end-of-cycle Brain reflection comment body."""
+        comprehension = getattr(thought, "comprehension", "")
+        if not comprehension or comprehension.strip() == "":
+            return None
+
+        thought_dict = thought.to_dict()  # type: ignore[union-attr]
+        thought_dict["heartbeat"] = heartbeat
+        thought_dict["kind"] = "reflection"
+        if outcome_diff:
+            thought_dict["outcome_diff"] = outcome_diff
+
+        visible = self._build_brain_visible_heading(
+            "**[Brain 🧠] Reflection",
+            heartbeat,
+            thought,
+        )
+        visible += self._build_reflection_delta_summary(outcome_diff)
+        return visible + self._brain_hidden_payload(thought_dict)
+
+    @staticmethod
+    def _build_pulse_body(heartbeat: int, city_stats: dict) -> str:
+        """Build a short city pulse update."""
+        alive = city_stats.get("active", 0) + city_stats.get("citizen", 0)
+        total = city_stats.get("total", 0)
+        events = city_stats.get("events", 0)
+        return (
+            f"**Pulse #{heartbeat}** — "
+            f"{alive} agents alive, {total} total, {events} events this cycle"
+        )
+
+    def _build_city_report_body(self, heartbeat: int, reflection: dict) -> tuple[str, str]:
+        """Build city report title + markdown body."""
         stats = reflection.get("city_stats", {})
         total = stats.get("total", 0)
-        # Pokedex.stats() uses status keys (citizen, active), not "alive"
         active = stats.get("active", 0)
         citizens = stats.get("citizen", 0)
         discovered = stats.get("discovered", 0)
         alive = active + citizens
-        title = f"City Report \u2014 Heartbeat #{heartbeat}"
+        title = f"City Report — Heartbeat #{heartbeat}"
         lines = [
             f"**Population**: {total} agents ({alive} alive: "
             f"{active} active, {citizens} citizen, {discovered} discovered)",
             f"**Chain integrity**: {'valid' if reflection.get('chain_valid') else 'BROKEN'}",
         ]
 
-        # Spawner stats
         spawner = reflection.get("spawner_stats", {})
         if spawner:
             lines.append(
@@ -489,14 +595,12 @@ class DiscussionsBridge:
                 f"{spawner.get('cartridge_bindings', 0)} cartridges"
             )
 
-        # Missions
         terminal = reflection.get("mission_results_terminal", [])
         if terminal:
             lines.append(f"\n**Missions completed this cycle**: {len(terminal)}")
             for m in terminal[:5]:
                 lines.append(f"- {m.get('name', '?')}: {m.get('status', '?')}")
 
-        # Immune
         immune = reflection.get("immune_stats", {})
         if immune:
             lines.append(
@@ -504,7 +608,6 @@ class DiscussionsBridge:
                 f"{immune.get('heals_succeeded', 0)} succeeded"
             )
 
-        # 7D-1: Council decisions (previously invisible)
         governance = reflection.get("governance", {})
         if governance:
             open_p = governance.get("open_proposals", 0)
@@ -517,7 +620,6 @@ class DiscussionsBridge:
                     f"{open_p} open proposals"
                 )
 
-        # 7D-1: PR lifecycle events (previously invisible)
         pr_lifecycle = reflection.get("pr_lifecycle_changes", [])
         if pr_lifecycle:
             lines.append(f"\n**PR Lifecycle**: {len(pr_lifecycle)} changes")
@@ -532,7 +634,6 @@ class DiscussionsBridge:
             status_parts = [f"{k}: {v}" for k, v in by_status.items()]
             lines.append(f"**PRs tracked**: {', '.join(status_parts)}")
 
-        # 12C: GAD-000 Transparency — Prana Economy snapshot
         economy = reflection.get("economy_stats", {})
         if economy:
             lines.append(
@@ -542,17 +643,14 @@ class DiscussionsBridge:
                 f"dormant={economy.get('dormant_count', 0)}"
             )
 
-        # 12C: GAD-000 Transparency — Brain decisions this cycle
         brain_ops = reflection.get("brain_operations", [])
         if brain_ops:
             lines.append(f"\n**Brain Decisions**: {len(brain_ops)}")
             for bop in brain_ops[:5]:
                 lines.append(f"- `{bop}`")
 
-        # 12C: GAD-000 Transparency — Operations log (compact)
         ops_log = reflection.get("operations_log", [])
         if ops_log:
-            # Show only actionable operations, not noise
             notable = [
                 op for op in ops_log
                 if any(k in op for k in (
@@ -565,10 +663,11 @@ class DiscussionsBridge:
                 for op in notable[:10]:
                     lines.append(f"- `{op}`")
 
-        body = f"### {title}\n\n" + "\n".join(lines)
+        return title, f"### {title}\n\n" + "\n".join(lines)
 
-        # Consolidate into city_log thread (comment, not new discussion)
-        log_number = self._seed_threads.get("city_log")
+    def _publish_city_report(self, heartbeat: int, title: str, body: str) -> bool:
+        """Publish city report to city_log when seeded, else fallback to discussion."""
+        log_number = self._seed_thread_number("city_log")
         if log_number is not None:
             posted = self.comment(log_number, body)
             if posted:
@@ -576,12 +675,26 @@ class DiscussionsBridge:
                 return True
             return False
 
-        # Fallback: create standalone discussion (pre-seed migration)
         number = self.create_discussion(title, body, category="Announcements")
         if number is not None:
             self._last_report_hb = heartbeat
             return True
         return False
+
+    def post_city_report(self, heartbeat: int, reflection: dict) -> bool:
+        """MOKSHA: Post city report as Announcement discussion.
+
+        Rate-limited: 1 report per N MOKSHA cycles (config: report_every_n_moksha).
+        """
+        if heartbeat <= self._last_report_hb:
+            return False
+
+        moksha_gap = heartbeat - self._last_report_hb
+        if self._last_report_hb > 0 and moksha_gap < _REPORT_EVERY_N:
+            return False
+
+        title, body = self._build_city_report_body(heartbeat, reflection)
+        return self._publish_city_report(heartbeat, title, body)
 
     def recover_seed_threads(self) -> dict[str, int]:
         """Scan existing discussions to recover seed thread numbers.
@@ -607,19 +720,9 @@ class DiscussionsBridge:
         if not missing:
             return self._seed_threads
 
-        data = _gh_graphql(
-            GQL_LIST_DISCUSSIONS,
-            {"owner": self._owner, "repo": self._repo, "limit": 50},
-        )
-        if data is None:
+        nodes = self._list_discussion_nodes(50)
+        if nodes is None:
             return self._seed_threads
-
-        nodes = (
-            data.get("data", {})
-            .get("repository", {})
-            .get("discussions", {})
-            .get("nodes", [])
-        )
 
         recovered = 0
         for node in nodes:
@@ -734,25 +837,43 @@ class DiscussionsBridge:
 
         return created
 
+    def _seed_thread_number(self, key: str) -> int | None:
+        """Return a seeded discussion number by logical key."""
+        return self._seed_threads.get(key)
+
+    def _brainstream_target_number(self) -> int | None:
+        """Prefer brainstream, fallback to city_log."""
+        return self._seed_thread_number("brainstream") or self._seed_thread_number("city_log")
+
+    def _comment_on_discussion(self, discussion_number: int | None, body: str) -> bool:
+        """Post a comment when a discussion target is available."""
+        if discussion_number is None:
+            return False
+        return self.comment(discussion_number, body)
+
+    def _respond_on_seed_thread(self, key: str, body: str) -> bool:
+        """Rate-limited seed-thread response with response bookkeeping."""
+        discussion_number = self._seed_thread_number(key)
+        if discussion_number is None:
+            return False
+        if not self.can_respond(discussion_number):
+            return False
+
+        posted = self.comment(discussion_number, body)
+        if posted:
+            self.record_response(discussion_number)
+        return posted
+
     def post_agent_intro(self, spec: dict) -> bool:
         """Post an agent introduction to the registry thread.
 
         Does NOT track introduction state — caller (karma.py) grants the
         Pokedex asset on success. This method is pure transport.
         """
-        registry_number = self._seed_threads.get("registry")
-        if registry_number is None:
-            return False
-        if not self.can_respond(registry_number):
-            return False
-
         from city.discussions_inbox import build_agent_intro
 
         body = build_agent_intro(spec)
-        posted = self.comment(registry_number, body)
-        if posted:
-            self.record_response(registry_number)
-        return posted
+        return self._respond_on_seed_thread("registry", body)
 
     def post_agent_action(
         self,
@@ -767,19 +888,10 @@ class DiscussionsBridge:
         Rate-limited separately from regular comments.
         Called by KARMA after successful cognitive execution.
         """
-        log_number = self._seed_threads.get("city_log")
-        if log_number is None:
-            return False
-        if not self.can_respond(log_number):
-            return False
-
         from city.discussions_inbox import build_action_report
 
         body = build_action_report(spec, cognitive_action, mission_id)
-        posted = self.comment(log_number, body)
-        if posted:
-            self.record_response(log_number)
-        return posted
+        return self._respond_on_seed_thread("city_log", body)
 
     def post_brain_thought(self, thought: object, heartbeat: int) -> bool:
         """Post a brain thought to the Brainstream thread.
@@ -790,24 +902,12 @@ class DiscussionsBridge:
         Rate-limited: max 1 brain post per KARMA cycle.
         Falls back to city_log if brainstream thread not yet seeded.
         """
-        target = self._seed_threads.get("brainstream") or self._seed_threads.get("city_log")
+        target = self._brainstream_target_number()
         if target is None:
             return False
 
-        thought_dict = thought.to_dict()  # type: ignore[union-attr]
-        thought_dict["heartbeat"] = heartbeat
-
-        # Human-readable part
-        visible = (
-            f"**[Brain] Heartbeat #{heartbeat}**\n\n"
-            f"{thought.format_for_post()}"  # type: ignore[union-attr]
-        )
-
-        # Machine-readable hidden payload (Fix #2)
-        hidden = f"\n\n<!--BRAIN_JSON:{json.dumps(thought_dict)}-->"
-
-        body = visible + hidden
-        return self.comment(target, body)
+        body = self._build_brain_thought_body(thought, heartbeat)
+        return self._comment_on_discussion(target, body)
 
     def post_brainstream_reflection(
         self, thought: object, heartbeat: int, outcome_diff: dict | None = None,
@@ -817,62 +917,26 @@ class DiscussionsBridge:
         Called from MOKSHA BrainReflectionHook. Includes outcome diff if available.
         Gate: only post if the thought has substance (non-empty comprehension).
         """
-        target = self._seed_threads.get("brainstream") or self._seed_threads.get("city_log")
+        target = self._brainstream_target_number()
         if target is None:
             return False
 
-        thought_dict = thought.to_dict()  # type: ignore[union-attr]
-        thought_dict["heartbeat"] = heartbeat
-        thought_dict["kind"] = "reflection"
-        if outcome_diff:
-            thought_dict["outcome_diff"] = outcome_diff
-
-        # Gate: skip empty reflections
-        comprehension = getattr(thought, "comprehension", "")
-        if not comprehension or comprehension.strip() == "":
+        body = self._build_brain_reflection_body(thought, heartbeat, outcome_diff)
+        if body is None:
             return False
-
-        # Human-readable
-        visible = (
-            f"**[Brain \U0001f9e0] Reflection #{heartbeat}**\n\n"
-            f"{thought.format_for_post()}"  # type: ignore[union-attr]
-        )
-        if outcome_diff:
-            delta_lines = []
-            pop_delta = outcome_diff.get("population_delta", 0)
-            if pop_delta:
-                delta_lines.append(f"Population \u0394{pop_delta:+d}")
-            new_failures = outcome_diff.get("new_failures", [])
-            if new_failures:
-                delta_lines.append(f"New failures: {', '.join(new_failures)}")
-            resolved = outcome_diff.get("resolved_failures", [])
-            if resolved:
-                delta_lines.append(f"Resolved: {', '.join(resolved)}")
-            if delta_lines:
-                visible += "\n\n**Cycle Delta**: " + " | ".join(delta_lines)
-
-        # Machine-readable
-        hidden = f"\n\n<!--BRAIN_JSON:{json.dumps(thought_dict)}-->"
-
-        return self.comment(target, visible + hidden)
+        return self._comment_on_discussion(target, body)
 
     def post_pulse(self, heartbeat: int, city_stats: dict) -> bool:
         """Post a city pulse update to the welcome thread.
 
         Only called when delta > 0 (something happened this rotation).
         """
-        welcome_number = self._seed_threads.get("welcome")
+        welcome_number = self._seed_thread_number("welcome")
         if welcome_number is None:
             return False
 
-        alive = city_stats.get("active", 0) + city_stats.get("citizen", 0)
-        total = city_stats.get("total", 0)
-        events = city_stats.get("events", 0)
-        body = (
-            f"**Pulse #{heartbeat}** \u2014 "
-            f"{alive} agents alive, {total} total, {events} events this cycle"
-        )
-        return self.comment(welcome_number, body)
+        body = self._build_pulse_body(heartbeat, city_stats)
+        return self._comment_on_discussion(welcome_number, body)
 
     def cross_post_mission_results(self, results: list[dict]) -> int:
         """MOKSHA: Cross-post terminal mission results to 'Show and tell'.

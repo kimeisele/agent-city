@@ -82,6 +82,21 @@ def _add_comment_response(comment_id: str) -> dict:
     }
 
 
+class _FakeThought:
+    def __init__(self, comprehension: str = "City is coherent"):
+        self.comprehension = comprehension
+
+    def to_dict(self) -> dict:
+        return {
+            "comprehension": self.comprehension,
+            "intent": "observe",
+            "confidence": 0.9,
+        }
+
+    def format_for_post(self) -> str:
+        return f"Comprehension: {self.comprehension}"
+
+
 def _create_discussion_response(number: int) -> dict:
     return {
         "data": {
@@ -430,7 +445,9 @@ def test_post_pulse(mock_gql):
         _add_comment_response("C_pulse"),
     ]
 
-    assert bridge.post_pulse(1, {"alive": 5, "total": 10, "events": 3}) is True
+    assert bridge.post_pulse(1, {"active": 3, "citizen": 2, "total": 10, "events": 3}) is True
+    body = mock_gql.call_args_list[1].args[1]["body"]
+    assert body == "**Pulse #1** — 5 agents alive, 10 total, 3 events this cycle"
 
 
 def test_post_pulse_no_welcome():
@@ -455,6 +472,28 @@ def test_post_city_report(mock_gql):
 
 
 @patch("city.discussions_bridge._gh_graphql")
+def test_post_city_report_uses_seeded_city_log_comment(mock_gql):
+    bridge = _make_bridge()
+    bridge._seed_threads["city_log"] = 77
+    mock_gql.side_effect = [
+        _get_discussion_response("D_city_log", 77),
+        _add_comment_response("C_report"),
+    ]
+
+    reflection = {
+        "city_stats": {"total": 10, "active": 4, "citizen": 2, "discovered": 1},
+        "chain_valid": True,
+        "operations_log": ["brain_health:ok", "noise"],
+    }
+
+    assert bridge.post_city_report(2, reflection) is True
+    body = mock_gql.call_args_list[1].args[1]["body"]
+    assert "### City Report — Heartbeat #2" in body
+    assert "**Population**: 10 agents (6 alive: 4 active, 2 citizen, 1 discovered)" in body
+    assert "**Operations**: 1 notable / 2 total" in body
+
+
+@patch("city.discussions_bridge._gh_graphql")
 def test_post_city_report_rate_limited(mock_gql):
     bridge = _make_bridge()
     mock_gql.return_value = _create_discussion_response(99)
@@ -471,6 +510,45 @@ def test_post_city_report_rate_limited(mock_gql):
     # Enough gap → allowed
     mock_gql.return_value = _create_discussion_response(100)
     assert bridge.post_city_report(5, reflection) is True
+
+
+@patch("city.discussions_bridge._gh_graphql")
+def test_post_brain_thought_includes_hidden_payload(mock_gql):
+    bridge = _make_bridge()
+    bridge._seed_threads["brainstream"] = 15
+    mock_gql.side_effect = [
+        _get_discussion_response("D_brain", 15),
+        _add_comment_response("C_brain"),
+    ]
+
+    assert bridge.post_brain_thought(_FakeThought("System stable"), 42) is True
+    body = mock_gql.call_args_list[1].args[1]["body"]
+    assert body.startswith("**[Brain] Heartbeat #42**")
+    assert "Comprehension: System stable" in body
+    assert "<!--BRAIN_JSON:" in body
+    assert '"heartbeat": 42' in body
+
+
+@patch("city.discussions_bridge._gh_graphql")
+def test_post_brainstream_reflection_includes_cycle_delta(mock_gql):
+    bridge = _make_bridge()
+    bridge._seed_threads["brainstream"] = 15
+    mock_gql.side_effect = [
+        _get_discussion_response("D_brain", 15),
+        _add_comment_response("C_reflect"),
+    ]
+
+    diff = {
+        "population_delta": 2,
+        "new_failures": ["mission.alpha"],
+        "resolved_failures": ["mission.beta"],
+    }
+
+    assert bridge.post_brainstream_reflection(_FakeThought("Cycle improved"), 9, diff) is True
+    body = mock_gql.call_args_list[1].args[1]["body"]
+    assert body.startswith("**[Brain 🧠] Reflection #9**")
+    assert "**Cycle Delta**: Population Δ+2 | New failures: mission.alpha | Resolved: mission.beta" in body
+    assert '"kind": "reflection"' in body
 
 
 # ── Cross-Post ────────────────────────────────────────────────────────
