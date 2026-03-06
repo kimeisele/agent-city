@@ -544,6 +544,41 @@ def test_post_city_report_uses_seeded_city_log_comment(mock_gql):
 
 
 @patch("city.discussions_bridge._gh_graphql")
+def test_post_city_report_includes_extended_sections(mock_gql):
+    bridge = _make_bridge()
+    bridge._seed_threads["city_log"] = 77
+    mock_gql.side_effect = [
+        _get_discussion_response("D_city_log", 77),
+        _add_comment_response("C_report"),
+    ]
+
+    reflection = {
+        "city_stats": {"total": 12, "active": 5, "citizen": 3, "discovered": 2},
+        "chain_valid": True,
+        "spawner_stats": {"system_agents": 2, "promoted_total": 4, "cartridge_bindings": 7},
+        "mission_results_terminal": [{"name": "heal_ruff", "status": "completed"}],
+        "immune_stats": {"heals_attempted": 3, "heals_succeeded": 2},
+        "governance": {"council_members": 2, "elected_mayor": "maya", "open_proposals": 1},
+        "pr_lifecycle_changes": [{"action": "opened", "pr_url": "https://pr/1"}],
+        "pr_lifecycle_stats": {"total_tracked": 1, "by_status": {"open": 1}},
+        "economy_stats": {"total_prana": 99, "avg_prana": 9, "min_prana": 1, "dormant_count": 2},
+        "brain_operations": ["brain_reflect", "brain_route"],
+        "operations_log": ["brain_reflect", "mission.completed", "noise"],
+    }
+
+    assert bridge.post_city_report(3, reflection) is True
+    body = mock_gql.call_args_list[1].args[1]["body"]
+    assert "**Spawner**: 2 system, 4 promoted, 7 cartridges" in body
+    assert "**Missions completed this cycle**: 1" in body
+    assert "**Immune**: 3 heals attempted, 2 succeeded" in body
+    assert "**Council**: 2 seats, mayor: maya, 1 open proposals" in body
+    assert "**PR Lifecycle**: 1 changes" in body
+    assert "**PRs tracked**: open: 1" in body
+    assert "**Economy**: total prana=99, avg=9, min=1, dormant=2" in body
+    assert "**Brain Decisions**: 2" in body
+
+
+@patch("city.discussions_bridge._gh_graphql")
 def test_post_city_report_rate_limited(mock_gql):
     bridge = _make_bridge()
     mock_gql.return_value = _create_discussion_response(99)
