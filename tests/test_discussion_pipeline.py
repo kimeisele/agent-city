@@ -10,7 +10,7 @@ mocked external services (GitHub API, LLM) but real internal wiring.
 import shutil
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -396,7 +396,7 @@ def test_mixed_command_and_prose_feedback(mock_ctx, brain_memory):
 
 def test_triage_respond_action(mock_ctx, mock_discussions, thread_state):
     """Triage RESPOND action → post to discussion."""
-    from city.karma_handlers.triage import TriageHandler, _handle_respond
+    from city.karma_handlers.triage import _handle_respond
     from city.community_triage import TriageItem
 
     # 11A: Triage requires Brain to be online
@@ -782,7 +782,6 @@ def test_prana_economics_balance():
         HUMAN_ENGAGEMENT_PRANA,
         METABOLIC_COST,
         MISSION_COMPLETION_PRANA,
-        MISSION_FAILED_PRANA,
         NAVA,
         TRINITY,
     )
@@ -924,6 +923,123 @@ def test_action_hint_readonly_allowed_for_anyone(mock_ctx):
     )
     assert any("brain_action:run_status" in op for op in operations)
     assert not any("denied" in op for op in operations)
+
+
+def test_action_hint_operator_requires_operator_access(mock_ctx):
+    """Operator hints are denied for citizens without operator access."""
+    from city.karma_handlers.gateway import _execute_action_hint
+
+    _make_citizen(mock_ctx)
+
+    thought = MagicMock()
+    thought.action_hint = "retract:DC_kwDOTest123"
+    thought.intent = MagicMock()
+    thought.intent.value = "enforce"
+
+    operations = []
+    _execute_action_hint(
+        mock_ctx,
+        thought,
+        42,
+        "TestAgent",
+        operations,
+        comment_author="CitizenUser",
+        membrane={
+            "surface": "github_discussion",
+            "access_class": "observer",
+            "claim_floor": 0,
+            "auth_route": "github_handle",
+        },
+    )
+    assert any("brain_hint_denied" in op for op in operations)
+    assert not any("brain_action:retract" in op for op in operations)
+
+
+def test_action_hint_operator_allowed_for_registered_operator(mock_ctx):
+    """Registered operators can execute operator-tier hints from Discussions."""
+    from city.karma_handlers.gateway import _execute_action_hint
+
+    mock_ctx.pokedex.register_operator(
+        "OpsUser",
+        operator_type="github_operator",
+        access_class="operator",
+        registered_by="test",
+    )
+
+    thought = MagicMock()
+    thought.action_hint = "retract:DC_kwDOTest123"
+    thought.intent = MagicMock()
+    thought.intent.value = "enforce"
+
+    operations = []
+    _execute_action_hint(
+        mock_ctx,
+        thought,
+        42,
+        "TestAgent",
+        operations,
+        comment_author="OpsUser",
+        membrane={
+            "surface": "github_discussion",
+            "access_class": "observer",
+            "claim_floor": 0,
+            "auth_route": "github_handle",
+        },
+    )
+    assert any("brain_action:retract" in op for op in operations)
+
+
+def test_discussion_command_mission_denied_without_claim(mock_ctx):
+    """State-mutating discussion commands fail closed below the claim floor."""
+    from city.karma_handlers.gateway import _handle_discussion_item
+    from tests.conftest import MockSankalpa
+
+    mock_ctx.sankalpa = MockSankalpa()
+    item = {
+        "discussion_number": 42,
+        "text": "/mission fix the failing tests",
+        "from_agent": "RandomUser",
+        "comment_id": "c_denied",
+        "membrane": {
+            "surface": "github_discussion",
+            "access_class": "observer",
+            "claim_floor": 0,
+            "auth_route": "github_handle",
+        },
+    }
+
+    operations: list[str] = []
+    _handle_discussion_item(mock_ctx, item, {}, {}, {}, operations)
+
+    assert any("disc_cmd_denied:/mission" in op for op in operations)
+    assert not any("cmd_replied:/mission" in op for op in operations)
+
+
+def test_discussion_command_mission_allowed_for_citizen(mock_ctx):
+    """Citizens can execute /mission through the discussion membrane."""
+    from city.karma_handlers.gateway import _handle_discussion_item
+    from tests.conftest import MockSankalpa
+
+    mock_ctx.sankalpa = MockSankalpa()
+    _make_citizen(mock_ctx)
+    item = {
+        "discussion_number": 42,
+        "text": "/mission fix the failing tests",
+        "from_agent": "CitizenUser",
+        "comment_id": "c_allowed",
+        "membrane": {
+            "surface": "github_discussion",
+            "access_class": "observer",
+            "claim_floor": 0,
+            "auth_route": "github_handle",
+        },
+    }
+
+    operations: list[str] = []
+    _handle_discussion_item(mock_ctx, item, {}, {}, {}, operations)
+
+    assert any("cmd_replied:/mission" in op for op in operations)
+    assert not any("disc_cmd_denied:/mission" in op for op in operations)
 
 
 def test_action_hint_edit_dedup(mock_ctx):
@@ -1080,8 +1196,20 @@ def test_different_agents_produce_different_responses():
     gateway_result = {"buddhi_function": "VISHNU", "seed": 42}
 
     _thought = Thought(comprehension="test")
-    response_a = _compose_response(spec_vyasa, signal, stats, gateway_result, brain_thought=_thought)
-    response_b = _compose_response(spec_nrisimha, signal, stats, gateway_result, brain_thought=_thought)
+    response_a = _compose_response(
+        spec_vyasa,
+        signal,
+        stats,
+        gateway_result,
+        brain_thought=_thought,
+    )
+    response_b = _compose_response(
+        spec_nrisimha,
+        signal,
+        stats,
+        gateway_result,
+        brain_thought=_thought,
+    )
 
     # Responses must be different
     assert response_a != response_b
@@ -1114,7 +1242,13 @@ def test_minimal_spec_still_produces_response():
     stats = {"active": 1, "total": 1}
     gateway_result = {"seed": 1}
 
-    response = _compose_response(spec_minimal, signal, stats, gateway_result, brain_thought=Thought(comprehension="test"))
+    response = _compose_response(
+        spec_minimal,
+        signal,
+        stats,
+        gateway_result,
+        brain_thought=Thought(comprehension="test"),
+    )
     assert "bare_agent" in response
     assert "general" in response
     # No crash, no empty output
@@ -1196,6 +1330,12 @@ def test_routing_transparency_in_response():
 
     # Without routing info (direct mention, no routing)
     gateway_without = {"seed": 42}
-    response_no_route = _compose_response(spec, signal, stats, gateway_without, brain_thought=_thought)
+    response_no_route = _compose_response(
+        spec,
+        signal,
+        stats,
+        gateway_without,
+        brain_thought=_thought,
+    )
     assert "Routed:" not in response_no_route
 

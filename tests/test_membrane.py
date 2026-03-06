@@ -3,9 +3,12 @@ from city.claims import ClaimLevel
 from city.gateway import CityGateway
 from city.membrane import (
     AUTHORITY_MAP,
+    AuthorityRequirement,
     IngressSurface,
+    authorize_ingress,
     build_ingress_envelope,
     enqueue_ingress,
+    resolve_authority,
 )
 
 
@@ -64,3 +67,51 @@ def test_gateway_process_prefers_membrane_source_class():
     )
     assert result["source_class"] == "agent"
     assert result["membrane_surface"] == "moltbook_dm"
+
+
+def test_resolve_authority_elevates_citizen_claim():
+    class DummyPokedex:
+        def get_operator(self, name):
+            return None
+
+        def get(self, name):
+            return {"status": "citizen"} if name == "alice" else None
+
+        def get_claim_level(self, name):
+            return 0
+
+    class DummyCtx:
+        pokedex = DummyPokedex()
+
+    authority = resolve_authority(
+        DummyCtx(),
+        membrane={"access_class": "observer", "claim_floor": 0},
+        author="alice",
+    )
+    assert authority.claim_level == ClaimLevel.SELF_CLAIMED
+
+
+def test_authorize_ingress_elevates_registered_operator_access():
+    class DummyPokedex:
+        def get_operator(self, name):
+            if name == "ops":
+                return {"access_class": "operator"}
+            return None
+
+        def get(self, name):
+            return None
+
+        def get_claim_level(self, name):
+            return 0
+
+    class DummyCtx:
+        pokedex = DummyPokedex()
+
+    allowed, reason = authorize_ingress(
+        DummyCtx(),
+        membrane={"access_class": "observer", "claim_floor": 0},
+        author="ops",
+        requirement=AuthorityRequirement(access_class=AccessClass.OPERATOR),
+    )
+    assert allowed is True
+    assert reason == "ok"
