@@ -43,6 +43,20 @@ class AuthorityDescriptor:
     auth_route: AuthRoute
 
 
+@dataclass(frozen=True)
+class AuthorityRequirement:
+    access_class: AccessClass = AccessClass.OBSERVER
+    claim_level: ClaimLevel = ClaimLevel.DISCOVERED
+
+
+@dataclass(frozen=True)
+class ResolvedAuthority:
+    source_class: str
+    access_class: AccessClass
+    claim_level: ClaimLevel
+    auth_route: str
+
+
 AUTHORITY_MAP: dict[IngressSurface, AuthorityDescriptor] = {
     IngressSurface.LOCAL: AuthorityDescriptor(
         "local",
@@ -134,6 +148,89 @@ class IngressEnvelope:
         }
         item["membrane"] = self.membrane_snapshot()
         return item
+
+
+def _coerce_access_class(value: Any) -> AccessClass:
+    if isinstance(value, AccessClass):
+        return value
+    try:
+        return AccessClass(str(value))
+    except ValueError:
+        return AccessClass.OBSERVER
+
+
+def _coerce_claim_level(value: Any) -> ClaimLevel:
+    if isinstance(value, ClaimLevel):
+        return value
+    try:
+        return ClaimLevel(int(value))
+    except (TypeError, ValueError):
+        return ClaimLevel.DISCOVERED
+
+
+def requirement_for_auth_tier(auth_tier: Any) -> AuthorityRequirement:
+    tier = str(getattr(auth_tier, "value", auth_tier) or "citizen").lower()
+    if tier == "public":
+        return AuthorityRequirement()
+    if tier == "operator":
+        return AuthorityRequirement(access_class=AccessClass.OPERATOR)
+    return AuthorityRequirement(claim_level=ClaimLevel.SELF_CLAIMED)
+
+
+def resolve_authority(
+    ctx: Any,
+    *,
+    membrane: dict[str, Any] | None = None,
+    author: str = "",
+) -> ResolvedAuthority:
+    membrane = membrane or {}
+    access_class = _coerce_access_class(
+        membrane.get("access_class", AccessClass.OBSERVER)
+    )
+    claim_level = _coerce_claim_level(
+        membrane.get("claim_floor", ClaimLevel.DISCOVERED)
+    )
+    pokedex = getattr(ctx, "pokedex", None)
+
+    if author and pokedex is not None:
+        operator = pokedex.get_operator(author)
+        if operator is not None:
+            operator_access = _coerce_access_class(operator.get("access_class"))
+            if operator_access.level > access_class.level:
+                access_class = operator_access
+
+        agent = pokedex.get(author)
+        if agent is not None and agent.get("status") in {"citizen", "active"}:
+            agent_claim = max(
+                int(claim_level),
+                int(ClaimLevel.SELF_CLAIMED),
+                int(pokedex.get_claim_level(author)),
+            )
+            claim_level = ClaimLevel(agent_claim)
+
+    return ResolvedAuthority(
+        source_class=str(membrane.get("source_class", "external")),
+        access_class=access_class,
+        claim_level=claim_level,
+        auth_route=str(membrane.get("auth_route", "legacy")),
+    )
+
+
+def authorize_ingress(
+    ctx: Any,
+    *,
+    membrane: dict[str, Any] | None = None,
+    author: str = "",
+    requirement: AuthorityRequirement | None = None,
+) -> tuple[bool, str]:
+    requirement = requirement or AuthorityRequirement()
+    authority = resolve_authority(ctx, membrane=membrane, author=author)
+
+    if authority.access_class.level < requirement.access_class.level:
+        return False, f"access<{requirement.access_class.value}"
+    if int(authority.claim_level) < int(requirement.claim_level):
+        return False, f"claim<{requirement.claim_level.name.lower()}"
+    return True, "ok"
 
 
 def build_ingress_envelope(surface: IngressSurface, item: dict[str, Any]) -> IngressEnvelope:

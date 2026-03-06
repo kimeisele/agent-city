@@ -190,6 +190,7 @@ def _handle_discussion_item(
     comment_author = item.get("from_agent", "")
     comment_body = item.get("text", "")
     comment_id = item.get("comment_id", "")
+    membrane = item.get("membrane")
 
     # 9D: Per-cycle dedup — skip threads already responded to this cycle
     responded = ctx.responded_threads
@@ -217,11 +218,35 @@ def _handle_discussion_item(
         comment_id=comment_id,
     )
     command_handled = False
+    command_denied = False
     for cmd in commands:
         if cmd.is_valid:
             operations.append(
                 f"disc_cmd:/{cmd.command}:#{discussion_number}:@{cmd.author}"
             )
+            allowed, denial_reason = _authorize_discussion_command(
+                ctx,
+                cmd.command,
+                cmd.author,
+                membrane=membrane,
+            )
+            if not allowed:
+                operations.append(
+                    f"disc_cmd_denied:/{cmd.command}:#{discussion_number}:@{cmd.author}:{denial_reason}"
+                )
+                rejected = getattr(ctx, "_rejected_actions", [])
+                rejected.append({
+                    "verb": f"/{cmd.command}",
+                    "target": cmd.args[:40],
+                    "reason": (
+                        f"{denial_reason} for @{cmd.author} on #{discussion_number}"
+                    ),
+                    "source": "discussion",
+                })
+                ctx._rejected_actions = rejected  # type: ignore[attr-defined]
+                command_denied = True
+                _learn(ctx, "discussion", "command_denied", success=False)
+                continue
             response_body = execute_command(cmd, ctx)
             if response_body and ctx.discussions is not None and not ctx.offline_mode:
                 if ctx.discussions.can_respond(discussion_number):
@@ -244,7 +269,7 @@ def _handle_discussion_item(
                     operations.append(f"cmd_rate_limited:#{discussion_number}")
 
     # If commands were executed and posted, skip normal agent routing
-    if command_handled:
+    if command_handled or command_denied:
         return
 
     # Phase 6B: Track conversation state (persistent via registry)
@@ -393,6 +418,7 @@ def _handle_discussion_item(
                     ctx, brain_thought, discussion_number, agent_name,
                     operations, comment_author=comment_author,
                     comment_id=comment_id,
+                    membrane=membrane,
                 )
 
     # 7A-4: Run Cartridge process() if available — agent-specific cognition
@@ -449,7 +475,8 @@ def _handle_discussion_item(
                     agent_name, discussion_number, holder or "expired",
                 )
                 operations.append(
-                    f"disc_claim_lost:{agent_name}:#{discussion_number}:holder={holder or 'expired'}"
+                    "disc_claim_lost:"
+                    f"{agent_name}:#{discussion_number}:holder={holder or 'expired'}"
                 )
                 _learn(ctx, "discussion", "claim_lost", success=False)
                 return
@@ -579,36 +606,52 @@ _executed_hints: dict[str, str] = {}  # comment_id → last executed hint
 _EXECUTED_HINTS_MAX = 500
 
 
+def _authorize_discussion_command(
+    ctx: PhaseContext,
+    command: str,
+    author: str,
+    *,
+    membrane: dict | None = None,
+) -> tuple[bool, str]:
+    from city.membrane import AuthorityRequirement, authorize_ingress
+
+    requirement = AuthorityRequirement()
+    if command in {"mission", "heal"}:
+        from city.claims import ClaimLevel
+
+        requirement = AuthorityRequirement(claim_level=ClaimLevel.SELF_CLAIMED)
+    return authorize_ingress(
+        ctx,
+        membrane=membrane,
+        author=author,
+        requirement=requirement,
+    )
+
+
 def _authorize_action_hint(
-    ctx: PhaseContext, hint: str, author: str,
-) -> bool:
+    ctx: PhaseContext,
+    hint: str,
+    author: str,
+    *,
+    membrane: dict | None = None,
+) -> tuple[bool, str]:
     """Check if comment author is authorized to trigger this action_hint.
 
-    Schritt 2: Uses typed BrainAction.auth_tier instead of hardcoded string sets.
-    PUBLIC tier → always allowed. CITIZEN → needs citizen/operator. OPERATOR → needs operator.
+    C2.2: Resolve effective authority from membrane floor + local identity.
     """
-    from city.brain_action import AuthTier, parse_action_hint
+    from city.brain_action import parse_action_hint
+    from city.membrane import authorize_ingress, requirement_for_auth_tier
 
     action = parse_action_hint(hint)
     if action is None:
-        return False  # Unknown verb = rejected
+        return False, "unknown_hint"
 
-    # PUBLIC (read-only) hints pass unconditionally
-    if action.auth_tier == AuthTier.PUBLIC:
-        return True
-
-    # State-mutating: author must be a citizen or registered operator
-    if not author:
-        return False
-    # Check citizen status
-    agent_data = ctx.pokedex.get(author)
-    if agent_data and agent_data.get("status") in ("citizen", "active"):
-        return True
-    # Check operator table
-    operator = ctx.pokedex.get_operator(author)
-    if operator is not None:
-        return True
-    return False
+    return authorize_ingress(
+        ctx,
+        membrane=membrane,
+        author=author,
+        requirement=requirement_for_auth_tier(action.auth_tier),
+    )
 
 
 def _execute_action_hint(
@@ -620,6 +663,7 @@ def _execute_action_hint(
     *,
     comment_author: str = "",
     comment_id: str = "",
+    membrane: dict | None = None,
 ) -> None:
     """Act on a Brain action_hint from discussion comprehension.
 
@@ -634,20 +678,26 @@ def _execute_action_hint(
         return
 
     # 6C-8: Authorization gate
-    if not _authorize_action_hint(ctx, hint, comment_author):
+    allowed, denial_reason = _authorize_action_hint(
+        ctx,
+        hint,
+        comment_author,
+        membrane=membrane,
+    )
+    if not allowed:
         operations.append(
-            f"brain_hint_denied:{hint[:30]}:@{comment_author}:#{discussion_number}"
+            f"brain_hint_denied:{hint[:30]}:@{comment_author}:#{discussion_number}:{denial_reason}"
         )
         logger.info(
-            "KARMA: action_hint '%s' denied for @%s (not citizen/operator)",
-            hint[:40], comment_author,
+            "KARMA: action_hint '%s' denied for @%s (%s)",
+            hint[:40], comment_author, denial_reason,
         )
         # Track rejection for Brain feedback loop
         rejected = getattr(ctx, "_rejected_actions", [])
         rejected.append({
             "verb": hint.split(":")[0] if ":" in hint else hint,
             "target": hint.split(":", 1)[1][:40] if ":" in hint else "",
-            "reason": f"auth denied for @{comment_author} on #{discussion_number}",
+            "reason": f"{denial_reason} for @{comment_author} on #{discussion_number}",
             "source": "discussion",
         })
         ctx._rejected_actions = rejected  # type: ignore[attr-defined]
@@ -691,6 +741,8 @@ def _execute_action_hint(
             source="discussion",
             discussion_number=discussion_number,
             intent_type=getattr(thought, "intent", None) and thought.intent.value or "observe",
+            author=comment_author,
+            membrane=membrane or {},
         )
         handler_name = attention.route(intent.signal) if attention else None
         result = executor.execute(ctx, intent, handler_name)
