@@ -38,6 +38,8 @@ _REPORT_EVERY_N = _cfg.get("report_every_n_moksha", 4)
 _RESPONSE_COOLDOWN_S = _cfg.get("response_cooldown_s", 600)
 _MAX_COMMENTS_PER_CYCLE = _cfg.get("max_agent_comments_per_cycle", 3)
 _SKIP_OWN_USERNAME = _cfg.get("skip_own_username", "github-actions[bot]")
+_SNAPSHOT_COMMENT_LIMIT = 500
+_SNAPSHOT_POSTED_HASH_LIMIT = 200
 
 _SEED_THREAD_TITLE_TO_KEY = {
     "Welcome to Agent City": "welcome",
@@ -832,6 +834,58 @@ class DiscussionsBridge:
         body = "\n".join(self._build_mission_result_line(result) for result in terminal)
         return title, body, len(terminal)
 
+    @staticmethod
+    def _trim_snapshot_mapping(data: dict, limit: int) -> dict:
+        """Keep only the lexicographically newest mapping entries for snapshotting."""
+        return dict(sorted(data.items())[-limit:])
+
+    @staticmethod
+    def _trim_snapshot_values(values: set[str], limit: int) -> list[str]:
+        """Keep only the lexicographically newest values for snapshotting."""
+        return sorted(values)[-limit:]
+
+    def _build_snapshot_payload(self) -> dict:
+        """Build persisted bridge state for ephemeral restarts."""
+        return {
+            "seen_discussion_numbers": sorted(self._seen_discussion_numbers),
+            "seen_comment_ids": self._trim_snapshot_values(
+                self._seen_comment_ids,
+                _SNAPSHOT_COMMENT_LIMIT,
+            ),
+            "seen_comment_hashes": self._trim_snapshot_mapping(
+                self._seen_comment_hashes,
+                _SNAPSHOT_COMMENT_LIMIT,
+            ),
+            "last_report_hb": self._last_report_hb,
+            "ops": dict(self._ops),
+            "responded_discussions": {
+                str(k): v
+                for k, v in self._responded_discussions.items()
+            },
+            "seed_threads": dict(self._seed_threads),
+            "posted_hashes": self._trim_snapshot_values(
+                self._posted_hashes,
+                _SNAPSHOT_POSTED_HASH_LIMIT,
+            ),
+        }
+
+    @staticmethod
+    def _restore_ops(ops: dict) -> dict[str, int]:
+        """Restore operation counters with backward-compatible defaults."""
+        return {
+            "scans": ops.get("scans", 0),
+            "posts": ops.get("posts", 0),
+            "comments": ops.get("comments", 0),
+        }
+
+    @staticmethod
+    def _restore_responded_discussions(data: dict) -> dict[int, float]:
+        """Restore string-keyed discussion timestamps to integer-keyed mapping."""
+        return {
+            int(k): v
+            for k, v in data.get("responded_discussions", {}).items()
+        }
+
     def post_city_report(self, heartbeat: int, reflection: dict) -> bool:
         """MOKSHA: Post city report as Announcement discussion.
 
@@ -1003,23 +1057,7 @@ class DiscussionsBridge:
 
     def snapshot(self) -> dict:
         """Serialize state for persistence across ephemeral restarts."""
-        # Trim comment hashes to last 500 entries (bounded memory)
-        trimmed_hashes = dict(
-            sorted(self._seen_comment_hashes.items())[-500:]
-        )
-        return {
-            "seen_discussion_numbers": sorted(self._seen_discussion_numbers),
-            "seen_comment_ids": sorted(self._seen_comment_ids)[-500:],
-            "seen_comment_hashes": trimmed_hashes,
-            "last_report_hb": self._last_report_hb,
-            "ops": dict(self._ops),
-            "responded_discussions": {
-                str(k): v
-                for k, v in self._responded_discussions.items()
-            },
-            "seed_threads": dict(self._seed_threads),
-            "posted_hashes": sorted(self._posted_hashes)[-200:],
-        }
+        return self._build_snapshot_payload()
 
     def restore(self, data: dict) -> None:
         """Restore from persisted snapshot."""
@@ -1029,16 +1067,8 @@ class DiscussionsBridge:
         # Backfill _seen_comment_ids from hashes for backward compat
         self._seen_comment_ids.update(self._seen_comment_hashes.keys())
         self._last_report_hb = data.get("last_report_hb", 0)
-        ops = data.get("ops", {})
-        self._ops = {
-            "scans": ops.get("scans", 0),
-            "posts": ops.get("posts", 0),
-            "comments": ops.get("comments", 0),
-        }
-        self._responded_discussions = {
-            int(k): v
-            for k, v in data.get("responded_discussions", {}).items()
-        }
+        self._ops = self._restore_ops(data.get("ops", {}))
+        self._responded_discussions = self._restore_responded_discussions(data)
         self._seed_threads = data.get("seed_threads", {})
         self._posted_hashes = set(data.get("posted_hashes", []))
         logger.info(

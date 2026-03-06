@@ -624,6 +624,25 @@ def test_snapshot_restore_empty():
     assert new_bridge.stats()["discussions_seen"] == 0
 
 
+def test_snapshot_trims_large_state():
+    bridge = _make_bridge()
+    bridge._seen_comment_ids = {f"c{i:03d}" for i in range(600)}
+    bridge._seen_comment_hashes = {f"k{i:03d}": f"h{i:03d}" for i in range(600)}
+    bridge._posted_hashes = {f"p{i:03d}" for i in range(250)}
+
+    snap = bridge.snapshot()
+
+    assert len(snap["seen_comment_ids"]) == 500
+    assert snap["seen_comment_ids"][0] == "c100"
+    assert snap["seen_comment_ids"][-1] == "c599"
+    assert len(snap["seen_comment_hashes"]) == 500
+    assert "k099" not in snap["seen_comment_hashes"]
+    assert "k100" in snap["seen_comment_hashes"]
+    assert len(snap["posted_hashes"]) == 200
+    assert snap["posted_hashes"][0] == "p050"
+    assert snap["posted_hashes"][-1] == "p249"
+
+
 # ── Stats ─────────────────────────────────────────────────────────────
 
 
