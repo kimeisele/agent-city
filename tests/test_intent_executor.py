@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from city.intent_executor import CityIntentExecutor
 from city.reactor import CityIntent
 
@@ -219,18 +217,168 @@ class TestBrainActionDispatch:
         reactor = MagicMock()
         ctx = _mock_ctx()
         ctx.reactor = reactor
+        ctx.pokedex.get.return_value = {"status": "citizen"}
+        ctx.pokedex.get_operator.return_value = None
+        ctx.pokedex.get_claim_level.return_value = 0
 
         ex = CityIntentExecutor()
-        result = ex.execute(ctx, _intent("brain:escalate", target="memory leak"), "handle_brain_escalate")
+        result = ex.execute(
+            ctx,
+            _intent(
+                "brain:escalate",
+                target="memory leak",
+                author="CitizenUser",
+                membrane={
+                    "surface": "github_discussion",
+                    "access_class": "observer",
+                    "claim_floor": 0,
+                    "auth_route": "github_handle",
+                },
+            ),
+            "handle_brain_escalate",
+        )
         assert "escalated" in result
         reactor.emit_pain.assert_called_once()
 
     def test_brain_quarantine_handler(self):
         ctx = _mock_ctx()
+        ctx.pokedex.get.return_value = None
+        ctx.pokedex.get_operator.return_value = {"access_class": "operator"}
         ex = CityIntentExecutor()
-        result = ex.execute(ctx, _intent("brain:quarantine", target="bad_bot", detail="spam"), "handle_brain_quarantine")
+        result = ex.execute(
+            ctx,
+            _intent(
+                "brain:quarantine",
+                target="bad_bot",
+                detail="spam",
+                author="OpsUser",
+                membrane={
+                    "surface": "github_discussion",
+                    "access_class": "observer",
+                    "claim_floor": 0,
+                    "auth_route": "github_handle",
+                },
+            ),
+            "handle_brain_quarantine",
+        )
         assert "quarantined" in result
         ctx.pokedex.freeze.assert_called_once()
+
+    @patch("city.missions.create_discussion_mission")
+    def test_brain_create_mission_denied_without_authority(self, create_mission):
+        ctx = _mock_ctx()
+        ctx.sankalpa = MagicMock()
+
+        ex = CityIntentExecutor()
+        result = ex.execute(
+            ctx,
+            _intent(
+                "brain:create_mission",
+                target="Improve test coverage",
+                discussion_number=42,
+            ),
+            "handle_brain_create_mission",
+        )
+
+        assert result == "denied:handle_brain_create_mission:claim<self_claimed"
+        create_mission.assert_not_called()
+        assert ex.stats()["denied"] == 1
+
+    @patch("city.missions.create_discussion_mission", return_value="mission_42")
+    def test_brain_create_mission_allowed_with_citizen_authority(self, create_mission):
+        ctx = _mock_ctx()
+        ctx.sankalpa = MagicMock()
+        ctx.pokedex.get.return_value = {"status": "citizen"}
+        ctx.pokedex.get_operator.return_value = None
+        ctx.pokedex.get_claim_level.return_value = 0
+
+        ex = CityIntentExecutor()
+        result = ex.execute(
+            ctx,
+            _intent(
+                "brain:create_mission",
+                target="Improve test coverage",
+                discussion_number=42,
+                author="CitizenUser",
+                membrane={
+                    "surface": "github_discussion",
+                    "access_class": "observer",
+                    "claim_floor": 0,
+                    "auth_route": "github_handle",
+                },
+            ),
+            "handle_brain_create_mission",
+        )
+
+        assert result == "mission_created:mission_42"
+        create_mission.assert_called_once_with(
+            ctx, 42, "Improve test coverage", "propose",
+        )
+
+    def test_brain_quarantine_denied_without_operator_access(self):
+        ctx = _mock_ctx()
+        ctx.pokedex.get.return_value = {"status": "citizen"}
+        ctx.pokedex.get_operator.return_value = None
+        ctx.pokedex.get_claim_level.return_value = 0
+
+        ex = CityIntentExecutor()
+        result = ex.execute(
+            ctx,
+            _intent(
+                "brain:quarantine",
+                target="bad_bot",
+                detail="spam",
+                author="CitizenUser",
+                membrane={
+                    "surface": "github_discussion",
+                    "access_class": "observer",
+                    "claim_floor": 0,
+                    "auth_route": "github_handle",
+                },
+            ),
+            "handle_brain_quarantine",
+        )
+
+        assert result == "denied:handle_brain_quarantine:access<operator"
+        ctx.pokedex.freeze.assert_not_called()
+
+    def test_execute_brain_action_accepts_authority_context(self):
+        from city.attention import CityAttention
+        from city.brain_action import ActionVerb, BrainAction
+
+        ctx = _mock_ctx()
+        ctx.offline_mode = False
+        ctx.discussions = MagicMock()
+        ctx.discussions.retract_post.return_value = True
+        ctx.pokedex.get.return_value = None
+        ctx.pokedex.get_operator.return_value = {"access_class": "operator"}
+
+        ex = CityIntentExecutor()
+        att = CityAttention()
+        action = BrainAction(
+            verb=ActionVerb.RETRACT,
+            target="DC_kwDOTest123",
+            source_confidence=0.9,
+        )
+
+        result = ex.execute_brain_action(
+            ctx,
+            action,
+            attention=att,
+            source="discussion",
+            author="OpsUser",
+            membrane={
+                "surface": "github_discussion",
+                "access_class": "observer",
+                "claim_floor": 0,
+                "auth_route": "github_handle",
+            },
+        )
+
+        assert result == "retracted:DC_kwDOTest123"
+        ctx.discussions.retract_post.assert_called_once_with(
+            "DC_kwDOTest123", reason="",
+        )
 
     def test_all_brain_handlers_registered(self):
         from city.brain_action import ActionVerb

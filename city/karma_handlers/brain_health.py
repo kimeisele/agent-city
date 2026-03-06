@@ -6,7 +6,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from city.karma_handlers import BaseKarmaHandler
-from city.brain_cell import BRAIN_CALL_COST
 from city.seed_constants import NAVA, TRINITY
 
 if TYPE_CHECKING:
@@ -149,7 +148,7 @@ def _execute_critique_hint(
 
     Schritt 2: Uses typed ActionParser instead of startswith() chains.
     """
-    from city.brain_action import ActionVerb, parse_action_hint
+    from city.brain_action import parse_action_hint
 
     hint = getattr(critique, "action_hint", "")
     if not hint:
@@ -193,8 +192,14 @@ def _execute_critique_hint(
     attention = ctx.registry.get(SVC_ATTENTION) if ctx.registry else None
 
     if executor is not None:
+        from city.membrane import internal_membrane_snapshot
+
         evidence = getattr(critique, "evidence", "") or ""
-        intent = action.to_city_intent(source="critique", detail=evidence[:60])
+        intent = action.to_city_intent(
+            source="critique",
+            detail=evidence[:60],
+            membrane=internal_membrane_snapshot(),
+        )
         handler_name = attention.route(intent.signal) if attention else None
         result = executor.execute(ctx, intent, handler_name)
         operations.append(f"critique_action:{action.verb.value}:{result}")
