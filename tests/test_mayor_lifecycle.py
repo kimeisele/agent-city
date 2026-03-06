@@ -14,12 +14,26 @@ from city.registry import CityServiceRegistry, SVC_CONVERSATION_TRACKER
 
 def test_restore_mayor_heartbeat_count(tmp_path):
     state_path = tmp_path / "mayor_state.json"
-    state_path.write_text(json.dumps({"heartbeat_count": 7}))
-    mayor = SimpleNamespace(_heartbeat_count=0)
+    state_path.write_text(
+        json.dumps(
+            {
+                "heartbeat_count": 7,
+                "total_governance_actions": 11,
+                "total_operations": 13,
+            }
+        )
+    )
+    mayor = SimpleNamespace(
+        _heartbeat_count=0,
+        _total_governance_actions=0,
+        _total_operations=0,
+    )
 
     MayorLifecycleBridge(state_path=state_path).restore_mayor(mayor)
 
     assert mayor._heartbeat_count == 7
+    assert mayor._total_governance_actions == 11
+    assert mayor._total_operations == 13
 
 
 def test_persist_mayor_state_and_tracker(tmp_path):
@@ -28,6 +42,8 @@ def test_persist_mayor_state_and_tracker(tmp_path):
     registry.register(SVC_CONVERSATION_TRACKER, tracker)
     mayor = SimpleNamespace(
         _heartbeat_count=3,
+        _total_governance_actions=5,
+        _total_operations=8,
         _pokedex=SimpleNamespace(
             list_all=lambda: [{"name": "Alpha"}, {"name": "Beta"}],
             list_by_status=lambda status: [{"name": "Beta"}] if status == "archived" else [],
@@ -43,6 +59,8 @@ def test_persist_mayor_state_and_tracker(tmp_path):
     assert state["heartbeat_count"] == 3
     assert state["discovered_agents"] == ["Alpha", "Beta"]
     assert state["archived_agents"] == ["Beta"]
+    assert state["total_governance_actions"] == 5
+    assert state["total_operations"] == 8
     assert json.loads((tmp_path / "conversation_tracker.json").read_text()) == [
         {"discussion_number": 1}
     ]

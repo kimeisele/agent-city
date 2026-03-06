@@ -80,6 +80,8 @@ class Mayor:
     _lifecycle: MayorLifecycleBridge | None = None
     _observation: MayorObservationBridge | None = None
     _heartbeat_count: int = 0
+    _total_governance_actions: int = 0
+    _total_operations: int = 0
     _offline_mode: bool = False
     _active_agents: set[str] = field(default_factory=set)
     _gateway_queue: list[dict] = field(default_factory=list)
@@ -132,6 +134,8 @@ class Mayor:
         result = self._execution.run_heartbeat(self)
         duration_ms = (time.time() - start_time) * 1000
         self._record_execution(result["department"], duration_ms)
+        self._total_governance_actions += len(result["governance_actions"])
+        self._total_operations += len(result["operations"])
 
         self._heartbeat_count += 1
         self._save_state()

@@ -63,7 +63,7 @@ class FederationReportHook(BasePhaseHook):
 
         # Layer 6: Federation report
         if ctx.federation is not None:
-            report = _build_city_report(ctx, reflection)
+            report = _build_city_report(ctx, reflection, operations)
             sent = ctx.federation.send_report(report)
             reflection["federation_report_sent"] = sent
 
@@ -104,7 +104,7 @@ class MoltbookOutboundHook(BasePhaseHook):
         governance = get_governance_layer()
         actions = governance.evaluate_governance_actions(ctx)
         if actions.should_post_city_report:
-            post_data = _build_post_data(ctx, reflection)
+            post_data = _build_post_data(ctx, reflection, operations)
             posted = ctx.moltbook_bridge.post_city_update(post_data)
             reflection["moltbook_update_posted"] = posted
         else:
@@ -292,9 +292,14 @@ class WikiSyncHook(BasePhaseHook):
 # All posting decisions now flow through deterministic rule evaluation
 
 
-def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
+def _build_post_data(
+    ctx: PhaseContext,
+    reflection: dict,
+    operations: list[str] | None = None,
+) -> dict:
     """Build data dict for Moltbook city update post."""
     stats = reflection.get("city_stats", {})
+    recent_actions = _collect_recent_actions(reflection, operations)
 
     elected_mayor = None
     council_seats = 0
@@ -339,7 +344,7 @@ def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
         "elected_mayor": elected_mayor,
         "council_seats": council_seats,
         "open_proposals": open_proposals,
-        "recent_actions": [],
+        "recent_actions": recent_actions,
         "contract_status": contract_status,
         "chain_valid": reflection.get("chain_valid", False),
         "mission_results": mission_results,
@@ -348,13 +353,18 @@ def _build_post_data(ctx: PhaseContext, reflection: dict) -> dict:
     }
 
 
-def _build_city_report(ctx: PhaseContext, reflection: dict) -> object:
+def _build_city_report(
+    ctx: PhaseContext,
+    reflection: dict,
+    operations: list[str] | None = None,
+) -> object:
     """Build a CityReport from current city state."""
     from city.federation import CityReport
 
     stats = reflection.get("city_stats", {})
     total = stats.get("total", 0)
     alive = stats.get("active", 0) + stats.get("citizen", 0)
+    recent_actions = _collect_recent_actions(reflection, operations)
 
     elected_mayor = None
     council_seats = 0
@@ -405,9 +415,50 @@ def _build_city_report(ctx: PhaseContext, reflection: dict) -> object:
         council_seats=council_seats,
         open_proposals=open_proposals,
         chain_valid=reflection.get("chain_valid", False),
-        recent_actions=[],
+        recent_actions=recent_actions,
         contract_status=contract_status,
         mission_results=mission_results,
         directive_acks=directive_acks,
         pr_results=reflection.get("pr_results", []),
     )
+
+
+def _collect_recent_actions(
+    reflection: dict,
+    operations: list[str] | None = None,
+) -> list[str]:
+    """Build a compact recent-actions list from live reflection signals."""
+    raw_actions: list[str] = []
+
+    if operations is not None:
+        for value in operations:
+            if isinstance(value, str) and value:
+                raw_actions.append(value)
+
+    for key in ("operations_log", "brain_operations"):
+        for value in reflection.get(key, []):
+            if isinstance(value, str) and value:
+                raw_actions.append(value)
+
+    for mission in reflection.get("mission_results_terminal", []):
+        if not isinstance(mission, dict):
+            continue
+        name = mission.get("name") or mission.get("id") or "unknown"
+        status = mission.get("status") or "unknown"
+        raw_actions.append(f"mission:{status}:{name}")
+
+    for pr in reflection.get("pr_results", []):
+        if not isinstance(pr, dict):
+            continue
+        branch = pr.get("branch") or pr.get("pr_url") or "unknown"
+        raw_actions.append(f"pr_created:{branch}")
+
+    unique_actions: list[str] = []
+    seen: set[str] = set()
+    for action in raw_actions:
+        if action in seen:
+            continue
+        seen.add(action)
+        unique_actions.append(action)
+
+    return unique_actions[:10]

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from city.mayor.execution import MayorExecutionBridge
+from city.mayor.kernel import Mayor
 from city.registry import CityServiceRegistry
 
 
@@ -51,3 +52,42 @@ def test_execution_bridge_runs_moksha_self_diagnostics(monkeypatch):
     assert result["reflection"]["chain_valid"] is True
     assert result["reflection"]["immune_heals"] == 2
     immune.run_self_diagnostics.assert_called_once()
+
+
+def test_heartbeat_updates_persisted_totals():
+    events: list[tuple[str, object]] = []
+
+    class FakeMayor:
+        def __init__(self):
+            self._execution = SimpleNamespace(
+                run_heartbeat=lambda mayor: {
+                    "department": "KARMA",
+                    "governance_actions": ["gov:1", "gov:2"],
+                    "operations": ["op:1", "op:2", "op:3"],
+                    "reflection": {},
+                    "heartbeat": 0,
+                    "department_idx": 2,
+                    "timestamp": 0.0,
+                    "discovered": [],
+                }
+            )
+            self._heartbeat_count = 9
+            self._total_governance_actions = 4
+            self._total_operations = 7
+
+        def _record_execution(self, department: str, duration_ms: float) -> None:
+            events.append((department, duration_ms))
+
+        def _save_state(self) -> None:
+            events.append(("saved", None))
+
+    mayor = FakeMayor()
+
+    result = Mayor.heartbeat(mayor)
+
+    assert result["department"] == "KARMA"
+    assert mayor._heartbeat_count == 10
+    assert mayor._total_governance_actions == 6
+    assert mayor._total_operations == 10
+    assert events[0][0] == "KARMA"
+    assert events[-1] == ("saved", None)
