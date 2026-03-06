@@ -14,6 +14,8 @@ They need:
 
 from pathlib import Path
 
+import pytest
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -35,6 +37,12 @@ def _make_pokedex(tmp_path: Path):
                 bank=mock_bank,
                 constitution_path=str(tmp_path / "CONSTITUTION.md"),
             )
+
+
+def _local_membrane():
+    from city.membrane import internal_membrane_snapshot
+
+    return internal_membrane_snapshot()
 
 
 # ── Tests: AccessClass Enum ─────────────────────────────────────────────
@@ -91,6 +99,7 @@ def test_register_operator(tmp_path):
         operator_type="cascade",
         access_class="steward",
         registered_by="sovereign:ss",
+        membrane=_local_membrane(),
     )
 
     assert op is not None
@@ -106,8 +115,12 @@ def test_register_operator_idempotent(tmp_path):
     """Registering the same operator twice returns existing record."""
     pdx = _make_pokedex(tmp_path)
 
-    op1 = pdx.register_operator("opus_3", "cascade", "steward", "sovereign:ss")
-    op2 = pdx.register_operator("opus_3", "cascade", "steward", "sovereign:ss")
+    op1 = pdx.register_operator(
+        "opus_3", "cascade", "steward", "sovereign:ss", membrane=_local_membrane(),
+    )
+    op2 = pdx.register_operator(
+        "opus_3", "cascade", "steward", "sovereign:ss", membrane=_local_membrane(),
+    )
 
     assert op1["name"] == op2["name"]
     assert op1["fingerprint"] == op2["fingerprint"]
@@ -117,7 +130,9 @@ def test_register_operator_records_event(tmp_path):
     """Registration must create an event in the chained ledger."""
     pdx = _make_pokedex(tmp_path)
 
-    pdx.register_operator("test_bot", "gh_actions", "operator", "sovereign:ss")
+    pdx.register_operator(
+        "test_bot", "gh_actions", "operator", "sovereign:ss", membrane=_local_membrane(),
+    )
 
     events = pdx.get_events("test_bot", limit=5)
     assert len(events) >= 1
@@ -131,7 +146,9 @@ def test_get_operator(tmp_path):
     """Pokedex.get_operator() returns operator by name."""
     pdx = _make_pokedex(tmp_path)
 
-    pdx.register_operator("my_cursor", "cursor", "operator", "sovereign:ss")
+    pdx.register_operator(
+        "my_cursor", "cursor", "operator", "sovereign:ss", membrane=_local_membrane(),
+    )
     op = pdx.get_operator("my_cursor")
 
     assert op is not None
@@ -150,8 +167,12 @@ def test_list_operators(tmp_path):
     """list_operators() returns all registered operators."""
     pdx = _make_pokedex(tmp_path)
 
-    pdx.register_operator("bot_a", "cascade", "steward", "sovereign:ss")
-    pdx.register_operator("bot_b", "cursor", "operator", "sovereign:ss")
+    pdx.register_operator(
+        "bot_a", "cascade", "steward", "sovereign:ss", membrane=_local_membrane(),
+    )
+    pdx.register_operator(
+        "bot_b", "cursor", "operator", "sovereign:ss", membrane=_local_membrane(),
+    )
 
     ops = pdx.list_operators()
     assert len(ops) == 2
@@ -166,8 +187,12 @@ def test_check_operator_access_write(tmp_path):
     """OPERATOR can write, OBSERVER cannot."""
     pdx = _make_pokedex(tmp_path)
 
-    pdx.register_operator("writer", "cascade", "operator", "sovereign:ss")
-    pdx.register_operator("reader", "cascade", "observer", "sovereign:ss")
+    pdx.register_operator(
+        "writer", "cascade", "operator", "sovereign:ss", membrane=_local_membrane(),
+    )
+    pdx.register_operator(
+        "reader", "cascade", "observer", "sovereign:ss", membrane=_local_membrane(),
+    )
 
     assert pdx.check_operator_access("writer", "write") is True
     assert pdx.check_operator_access("reader", "write") is False
@@ -177,8 +202,12 @@ def test_check_operator_access_protected(tmp_path):
     """Only STEWARD+ can modify protected files."""
     pdx = _make_pokedex(tmp_path)
 
-    pdx.register_operator("steward_bot", "cascade", "steward", "sovereign:ss")
-    pdx.register_operator("normal_bot", "cascade", "operator", "sovereign:ss")
+    pdx.register_operator(
+        "steward_bot", "cascade", "steward", "sovereign:ss", membrane=_local_membrane(),
+    )
+    pdx.register_operator(
+        "normal_bot", "cascade", "operator", "sovereign:ss", membrane=_local_membrane(),
+    )
 
     assert pdx.check_operator_access("steward_bot", "modify_protected") is True
     assert pdx.check_operator_access("normal_bot", "modify_protected") is False
@@ -198,15 +227,40 @@ def test_update_operator_access(tmp_path):
     """Access class can be upgraded/downgraded."""
     pdx = _make_pokedex(tmp_path)
 
-    pdx.register_operator("bot", "cascade", "observer", "sovereign:ss")
+    pdx.register_operator(
+        "bot", "cascade", "observer", "sovereign:ss", membrane=_local_membrane(),
+    )
     assert pdx.get_operator("bot")["access_class"] == "observer"
 
-    pdx.update_operator_access("bot", "steward", "promoted by council")
+    pdx.update_operator_access(
+        "bot", "steward", "promoted by council", membrane=_local_membrane(),
+    )
     assert pdx.get_operator("bot")["access_class"] == "steward"
 
     events = pdx.get_events("bot", limit=10)
     access_events = [e for e in events if e["event_type"] == "access_change"]
     assert len(access_events) >= 1
+
+
+def test_register_operator_denied_without_authority(tmp_path):
+    """Operator registration must fail without explicit authority context."""
+    pdx = _make_pokedex(tmp_path)
+
+    with pytest.raises(PermissionError, match="operator_registry_denied:access<operator"):
+        pdx.register_operator("rogue_bot", "cascade", "operator", "unknown")
+
+
+def test_update_operator_access_denied_without_authority(tmp_path):
+    """Access upgrades must fail without explicit authority context."""
+    pdx = _make_pokedex(tmp_path)
+    pdx.register_operator(
+        "bot", "cascade", "observer", "sovereign:ss", membrane=_local_membrane(),
+    )
+
+    with pytest.raises(PermissionError, match="operator_registry_denied:access<steward"):
+        pdx.update_operator_access("bot", "steward", "rogue promotion")
+
+    assert pdx.get_operator("bot")["access_class"] == "observer"
 
 
 # ── Tests: GitStateAuthority Operator Trace ──────────────────────────

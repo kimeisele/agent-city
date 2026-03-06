@@ -78,6 +78,16 @@ def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
     action_type = proposal.action.get("type")
     params = proposal.action.get("params", {})
 
+    allowed, reason = _authorize_proposal_execution(ctx, action_type)
+    if not allowed:
+        logger.warning(
+            "Proposal %s denied during execution (action=%s, reason=%s)",
+            proposal.id,
+            action_type,
+            reason,
+        )
+        return False
+
     if action_type == "freeze" and params.get("target"):
         try:
             ctx.pokedex.freeze(params["target"], f"council_proposal:{proposal.id}")
@@ -142,3 +152,38 @@ def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
 
     logger.warning("Unknown proposal action: %s", action_type)
     return False
+
+
+def _authorize_proposal_execution(
+    ctx: PhaseContext,
+    action_type: str | None,
+) -> tuple[bool, str]:
+    requirement = _proposal_authority_requirement(action_type)
+    if requirement is None:
+        return True, "ok"
+
+    from city.membrane import authorize_ingress, internal_membrane_snapshot
+
+    return authorize_ingress(
+        ctx,
+        membrane=internal_membrane_snapshot(source_class="governance"),
+        requirement=requirement,
+    )
+
+
+def _proposal_authority_requirement(action_type: str | None):
+    from city.access import AccessClass
+    from city.membrane import AuthorityRequirement
+
+    if action_type == "integrity":
+        return AuthorityRequirement(access_class=AccessClass.STEWARD)
+    if action_type in {
+        "freeze",
+        "unfreeze",
+        "heal",
+        "set_commission",
+        "freeze_market",
+        "unfreeze_market",
+    }:
+        return AuthorityRequirement(access_class=AccessClass.OPERATOR)
+    return None

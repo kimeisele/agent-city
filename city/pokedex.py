@@ -29,6 +29,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from vibe_core.cartridges.system.civic.tools.economy import CivicBank
 from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
@@ -1155,12 +1156,21 @@ class Pokedex:
         operator_type: str,
         access_class: str,
         registered_by: str,
+        *,
+        author: str = "",
+        membrane: dict[str, Any] | None = None,
     ) -> dict:
         """Register a non-autonomous operator (CLI agent, bot, webhook).
 
         No Jiva, no MahaCell, no ECDSA key. Fingerprint is trace-only.
         Idempotent: returns existing record if name already registered.
         """
+        self._authorize_operator_registry_mutation(
+            author=author,
+            membrane=membrane,
+            requirement=self._operator_registry_requirement(access_class),
+        )
+
         existing = self.get_operator(name)
         if existing:
             return existing
@@ -1235,8 +1245,17 @@ class Pokedex:
         name: str,
         new_access_class: str,
         reason: str = "manual",
+        *,
+        author: str = "",
+        membrane: dict[str, Any] | None = None,
     ) -> dict | None:
         """Update an operator's access class. Records event in ledger."""
+        self._authorize_operator_registry_mutation(
+            author=author,
+            membrane=membrane,
+            requirement=self._operator_registry_requirement(new_access_class),
+        )
+
         op = self.get_operator(name)
         if op is None:
             raise ValueError(f"Operator '{name}' not found")
@@ -1266,6 +1285,38 @@ class Pokedex:
     def on_transition(self, callback) -> None:
         """Register a lifecycle callback: fn(name, from_status, to_status, reason)."""
         self._on_transition.append(callback)
+
+    def _operator_registry_requirement(self, access_class: str) -> Any:
+        from city.access import AccessClass
+        from city.membrane import AuthorityRequirement
+
+        try:
+            required_access = AccessClass(access_class)
+        except ValueError:
+            required_access = AccessClass.OPERATOR
+
+        if required_access.level < AccessClass.OPERATOR.level:
+            required_access = AccessClass.OPERATOR
+
+        return AuthorityRequirement(access_class=required_access)
+
+    def _authorize_operator_registry_mutation(
+        self,
+        *,
+        author: str,
+        membrane: dict[str, Any] | None,
+        requirement: Any,
+    ) -> None:
+        from city.membrane import authorize_ingress
+
+        allowed, reason = authorize_ingress(
+            self,
+            membrane=membrane,
+            author=author,
+            requirement=requirement,
+        )
+        if not allowed:
+            raise PermissionError(f"operator_registry_denied:{reason}")
 
     def _transition(self, name: str, from_status: str, to_status: str, reason: str) -> dict:
         """Execute a lifecycle transition with event recording."""
