@@ -10,7 +10,6 @@ Extracted from dharma.py monolith (Phase 6A).
 from __future__ import annotations
 
 import logging
-import time
 from typing import TYPE_CHECKING
 
 from city.phase_hook import DHARMA, BasePhaseHook

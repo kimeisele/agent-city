@@ -25,7 +25,7 @@ def _build_registry():
     Dynamic registration: hooks register themselves. Future agents
     can add new hooks via PR without touching this file.
     """
-    from city.phase_hook import GENESIS, PhaseHookRegistry
+    from city.phase_hook import PhaseHookRegistry
     from city.hooks.genesis.census import CensusHook
     from city.hooks.genesis.moltbook_scan import (
         DMInboxHook,

@@ -21,7 +21,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("AGENT_CITY.REACTOR")
 

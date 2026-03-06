@@ -14,11 +14,10 @@ brain.py uses PromptContext to eliminate per-method boilerplate.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from city.brain import ThoughtKind
     from city.brain_context import ContextSnapshot
 
 logger = logging.getLogger("AGENT_CITY.PROMPT_REGISTRY")

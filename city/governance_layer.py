@@ -24,9 +24,9 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from city.civic_protocol import CivicContext, CivicEngine, create_civic_engine
-from city.deliberation_engine import DeliberationEngine, create_deliberation_engine, submit_council_proposal
-from city.referendum_system import ReferendumEngine, create_referendum_engine, trigger_council_referral
+from city.civic_protocol import CivicContext, create_civic_engine
+from city.deliberation_engine import create_deliberation_engine, submit_council_proposal
+from city.referendum_system import create_referendum_engine, trigger_council_referral
 
 logger = logging.getLogger("AGENT_CITY.GOVERNANCE_LAYER")
 

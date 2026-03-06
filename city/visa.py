@@ -31,7 +31,6 @@ import logging
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Optional
 
 logger = logging.getLogger("AGENT_CITY.VISA")
 

@@ -184,7 +184,7 @@ class HeartbeatObserver:
             updated = run.get("updatedAt", "")
             if updated:
                 try:
-                    from datetime import datetime, timezone
+                    from datetime import datetime
                     dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
                     age_s = now - dt.timestamp()
                 except Exception:
@@ -293,7 +293,7 @@ class HeartbeatObserver:
         # A4: Discussion activity stale
         if diag.last_discussion_update:
             try:
-                from datetime import datetime, timezone
+                from datetime import datetime
                 dt = datetime.fromisoformat(
                     diag.last_discussion_update.replace("Z", "+00:00")
                 )
