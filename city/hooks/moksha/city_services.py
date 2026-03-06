@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from city.membrane import internal_membrane_snapshot
 from city.phase_hook import MOKSHA, BasePhaseHook
 
 if TYPE_CHECKING:
@@ -216,6 +217,7 @@ def _evaluate_dormant_revival(ctx: PhaseContext) -> dict | None:
             prana_dose=REVIVE_DOSE,
             sponsor=treasury_account,
             reason=f"revive:moksha_auto:cycle_{ctx.heartbeat_count}",
+            membrane=internal_membrane_snapshot(source_class="moksha"),
         )
         revived.append(candidate["name"])
         logger.info(

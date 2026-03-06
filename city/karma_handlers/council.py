@@ -75,8 +75,11 @@ def _council_auto_vote(ctx: PhaseContext) -> None:
 
 def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
     """Execute a passed council proposal. Returns True on success."""
+    from city.membrane import internal_membrane_snapshot
+
     action_type = proposal.action.get("type")
     params = proposal.action.get("params", {})
+    root_membrane = internal_membrane_snapshot(source_class="governance")
 
     allowed, reason = _authorize_proposal_execution(ctx, action_type)
     if not allowed:
@@ -90,7 +93,11 @@ def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
 
     if action_type == "freeze" and params.get("target"):
         try:
-            ctx.pokedex.freeze(params["target"], f"council_proposal:{proposal.id}")
+            ctx.pokedex.freeze(
+                params["target"],
+                f"council_proposal:{proposal.id}",
+                membrane=root_membrane,
+            )
             return True
         except (ValueError, Exception) as e:
             logger.warning("Proposal %s failed: %s", proposal.id, e)
@@ -98,7 +105,11 @@ def _execute_proposal(ctx: PhaseContext, proposal: object) -> bool:
 
     if action_type == "unfreeze" and params.get("target"):
         try:
-            ctx.pokedex.unfreeze(params["target"], f"council_proposal:{proposal.id}")
+            ctx.pokedex.unfreeze(
+                params["target"],
+                f"council_proposal:{proposal.id}",
+                membrane=root_membrane,
+            )
             return True
         except (ValueError, Exception) as e:
             logger.warning("Proposal %s failed: %s", proposal.id, e)

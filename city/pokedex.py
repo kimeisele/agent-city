@@ -554,8 +554,16 @@ class Pokedex:
         with self._lock:
             return self._transition(name, "citizen", "active", "First contribution")
 
-    def freeze(self, name: str, reason: str = "governance_action") -> dict:
+    def freeze(
+        self,
+        name: str,
+        reason: str = "governance_action",
+        *,
+        author: str = "",
+        membrane: dict[str, Any] | None = None,
+    ) -> dict:
         """Freeze an agent — suspend all activity and bank account."""
+        self._authorize_root_mutation(author=author, membrane=membrane)
         with self._lock:
             agent = self._require(name)
             if agent["status"] in ("archived", "exiled"):
@@ -564,8 +572,16 @@ class Pokedex:
             self._bank.freeze_account(name, reason)
             return self._transition(name, agent["status"], "frozen", reason)
 
-    def unfreeze(self, name: str, reason: str = "amnesty") -> dict:
+    def unfreeze(
+        self,
+        name: str,
+        reason: str = "amnesty",
+        *,
+        author: str = "",
+        membrane: dict[str, Any] | None = None,
+    ) -> dict:
         """Unfreeze a previously frozen agent."""
+        self._authorize_root_mutation(author=author, membrane=membrane)
         with self._lock:
             self._bank.unfreeze_account(name, reason)
             return self._transition(name, "frozen", "active", reason)
@@ -576,6 +592,9 @@ class Pokedex:
         prana_dose: int = REVIVE_DOSE,
         sponsor: str = "treasury",
         reason: str = "revive:auto",
+        *,
+        author: str = "",
+        membrane: dict[str, Any] | None = None,
     ) -> dict:
         """Revive a dormant (frozen) agent with prana injection.
 
@@ -592,6 +611,7 @@ class Pokedex:
         The dose defaults to REVIVE_DOSE (1080 = MALA × TEN), which is
         above HIBERNATION_THRESHOLD (972) to prevent immediate re-freeze.
         """
+        self._authorize_root_mutation(author=author, membrane=membrane)
         with self._lock:
             agent = self._require(name)
             if agent["status"] != "frozen":
@@ -693,7 +713,11 @@ class Pokedex:
 
             if new_prana > HIBERNATION_THRESHOLD:
                 return self.revive(
-                    recipient, prana_dose=0, sponsor=donor, reason=f"revive:peer_donation:{donor}"
+                    recipient,
+                    prana_dose=0,
+                    sponsor=donor,
+                    reason=f"revive:peer_donation:{donor}",
+                    membrane=self._internal_root_membrane(source_class="economy"),
                 )
 
         return self.get(recipient)
@@ -750,8 +774,11 @@ class Pokedex:
 
                 if new_prana > HIBERNATION_THRESHOLD:
                     return self.revive(
-                        name, prana_dose=0, sponsor="system",
+                        name,
+                        prana_dose=0,
+                        sponsor="system",
                         reason=f"revive:engagement_award:{source}",
+                        membrane=self._internal_root_membrane(source_class="economy"),
                     )
 
             return self.get(name)
@@ -859,15 +886,31 @@ class Pokedex:
             )
         return dormant
 
-    def exile(self, name: str, reason: str = "constitutional_violation") -> dict:
+    def exile(
+        self,
+        name: str,
+        reason: str = "constitutional_violation",
+        *,
+        author: str = "",
+        membrane: dict[str, Any] | None = None,
+    ) -> dict:
         """Permanently exile an agent — terminal state."""
+        self._authorize_root_mutation(author=author, membrane=membrane)
         with self._lock:
             agent = self._require(name)
             self._bank.freeze_account(name, reason)
             return self._transition(name, agent["status"], "exiled", reason)
 
-    def archive(self, name: str, reason: str = "retirement") -> dict:
+    def archive(
+        self,
+        name: str,
+        reason: str = "retirement",
+        *,
+        author: str = "",
+        membrane: dict[str, Any] | None = None,
+    ) -> dict:
         """Archive an agent — terminal state, honorable retirement."""
+        self._authorize_root_mutation(author=author, membrane=membrane)
         with self._lock:
             agent = self._require(name)
             return self._transition(name, agent["status"], "archived", reason)
@@ -911,21 +954,31 @@ class Pokedex:
         cur.execute("SELECT * FROM agents WHERE civic_role = ? ORDER BY name", (role,))
         return [self._row_to_dict(r) for r in cur.fetchall()]
 
-    def assign_role(self, name: str, role: str, reason: str = "election") -> dict:
+    def assign_role(
+        self,
+        name: str,
+        role: str,
+        reason: str = "election",
+        *,
+        author: str = "",
+        membrane: dict[str, Any] | None = None,
+    ) -> dict:
         """Assign a civic role to an agent. Records event in ledger."""
-        agent = self.get(name)
-        if agent is None:
-            raise ValueError(f"Agent {name} not found")
-        old_role = agent.get("civic_role", "citizen")
-        now = datetime.now(timezone.utc).isoformat()
-        cur = self._conn.cursor()
-        cur.execute(
-            "UPDATE agents SET civic_role = ?, updated_at = ? WHERE name = ?",
-            (role, now, name),
-        )
-        self._record_event(name, "role_change", old_role, role, reason)
-        self._conn.commit()
-        return self.get(name)
+        self._authorize_root_mutation(author=author, membrane=membrane)
+        with self._lock:
+            agent = self.get(name)
+            if agent is None:
+                raise ValueError(f"Agent {name} not found")
+            old_role = agent.get("civic_role", "citizen")
+            now = datetime.now(timezone.utc).isoformat()
+            cur = self._conn.cursor()
+            cur.execute(
+                "UPDATE agents SET civic_role = ?, updated_at = ? WHERE name = ?",
+                (role, now, name),
+            )
+            self._record_event(name, "role_change", old_role, role, reason)
+            self._conn.commit()
+            return self.get(name)
 
     def stats(self) -> dict:
         """City-wide statistics."""
@@ -1116,7 +1169,11 @@ class Pokedex:
                 seen.add(name)
                 dead.append(name)
                 try:
-                    self.freeze(name, "dormant:prana_exhaustion")
+                    self.freeze(
+                        name,
+                        "dormant:prana_exhaustion",
+                        membrane=self._internal_root_membrane(source_class="metabolism"),
+                    )
                 except Exception as e:
                     logger.warning("metabolize_all: failed to freeze %s: %s", name, e)
 
@@ -1285,6 +1342,34 @@ class Pokedex:
     def on_transition(self, callback) -> None:
         """Register a lifecycle callback: fn(name, from_status, to_status, reason)."""
         self._on_transition.append(callback)
+
+    def _root_mutation_requirement(self) -> Any:
+        from city.access import AccessClass
+        from city.membrane import AuthorityRequirement
+
+        return AuthorityRequirement(access_class=AccessClass.SOVEREIGN)
+
+    def _authorize_root_mutation(
+        self,
+        *,
+        author: str,
+        membrane: dict[str, Any] | None,
+    ) -> None:
+        from city.membrane import authorize_ingress
+
+        allowed, reason = authorize_ingress(
+            self,
+            membrane=membrane,
+            author=author,
+            requirement=self._root_mutation_requirement(),
+        )
+        if not allowed:
+            raise PermissionError(f"root_mutation_denied:{reason}")
+
+    def _internal_root_membrane(self, source_class: str = "pokedex") -> dict[str, Any]:
+        from city.membrane import internal_membrane_snapshot
+
+        return internal_membrane_snapshot(source_class=source_class)
 
     def _operator_registry_requirement(self, access_class: str) -> Any:
         from city.access import AccessClass

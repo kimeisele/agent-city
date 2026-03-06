@@ -20,6 +20,12 @@ from city.pokedex import SYSTEM_TREASURY, Pokedex
 from city.seed_constants import TRINITY, NAVA
 
 
+def _root_membrane():
+    from city.membrane import internal_membrane_snapshot
+
+    return internal_membrane_snapshot(source_class="tests")
+
+
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
 
@@ -64,7 +70,7 @@ class TestGetPrana:
 
     def test_get_prana_frozen_agent(self, pdx, agent):
         """Frozen agent returns 0."""
-        pdx.freeze(agent, "test")
+        pdx.freeze(agent, "test", membrane=_root_membrane())
         assert pdx.get_prana(agent) == 0
 
     def test_get_prana_nonexistent_raises(self, pdx):
@@ -100,7 +106,7 @@ class TestDebitPrana:
 
     def test_debit_frozen_agent_fails(self, pdx, agent):
         """Frozen agents cannot be debited."""
-        pdx.freeze(agent, "test")
+        pdx.freeze(agent, "test", membrane=_root_membrane())
         result = pdx.debit_prana(agent, 1, reason="test")
         assert result is False
 
@@ -244,6 +250,7 @@ class TestBrainGenerateInsight:
         """generate_insight returns None when LLM is unavailable."""
         from city.brain import CityBrain
         brain = CityBrain()
+        brain._available = False
         result = brain.generate_insight(
             {"mission_results_terminal": [{"name": "test", "status": "completed"}]},
         )

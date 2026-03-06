@@ -3,6 +3,7 @@ Linked to GitHub Issue #12.
 """
 
 import json
+import pytest
 import shutil
 import sys
 import tempfile
@@ -12,6 +13,12 @@ from pathlib import Path
 # Ensure imports work
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+def _root_membrane():
+    from city.membrane import internal_membrane_snapshot
+
+    return internal_membrane_snapshot(source_class="tests")
 
 
 # ── Phase 1: CityCouncil Unit Tests ────────────────────────────────
@@ -387,7 +394,7 @@ def test_pokedex_assign_role():
     agent = pdx.get("Ronin")
     assert agent["civic_role"] == "citizen"
 
-    pdx.assign_role("Ronin", "elected_mayor", "election")
+    pdx.assign_role("Ronin", "elected_mayor", "election", membrane=_root_membrane())
     agent = pdx.get("Ronin")
     assert agent["civic_role"] == "elected_mayor"
 
@@ -395,6 +402,20 @@ def test_pokedex_assign_role():
     events = pdx.get_events("Ronin")
     role_events = [e for e in events if e["event_type"] == "role_change"]
     assert len(role_events) == 1
+
+
+def test_pokedex_assign_role_denied_without_authority():
+    """Direct mayor escalation must require an explicit root membrane."""
+    from city.pokedex import Pokedex
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    tmpdir = Path(tempfile.mkdtemp())
+    bank = CivicBank(db_path=str(tmpdir / "economy.db"))
+    pdx = Pokedex(db_path=str(tmpdir / "city.db"), bank=bank)
+    pdx.register("Rogue")
+
+    with pytest.raises(PermissionError, match="root_mutation_denied:access<sovereign"):
+        pdx.assign_role("Rogue", "elected_mayor", "self_promotion")
 
     shutil.rmtree(tmpdir)
 

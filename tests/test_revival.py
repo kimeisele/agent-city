@@ -21,6 +21,12 @@ from city.seed_constants import (
 )
 
 
+def _root_membrane():
+    from city.membrane import internal_membrane_snapshot
+
+    return internal_membrane_snapshot(source_class="tests")
+
+
 def _make_pokedex(tmp_path):
     from city.pokedex import Pokedex
 
@@ -41,7 +47,7 @@ def _freeze_with_zero_prana(pkdx, name: str):
     cur = pkdx._conn.cursor()
     cur.execute("UPDATE agents SET prana = 0 WHERE name = ?", (name,))
     pkdx._conn.commit()
-    pkdx.freeze(name, "dormant:prana_exhaustion")
+    pkdx.freeze(name, "dormant:prana_exhaustion", membrane=_root_membrane())
 
 
 # ── revive() ─────────────────────────────────────────────────────────
@@ -57,7 +63,7 @@ def test_revive_basic(tmp_path):
     agent = pkdx.get("agent-dormant")
     assert agent["status"] == "frozen"
 
-    result = pkdx.revive("agent-dormant")
+    result = pkdx.revive("agent-dormant", membrane=_root_membrane())
     assert result["status"] == "active"
 
     # Verify prana was injected
@@ -74,7 +80,13 @@ def test_revive_custom_dose(tmp_path):
     _activate(pkdx, "agent-custom")
     _freeze_with_zero_prana(pkdx, "agent-custom")
 
-    pkdx.revive("agent-custom", prana_dose=5000, sponsor="treasury", reason="council_vote")
+    pkdx.revive(
+        "agent-custom",
+        prana_dose=5000,
+        sponsor="treasury",
+        reason="council_vote",
+        membrane=_root_membrane(),
+    )
     cur = pkdx._conn.cursor()
     cur.execute("SELECT prana FROM agents WHERE name = ?", ("agent-custom",))
     assert cur.fetchone()["prana"] == 5000
@@ -87,7 +99,18 @@ def test_revive_non_frozen_raises(tmp_path):
     _activate(pkdx, "agent-alive")
 
     with pytest.raises(ValueError, match="revive only works on frozen"):
-        pkdx.revive("agent-alive")
+        pkdx.revive("agent-alive", membrane=_root_membrane())
+
+
+def test_revive_denied_without_authority(tmp_path):
+    """Direct revive must require an explicit root membrane."""
+    pkdx = _make_pokedex(tmp_path)
+    _discover_and_register(pkdx, "agent-guarded")
+    _activate(pkdx, "agent-guarded")
+    _freeze_with_zero_prana(pkdx, "agent-guarded")
+
+    with pytest.raises(PermissionError, match="root_mutation_denied:access<sovereign"):
+        pkdx.revive("agent-guarded")
 
 
 def test_revive_records_event(tmp_path):
@@ -97,7 +120,7 @@ def test_revive_records_event(tmp_path):
     _activate(pkdx, "agent-event")
     _freeze_with_zero_prana(pkdx, "agent-event")
 
-    pkdx.revive("agent-event", sponsor="ZONE_DISCOVERY")
+    pkdx.revive("agent-event", sponsor="ZONE_DISCOVERY", membrane=_root_membrane())
 
     # Check event ledger
     cur = pkdx._conn.cursor()
@@ -118,7 +141,7 @@ def test_revive_survives_next_metabolize(tmp_path):
     _activate(pkdx, "agent-survivor")
     _freeze_with_zero_prana(pkdx, "agent-survivor")
 
-    pkdx.revive("agent-survivor")
+    pkdx.revive("agent-survivor", membrane=_root_membrane())
 
     # Run metabolize — agent should NOT go dormant again
     dead = pkdx.metabolize_all()
@@ -195,7 +218,7 @@ def test_donate_prana_frozen_donor_raises(tmp_path):
     _discover_and_register(pkdx, "needy2")
     _activate(pkdx, "frozen-donor")
     _activate(pkdx, "needy2")
-    pkdx.freeze("frozen-donor", "test")
+    pkdx.freeze("frozen-donor", "test", membrane=_root_membrane())
 
     with pytest.raises(ValueError, match="must be citizen/active"):
         pkdx.donate_prana("frozen-donor", "needy2", 100)

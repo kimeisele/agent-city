@@ -209,6 +209,14 @@ class CivicEngine:
         """List all registered rules."""
         return list(self._rules.values())
 
+    def last_execution_map(self) -> dict[str, int]:
+        """Return the most recent heartbeat at which each rule executed."""
+        return {
+            name: history[-1]
+            for name, history in self._execution_history.items()
+            if history
+        }
+
     def enable_rule(self, name: str, enabled: bool = True) -> bool:
         """Enable or disable a rule."""
         rule = self._rules.get(name)

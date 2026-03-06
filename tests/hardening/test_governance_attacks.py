@@ -1,6 +1,14 @@
 import json
 import time
 
+import pytest
+
+
+def _root_membrane():
+    from city.membrane import internal_membrane_snapshot
+
+    return internal_membrane_snapshot(source_class="tests")
+
 
 
 def test_ghost_voter_rejected(tmp_dir):
@@ -57,6 +65,22 @@ def test_zero_prana_candidate_excluded(tmp_dir):
     assert "Dead_Agent" not in result["council_seats"].values(), (
         "VULNERABILITY: Dead agent holds council seat!"
     )
+
+
+def test_direct_mayor_escalation_denied_without_root_membrane(tmp_dir):
+    """Compromised code must not self-promote via direct Pokedex role mutation."""
+    from city.pokedex import Pokedex
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    bank = CivicBank(db_path=str(tmp_dir / "economy.db"))
+    pdx = Pokedex(db_path=str(tmp_dir / "city.db"), bank=bank)
+    pdx.register("Rogue")
+
+    with pytest.raises(PermissionError, match="root_mutation_denied:access<sovereign"):
+        pdx.assign_role("Rogue", "elected_mayor", "self_promotion")
+
+    pdx.assign_role("Rogue", "elected_mayor", "trusted_election", membrane=_root_membrane())
+    assert pdx.get("Rogue")["civic_role"] == "elected_mayor"
 
 
 def test_proposal_injection_via_action_field(tmp_dir):

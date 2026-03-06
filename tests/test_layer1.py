@@ -7,9 +7,17 @@ import tempfile
 import shutil
 from pathlib import Path
 
+import pytest
+
 # Ensure steward-protocol is importable
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+def _root_membrane():
+    from city.membrane import internal_membrane_snapshot
+
+    return internal_membrane_snapshot(source_class="tests")
 
 
 def test_jiva_derivation():
@@ -279,18 +287,38 @@ def test_pokedex_lifecycle():
     assert pdx.get("TestAgent")["status"] == "active"
 
     # Freeze (active → frozen)
-    pdx.freeze("TestAgent", "test_violation")
+    pdx.freeze("TestAgent", "test_violation", membrane=_root_membrane())
     assert pdx.get("TestAgent")["status"] == "frozen"
     assert bank.is_frozen("TestAgent")
 
     # Unfreeze (frozen → active)
-    pdx.unfreeze("TestAgent", "amnesty")
+    pdx.unfreeze("TestAgent", "amnesty", membrane=_root_membrane())
     assert pdx.get("TestAgent")["status"] == "active"
 
     # Event chain integrity
     events = pdx.get_events("TestAgent")
     assert len(events) >= 4  # discover, register, activate, freeze, unfreeze
     assert pdx.verify_event_chain()
+
+
+def test_pokedex_root_lifecycle_mutations_require_membrane():
+    """Freeze/unfreeze must fail without an explicit trusted local membrane."""
+    from city.pokedex import Pokedex
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    tmpdir = Path(tempfile.mkdtemp())
+    bank = CivicBank(db_path=str(tmpdir / "economy.db"))
+    pdx = Pokedex(db_path=str(tmpdir / "city.db"), bank=bank)
+    pdx.register("RootGuard")
+    pdx.activate("RootGuard")
+
+    with pytest.raises(PermissionError, match="root_mutation_denied:access<sovereign"):
+        pdx.freeze("RootGuard", "rogue_freeze")
+
+    pdx.freeze("RootGuard", "trusted_freeze", membrane=_root_membrane())
+
+    with pytest.raises(PermissionError, match="root_mutation_denied:access<sovereign"):
+        pdx.unfreeze("RootGuard", "rogue_amnesty")
 
     shutil.rmtree(tmpdir)
 

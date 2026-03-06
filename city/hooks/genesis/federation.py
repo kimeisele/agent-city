@@ -16,7 +16,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from city.membrane import IngressSurface, enqueue_ingress
+from city.membrane import IngressSurface, enqueue_ingress, internal_membrane_snapshot
 from city.phase_hook import GENESIS, BasePhaseHook
 
 if TYPE_CHECKING:
@@ -47,7 +47,11 @@ def _execute_directive(ctx: PhaseContext, directive: object) -> bool:
         if not name:
             return False
         try:
-            ctx.pokedex.freeze(name, f"directive:{directive.id}")
+            ctx.pokedex.freeze(
+                name,
+                f"directive:{directive.id}",
+                membrane=internal_membrane_snapshot(source_class="federation"),
+            )
             logger.info("Directive: froze agent %s", name)
             return True
         except (ValueError, Exception) as e:
