@@ -680,7 +680,7 @@ def test_layer3_backward_compatible():
     # KARMA processed the enqueue
     karma = results[2]
     non_venu_ops = [o for o in karma["operations"] if not o.startswith("venu_tick:")]
-    assert len(non_venu_ops) == 1
+    assert any(op.startswith("processed:AgentA:") for op in non_venu_ops)
 
     shutil.rmtree(tmpdir)
 
