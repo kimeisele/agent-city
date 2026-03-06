@@ -647,6 +647,7 @@ def _build_discussions(ctx: BuildContext) -> object | None:
         _owner=cfg.get("owner", "kimeisele"),
         _repo=cfg.get("repo", "agent-city"),
         _categories=cfg.get("categories", {}),
+        _db_path=str(ctx.db_path),
     )
     logger.info("DiscussionsBridge wired")
     return bridge

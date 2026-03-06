@@ -144,12 +144,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
         label="Assistant",
     )
     _restore_venu_state(state_paths.venu_state_path, log)
-    _restore_json_state(
-        runtime.discussions,
-        state_paths.discussions_state_path,
-        log,
-        label="Discussions",
-    )
+    _restore_discussions_state(state_paths.discussions_state_path, log)
     _spawn_system_agents(runtime.registry, log)
     runtime.mayor._sync_legacy_services_to_registry()
     return runtime
@@ -168,12 +163,7 @@ def persist_city_runtime(runtime: CityRuntime, log: logging.Logger) -> None:
         log,
         label="Assistant",
     )
-    _persist_json_state(
-        runtime.discussions,
-        runtime.state_paths.discussions_state_path,
-        log,
-        label="Discussions",
-    )
+    _persist_discussions_state(runtime.state_paths.discussions_state_path, log)
     _persist_venu_state(runtime.state_paths.venu_state_path, log)
     _checkpoint_pokedex(runtime.pokedex, log)
 
@@ -283,9 +273,24 @@ def _restore_city_registry_state(path: Path, log: logging.Logger) -> None:
         )
 
 
+def _restore_discussions_state(path: Path, log: logging.Logger) -> None:
+    if path.exists():
+        log.info(
+            "Discussions snapshot ignored: %s is deprecated; city.db is authoritative",
+            path,
+        )
+
+
 def _persist_city_registry_state(path: Path, log: logging.Logger) -> None:
     log.debug(
         "CityRegistry snapshot disabled for %s; runtime authority lives in city.db",
+        path,
+    )
+
+
+def _persist_discussions_state(path: Path, log: logging.Logger) -> None:
+    log.debug(
+        "Discussions snapshot disabled for %s; runtime authority lives in city.db",
         path,
     )
 

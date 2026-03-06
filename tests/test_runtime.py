@@ -14,6 +14,7 @@ from city.runtime import (
     CityRuntime,
     RuntimeStatePaths,
     _restore_city_registry_state,
+    _restore_discussions_state,
     bootstrap_steward_substrate,
     build_daemon_service,
     persist_city_runtime,
@@ -97,9 +98,7 @@ def test_persist_city_runtime_saves_snapshots_and_checkpoints(tmp_path, monkeypa
 
     assert json.loads(runtime.state_paths.bridge_state_path.read_text()) == {"bridge": True}
     assert json.loads(runtime.state_paths.assistant_state_path.read_text()) == {"assistant": 1}
-    assert json.loads(runtime.state_paths.discussions_state_path.read_text()) == {
-        "discussions": [1, 2]
-    }
+    assert not runtime.state_paths.discussions_state_path.exists()
     assert runtime.state_paths.venu_state_path.read_bytes() == b"venu-state"
     assert not runtime.state_paths.city_registry_state_path.exists()
     assert checkpoint_calls == ["PRAGMA wal_checkpoint(TRUNCATE)", "close"]
@@ -111,6 +110,16 @@ def test_restore_city_registry_state_ignores_deprecated_snapshot(tmp_path, caplo
 
     with caplog.at_level(logging.INFO):
         _restore_city_registry_state(snapshot_path, logging.getLogger("test.runtime"))
+
+    assert "city.db is authoritative" in caplog.text
+
+
+def test_restore_discussions_state_ignores_deprecated_snapshot(tmp_path, caplog):
+    snapshot_path = tmp_path / "discussions_state.json"
+    snapshot_path.write_text(json.dumps({"seed_threads": {"welcome": 10}}))
+
+    with caplog.at_level(logging.INFO):
+        _restore_discussions_state(snapshot_path, logging.getLogger("test.runtime"))
 
     assert "city.db is authoritative" in caplog.text
 

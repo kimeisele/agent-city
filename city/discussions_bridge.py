@@ -225,6 +225,7 @@ class DiscussionsBridge:
     _owner: str
     _repo: str
     _categories: dict = field(default_factory=dict)
+    _db_path: str = ""
 
     # Persistent state
     _seen_discussion_numbers: set[int] = field(default_factory=set)
@@ -233,6 +234,7 @@ class DiscussionsBridge:
     # Legacy compat alias (some code may still reference _seen_comment_ids)
     _seen_comment_ids: set[str] = field(default_factory=set)
     _last_report_hb: int = 0
+    _last_post_at: float = 0.0
     _ops: dict = field(default_factory=lambda: {
         "scans": 0, "posts": 0, "comments": 0,
     })
@@ -246,6 +248,32 @@ class DiscussionsBridge:
 
     # Content-hash dedup: SHA-256 of (discussion_number, body) → never post same content twice
     _posted_hashes: set[str] = field(default_factory=set)
+    _pending_post_hashes: set[str] = field(default_factory=set, repr=False)
+    _state_store: object | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if not self._db_path:
+            return
+
+        from city.discussions_state import DiscussionsStateStore
+
+        self._state_store = DiscussionsStateStore(self._db_path)
+        state = self._state_store.load_state()
+        self._seen_discussion_numbers = set(state["seen_discussion_numbers"])
+        self._seen_comment_hashes = dict(state["seen_comment_hashes"])
+        self._seen_comment_ids = set(state["seen_comment_ids"])
+        self._last_report_hb = state["last_report_hb"]
+        self._last_post_at = state["last_post_at"]
+        self._responded_discussions = dict(state["responded_discussions"])
+        self._seed_threads = dict(state["seed_threads"])
+        self._posted_hashes = set(state["posted_hashes"])
+        logger.info(
+            "DISCUSSIONS: restored %d threads, %d comment cursors, %d posted hashes, %d seed threads from city.db",
+            len(self._seen_discussion_numbers),
+            len(self._seen_comment_hashes),
+            len(self._posted_hashes),
+            len(self._seed_threads),
+        )
 
     # ── GAD-000: Discoverable ───────────────────────────────────────
 
@@ -271,9 +299,81 @@ class DiscussionsBridge:
         last = self._responded_discussions.get(discussion_number, 0.0)
         return (time.time() - last) >= _RESPONSE_COOLDOWN_S
 
+    def _mark_discussion_seen(self, discussion_number: int) -> bool:
+        store = getattr(self, "_state_store", None)
+        if store is not None:
+            is_new = store.mark_discussion_seen(discussion_number)
+        else:
+            is_new = discussion_number not in self._seen_discussion_numbers
+        self._seen_discussion_numbers.add(discussion_number)
+        return is_new
+
+    def _upsert_seen_comment(
+        self,
+        comment_id: str,
+        discussion_number: int,
+        author: str,
+        body_hash: str,
+    ) -> str:
+        store = getattr(self, "_state_store", None)
+        if store is not None:
+            state = store.upsert_comment_cursor(comment_id, discussion_number, author, body_hash)
+            self._seen_comment_ids.add(comment_id)
+            self._seen_comment_hashes[comment_id] = body_hash
+            return state
+
+        prev_hash = self._seen_comment_hashes.get(comment_id)
+        if prev_hash is None:
+            self._seen_comment_hashes[comment_id] = body_hash
+            self._seen_comment_ids.add(comment_id)
+            return "new"
+        if prev_hash != body_hash:
+            self._seen_comment_hashes[comment_id] = body_hash
+            self._seen_comment_ids.add(comment_id)
+            return "edited"
+        return "seen"
+
+    def _reserve_post_hash(self, content_hash: str, discussion_number: int) -> bool:
+        if content_hash in self._posted_hashes or content_hash in self._pending_post_hashes:
+            return False
+        store = getattr(self, "_state_store", None)
+        if store is not None and not store.reserve_post_hash(content_hash, discussion_number):
+            return False
+        self._pending_post_hashes.add(content_hash)
+        return True
+
+    def _release_post_hash(self, content_hash: str) -> None:
+        self._pending_post_hashes.discard(content_hash)
+        store = getattr(self, "_state_store", None)
+        if store is not None:
+            store.release_post_hash(content_hash)
+
+    def _confirm_post_hash(self, content_hash: str, comment_id: str) -> None:
+        self._pending_post_hashes.discard(content_hash)
+        self._posted_hashes.add(content_hash)
+        store = getattr(self, "_state_store", None)
+        if store is not None:
+            store.confirm_post_hash(content_hash, comment_id)
+
+    def _remember_seed_thread(self, key: str, number: int) -> None:
+        self._seed_threads[key] = number
+        store = getattr(self, "_state_store", None)
+        if store is not None:
+            store.upsert_seed_thread(key, number)
+
+    def _set_last_report_hb(self, heartbeat: int) -> None:
+        self._last_report_hb = heartbeat
+        store = getattr(self, "_state_store", None)
+        if store is not None:
+            store.set_last_report_hb(heartbeat)
+
     def record_response(self, discussion_number: int) -> None:
         """Record that an agent responded to this discussion."""
-        self._responded_discussions[discussion_number] = time.time()
+        responded_at = self._mark_post_activity()
+        self._responded_discussions[discussion_number] = responded_at
+        store = getattr(self, "_state_store", None)
+        if store is not None:
+            store.upsert_responded_discussion(discussion_number, responded_at)
         self._comments_this_cycle += 1
 
     def reset_cycle(self) -> None:
@@ -289,6 +389,9 @@ class DiscussionsBridge:
         stale = [k for k, ts in self._responded_discussions.items() if ts < cutoff]
         for k in stale:
             del self._responded_discussions[k]
+        store = getattr(self, "_state_store", None)
+        if store is not None:
+            store.prune_responded_discussions(cutoff)
         return len(stale)
 
     @staticmethod
@@ -402,15 +505,12 @@ class DiscussionsBridge:
             body_hash = self._short_hash(body)
             c_author = (c.get("author") or {}).get("login", "")
 
-            prev_hash = self._seen_comment_hashes.get(cid)
-            if prev_hash is None:
-                self._seen_comment_hashes[cid] = body_hash
-                self._seen_comment_ids.add(cid)
+            seen_state = self._upsert_seen_comment(cid, discussion_number, c_author, body_hash)
+            if seen_state == "new":
                 new_comments.append(self._build_comment_event(cid, body, c_author, edited=False))
                 continue
 
-            if prev_hash != body_hash:
-                self._seen_comment_hashes[cid] = body_hash
+            if seen_state == "edited":
                 new_comments.append(self._build_comment_event(cid, body, c_author, edited=True))
                 logger.info(
                     "DISCUSSIONS: edit detected on comment %s in #%d",
@@ -444,8 +544,7 @@ class DiscussionsBridge:
         comments = (node.get("comments") or {}).get("nodes", [])
         new_comments = self._collect_unseen_comments(number, comments)
 
-        is_new = number not in self._seen_discussion_numbers
-        self._seen_discussion_numbers.add(number)
+        is_new = self._mark_discussion_seen(number)
         if not is_new and not new_comments:
             return None
 
@@ -459,9 +558,19 @@ class DiscussionsBridge:
 
     def _record_posted_comment(self, comment_id: str, content_hash: str) -> None:
         """Update local dedup/bookkeeping after a successful comment post."""
+        self._mark_post_activity()
         self._seen_comment_ids.add(comment_id)
-        self._posted_hashes.add(content_hash)
+        self._confirm_post_hash(content_hash, comment_id)
         self._ops["comments"] += 1
+
+    def _mark_post_activity(self, timestamp: float | None = None) -> float:
+        """Record the most recent successful Discussions write timestamp."""
+        ts = time.time() if timestamp is None else timestamp
+        self._last_post_at = ts
+        store = getattr(self, "_state_store", None)
+        if store is not None:
+            store.set_last_post_at(ts)
+        return ts
 
     # ── Phase Handlers ──────────────────────────────────────────────
 
@@ -503,7 +612,7 @@ class DiscussionsBridge:
         # Content-hash dedup — prevent identical spam
         content_key = f"{discussion_number}:{body}"
         content_hash = self._short_hash(content_key)
-        if content_hash in self._posted_hashes:
+        if not self._reserve_post_hash(content_hash, discussion_number):
             logger.debug(
                 "DISCUSSIONS: dedup blocked duplicate comment on #%d",
                 discussion_number,
@@ -512,10 +621,12 @@ class DiscussionsBridge:
 
         disc = self._fetch_discussion(discussion_number)
         if disc is None:
+            self._release_post_hash(content_hash)
             return False
 
         disc_id = disc.get("id", "")
         if not disc_id:
+            self._release_post_hash(content_hash)
             return False
 
         comment_id = self._add_comment_by_discussion_id(disc_id, body)
@@ -524,6 +635,7 @@ class DiscussionsBridge:
             logger.info("DISCUSSIONS: commented on #%d", discussion_number)
             return True
 
+        self._release_post_hash(content_hash)
         return False
 
     def edit_comment(self, comment_id: str, new_body: str) -> bool:
@@ -577,7 +689,8 @@ class DiscussionsBridge:
 
         number = self._create_discussion_number(title, body, category_id=cat_id)
         if number:
-            self._seen_discussion_numbers.add(number)
+            self._mark_post_activity()
+            self._mark_discussion_seen(number)
             self._ops["posts"] += 1
             logger.info("DISCUSSIONS: created #%d — %s", number, title[:60])
         return number
@@ -817,13 +930,13 @@ class DiscussionsBridge:
         if log_number is not None:
             posted = self.comment(log_number, body)
             if posted:
-                self._last_report_hb = heartbeat
+                self._set_last_report_hb(heartbeat)
                 return True
             return False
 
         number = self.create_discussion(title, body, category="Announcements")
         if number is not None:
-            self._last_report_hb = heartbeat
+            self._set_last_report_hb(heartbeat)
             return True
         return False
 
@@ -835,7 +948,7 @@ class DiscussionsBridge:
             number = node.get("number", 0)
             key = _SEED_THREAD_TITLE_TO_KEY.get(title)
             if key and number and key not in self._seed_threads:
-                self._seed_threads[key] = number
+                self._remember_seed_thread(key, number)
                 recovered += 1
                 logger.info(
                     "DISCUSSIONS: Recovered seed thread '%s' → #%d",
@@ -853,7 +966,7 @@ class DiscussionsBridge:
                 spec["title"], spec["body"], category=spec["category"],
             )
             if number is not None:
-                self._seed_threads[key] = number
+                self._remember_seed_thread(key, number)
                 created[key] = number
                 logger.info("DISCUSSIONS: Seeded '%s' thread → #%d", key, number)
         return created
@@ -919,6 +1032,7 @@ class DiscussionsBridge:
                 _SNAPSHOT_COMMENT_LIMIT,
             ),
             "last_report_hb": self._last_report_hb,
+            "last_post_at": self._last_post_at,
             "ops": dict(self._ops),
             "responded_discussions": {
                 str(k): v
@@ -1129,6 +1243,7 @@ class DiscussionsBridge:
         # Backfill _seen_comment_ids from hashes for backward compat
         self._seen_comment_ids.update(self._seen_comment_hashes.keys())
         self._last_report_hb = data.get("last_report_hb", 0)
+        self._last_post_at = float(data.get("last_post_at", 0.0) or 0.0)
         self._ops = self._restore_ops(data.get("ops", {}))
         self._responded_discussions = self._restore_responded_discussions(data)
         self._seed_threads = data.get("seed_threads", {})
@@ -1145,9 +1260,15 @@ class DiscussionsBridge:
 
     def stats(self) -> dict:
         """Complete service state for diagnostics and reflection."""
+        now = time.time()
+        last_response_at = max(self._responded_discussions.values(), default=0.0)
         return {
             "discussions_seen": len(self._seen_discussion_numbers),
             "comments_seen": len(self._seen_comment_ids),
             "last_report_hb": self._last_report_hb,
+            "last_post_age_s": (now - self._last_post_at) if self._last_post_at else None,
+            "last_response_age_s": (now - last_response_at) if last_response_at else None,
+            "responded_discussions": len(self._responded_discussions),
+            "comments_this_cycle": self._comments_this_cycle,
             "ops": dict(self._ops),
         }
