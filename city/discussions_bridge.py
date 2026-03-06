@@ -399,35 +399,69 @@ class DiscussionsBridge:
             if not cid:
                 continue
             body = c.get("body", "")
-            body_hash = hashlib.sha256(body.encode()).hexdigest()[:16]
+            body_hash = self._short_hash(body)
             c_author = (c.get("author") or {}).get("login", "")
 
             prev_hash = self._seen_comment_hashes.get(cid)
             if prev_hash is None:
                 self._seen_comment_hashes[cid] = body_hash
                 self._seen_comment_ids.add(cid)
-                new_comments.append({
-                    "id": cid,
-                    "body": body,
-                    "author": c_author,
-                    "edited": False,
-                })
+                new_comments.append(self._build_comment_event(cid, body, c_author, edited=False))
                 continue
 
             if prev_hash != body_hash:
                 self._seen_comment_hashes[cid] = body_hash
-                new_comments.append({
-                    "id": cid,
-                    "body": body,
-                    "author": c_author,
-                    "edited": True,
-                })
+                new_comments.append(self._build_comment_event(cid, body, c_author, edited=True))
                 logger.info(
                     "DISCUSSIONS: edit detected on comment %s in #%d",
                     cid[:12], discussion_number,
                 )
 
         return new_comments
+
+    @staticmethod
+    def _short_hash(text: str) -> str:
+        """Build a short stable SHA-256 digest for dedup bookkeeping."""
+        return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+    @staticmethod
+    def _build_comment_event(cid: str, body: str, author: str, *, edited: bool) -> dict:
+        """Build a normalized unseen-comment event payload."""
+        return {
+            "id": cid,
+            "body": body,
+            "author": author,
+            "edited": edited,
+        }
+
+    def _signal_from_discussion_node(self, node: dict) -> dict | None:
+        """Build one scan signal from a discussion node if new activity exists."""
+        number = node.get("number", 0)
+        if not number:
+            return None
+
+        author = (node.get("author") or {}).get("login", "")
+        comments = (node.get("comments") or {}).get("nodes", [])
+        new_comments = self._collect_unseen_comments(number, comments)
+
+        is_new = number not in self._seen_discussion_numbers
+        self._seen_discussion_numbers.add(number)
+        if not is_new and not new_comments:
+            return None
+
+        return {
+            "number": number,
+            "title": node.get("title", ""),
+            "author": author,
+            "is_new": is_new,
+            "new_comments": new_comments,
+        }
+
+    def _record_posted_comment(self, comment_id: str, content_hash: str) -> None:
+        """Update local dedup/bookkeeping after a successful comment post."""
+        self._seen_comment_ids.add(comment_id)
+        self._posted_hashes.add(content_hash)
+        self._ops["comments"] += 1
 
     # ── Phase Handlers ──────────────────────────────────────────────
 
@@ -448,25 +482,9 @@ class DiscussionsBridge:
         signals: list[dict] = []
 
         for node in nodes:
-            number = node.get("number", 0)
-            if not number:
-                continue
-
-            author = (node.get("author") or {}).get("login", "")
-            comments = (node.get("comments") or {}).get("nodes", [])
-            new_comments = self._collect_unseen_comments(number, comments)
-
-            is_new = number not in self._seen_discussion_numbers
-            self._seen_discussion_numbers.add(number)
-
-            if is_new or new_comments:
-                signals.append({
-                    "number": number,
-                    "title": node.get("title", ""),
-                    "author": author,
-                    "is_new": is_new,
-                    "new_comments": new_comments,
-                })
+            signal = self._signal_from_discussion_node(node)
+            if signal is not None:
+                signals.append(signal)
 
         if signals:
             logger.info(
@@ -484,7 +502,7 @@ class DiscussionsBridge:
         """
         # Content-hash dedup — prevent identical spam
         content_key = f"{discussion_number}:{body}"
-        content_hash = hashlib.sha256(content_key.encode()).hexdigest()[:16]
+        content_hash = self._short_hash(content_key)
         if content_hash in self._posted_hashes:
             logger.debug(
                 "DISCUSSIONS: dedup blocked duplicate comment on #%d",
@@ -502,9 +520,7 @@ class DiscussionsBridge:
 
         comment_id = self._add_comment_by_discussion_id(disc_id, body)
         if comment_id:
-            self._seen_comment_ids.add(comment_id)
-            self._posted_hashes.add(content_hash)
-            self._ops["comments"] += 1
+            self._record_posted_comment(comment_id, content_hash)
             logger.info("DISCUSSIONS: commented on #%d", discussion_number)
             return True
 
