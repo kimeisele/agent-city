@@ -16,6 +16,7 @@ from city.runtime import (
     _restore_city_registry_state,
     _restore_discussions_state,
     bootstrap_steward_substrate,
+    build_city_runtime,
     build_daemon_service,
     persist_city_runtime,
 )
@@ -134,3 +135,33 @@ def test_build_daemon_service_reuses_runtime_supervision():
 
     assert daemon.supervision is supervision
     assert daemon.mayor is mayor
+
+
+def test_build_city_runtime_boots_offline(tmp_path):
+    """E2E smoke test: build_city_runtime must not crash on boot.
+
+    This is the exact code path the CI heartbeat takes.
+    Catches import errors (like the Pokedex TYPE_CHECKING regression)
+    and service wiring failures before they kill the heartbeat.
+    """
+    from config import get_config
+
+    args = SimpleNamespace(
+        db=str(tmp_path / "city.db"),
+        offline=True,
+        governance=False,
+        federation=False,
+        federation_dry_run=False,
+        daemon=False,
+    )
+    config = get_config()
+    log = logging.getLogger("test.boot")
+
+    runtime = build_city_runtime(args=args, config=config, log=log)
+
+    assert runtime.pokedex is not None
+    assert runtime.mayor is not None
+    assert runtime.registry is not None
+    assert runtime.db_path == tmp_path / "city.db"
+
+    persist_city_runtime(runtime, log)

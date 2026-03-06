@@ -77,6 +77,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     from vibe_core.cartridges.system.civic.tools.economy import CivicBank
     from city.factory import BuildContext, CityServiceFactory, default_definitions
     from city.gateway import CityGateway
+    from city.mayor import Mayor
     from city.mayor.lifecycle import MayorLifecycleBridge
     from city.network import CityNetwork
     from city.pokedex import Pokedex
@@ -147,7 +148,6 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     _restore_venu_state(state_paths.venu_state_path, log)
     _restore_discussions_state(state_paths.discussions_state_path, log)
     _spawn_system_agents(runtime.registry, log)
-    runtime.mayor._sync_legacy_services_to_registry()
     return runtime
 
 
