@@ -1318,6 +1318,35 @@ class Pokedex:
         if not allowed:
             raise PermissionError(f"operator_registry_denied:{reason}")
 
+    def _claim_level_requirement(self, current_level: int, target_level: int) -> Any:
+        from city.access import AccessClass
+        from city.claims import ClaimLevel
+        from city.membrane import AuthorityRequirement
+
+        required_level = ClaimLevel(max(int(current_level), int(target_level)))
+        return AuthorityRequirement(
+            access_class=AccessClass.OPERATOR,
+            claim_level=required_level,
+        )
+
+    def _authorize_claim_level_mutation(
+        self,
+        *,
+        author: str,
+        membrane: dict[str, Any] | None,
+        requirement: Any,
+    ) -> None:
+        from city.membrane import authorize_ingress
+
+        allowed, reason = authorize_ingress(
+            self,
+            membrane=membrane,
+            author=author,
+            requirement=requirement,
+        )
+        if not allowed:
+            raise PermissionError(f"claim_level_denied:{reason}")
+
     def _transition(self, name: str, from_status: str, to_status: str, reason: str) -> dict:
         """Execute a lifecycle transition with event recording."""
         now = datetime.now(timezone.utc).isoformat()
@@ -1459,28 +1488,41 @@ class Pokedex:
             return 0
         return row["claim_level"] or 0
 
-    def update_claim_level(self, name: str, level: int) -> None:
+    def update_claim_level(
+        self,
+        name: str,
+        level: int,
+        *,
+        author: str = "",
+        membrane: dict[str, Any] | None = None,
+    ) -> None:
         """Update the claim verification level for an agent.
 
         Records an event in the chained ledger for audit trail.
         """
+        target_level = int(level)
         now = datetime.now(timezone.utc).isoformat()
         old_level = self.get_claim_level(name)
+        self._authorize_claim_level_mutation(
+            author=author,
+            membrane=membrane,
+            requirement=self._claim_level_requirement(old_level, target_level),
+        )
         with self._lock:
             cur = self._conn.cursor()
             cur.execute(
                 "UPDATE agents SET claim_level = ?, claim_verified_at = ?, updated_at = ? WHERE name = ?",
-                (int(level), now, now, name),
+                (target_level, now, now, name),
             )
             self._record_event(
                 name,
                 "claim_level_change",
                 str(old_level),
-                str(int(level)),
-                f"claim_level {old_level} → {int(level)}",
+                str(target_level),
+                f"claim_level {old_level} → {target_level}",
             )
             self._conn.commit()
-        logger.info("Claim level updated: %s → %d", name, int(level))
+        logger.info("Claim level updated: %s → %d", name, target_level)
 
     def verify_identity(self, name: str, payload: bytes, signature_b64: str) -> bool:
         """Verify a signed payload against an agent's stored public key.
