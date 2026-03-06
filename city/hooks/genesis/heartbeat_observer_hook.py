@@ -101,7 +101,7 @@ class HeartbeatObserverHook(BasePhaseHook):
 def _emit_anomaly_intents(ctx, executor, diag):
     """Convert anomalies into CityIntents for the dispatch system."""
     try:
-        from city.intent_executor import CityIntent
+        from city.reactor import CityIntent
 
         for anomaly in diag.anomalies:
             intent = CityIntent(
