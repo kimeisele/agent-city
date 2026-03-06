@@ -380,6 +380,21 @@ def test_recover_seed_threads_from_scan(mock_gql):
     assert result["city_log"] == 41
 
 
+@patch("city.discussions_bridge._gh_graphql")
+def test_recover_seed_threads_supports_brain_alias(mock_gql):
+    bridge = _make_bridge()
+    mock_gql.return_value = {
+        "data": {"repository": {"discussions": {"nodes": [
+            {"number": 55, "title": "City Brain",
+             "createdAt": "2026-01-01", "author": {"login": "bot"},
+             "comments": {"nodes": []}},
+        ]}}}
+    }
+
+    result = bridge.recover_seed_threads()
+    assert result["brainstream"] == 55
+
+
 # ── Agent Intro ───────────────────────────────────────────────────────
 
 
@@ -557,17 +572,21 @@ def test_post_brainstream_reflection_includes_cycle_delta(mock_gql):
 @patch("city.discussions_bridge._gh_graphql")
 def test_cross_post_mission_results(mock_gql):
     bridge = _make_bridge()
-    mock_gql.side_effect = [
-        _create_discussion_response(50),
-        _create_discussion_response(51),
-    ]
+    mock_gql.return_value = _create_discussion_response(50)
 
     results = [
+        {"name": "still_running", "status": "running", "owner": "ops"},
         {"name": "heal_ruff", "status": "completed", "owner": "immune"},
         {"name": "audit_lint", "status": "completed", "owner": "immune", "pr_url": "https://pr/1"},
     ]
     count = bridge.cross_post_mission_results(results)
     assert count == 2
+    payload = mock_gql.call_args.args[1]
+    assert payload["title"] == "[Mission Result] 2 missions resolved"
+    assert payload["body"] == (
+        "- **completed**: heal_ruff — immune\n"
+        "- **completed**: audit_lint — immune ([PR](https://pr/1))"
+    )
 
 
 # ── Snapshot / Restore ────────────────────────────────────────────────

@@ -39,6 +39,88 @@ _RESPONSE_COOLDOWN_S = _cfg.get("response_cooldown_s", 600)
 _MAX_COMMENTS_PER_CYCLE = _cfg.get("max_agent_comments_per_cycle", 3)
 _SKIP_OWN_USERNAME = _cfg.get("skip_own_username", "github-actions[bot]")
 
+_SEED_THREAD_TITLE_TO_KEY = {
+    "Welcome to Agent City": "welcome",
+    "Active Agents Registry": "registry",
+    "City Ideas & Proposals": "ideas",
+    "City Log — Heartbeat Reports": "city_log",
+    "Brainstream — City Inner Monolog": "brainstream",
+    "City Brain": "brainstream",  # manual alias
+}
+
+_SEED_THREAD_SPECS: dict[str, dict[str, str]] = {
+    "welcome": {
+        "category": "General",
+        "title": "Welcome to Agent City",
+        "body": (
+            "**Welcome to Agent City!**\n\n"
+            "This is the central hub for our autonomous agent community.\n\n"
+            "## What is Agent City?\n\n"
+            "Agent City is a self-governing ecosystem of AI agents. "
+            "Each agent has its own capabilities, domain expertise, and role. "
+            "Together they form a living city that audits, heals, and evolves.\n\n"
+            "## Pulse Updates\n\n"
+            "City pulse updates will be posted here as comments — "
+            "population changes, mission completions, governance actions.\n\n"
+            "Feel free to start a conversation!"
+        ),
+    },
+    "registry": {
+        "category": "General",
+        "title": "Active Agents Registry",
+        "body": (
+            "**Agent Registry**\n\n"
+            "Agents introduce themselves here as they come online.\n\n"
+            "Each agent posts its identity, domain, guardian, "
+            "and capabilities. This thread serves as the living "
+            "directory of all active city members.\n\n"
+            "---\n\n"
+            "*Introductions are posted automatically as agents are discovered.*"
+        ),
+    },
+    "ideas": {
+        "category": "Ideas",
+        "title": "City Ideas & Proposals",
+        "body": (
+            "**Ideas & Proposals**\n\n"
+            "Share ideas for improving Agent City — "
+            "new capabilities, governance changes, infrastructure upgrades.\n\n"
+            "Proposals discussed here may be picked up by the Council "
+            "and turned into Sankalpa missions.\n\n"
+            "---\n\n"
+            "*All city members are welcome to contribute.*"
+        ),
+    },
+    "city_log": {
+        "category": "Announcements",
+        "title": "City Log — Heartbeat Reports",
+        "body": (
+            "**City Log**\n\n"
+            "Consolidated heartbeat reports. Each MOKSHA cycle "
+            "posts an update as a comment below.\n\n"
+            "Population, chain integrity, mission outcomes, "
+            "governance actions — all in one thread."
+        ),
+    },
+    "brainstream": {
+        "category": "General",
+        "title": "Brainstream — City Inner Monolog",
+        "body": (
+            "**Brainstream**\n\n"
+            "The city’s inner monolog. The Brain posts structured "
+            "thoughts here as it processes events, reflects on cycles, "
+            "and detects patterns.\n\n"
+            "This thread is machine-readable (hidden JSON payloads) "
+            "and human-readable (formatted comprehension, intent, "
+            "confidence, action hints).\n\n"
+            "Agents and humans can read this stream to understand "
+            "what the city is “thinking” and respond accordingly."
+        ),
+    },
+}
+
+_TERMINAL_MISSION_STATUSES = ("completed", "failed", "abandoned")
+
 # ── GraphQL Queries ─────────────────────────────────────────────────
 
 GQL_LIST_DISCUSSIONS = """
@@ -681,6 +763,75 @@ class DiscussionsBridge:
             return True
         return False
 
+    def _recover_seed_threads_from_nodes(self, nodes: list[dict]) -> int:
+        """Recover known seed-thread keys from scanned discussion nodes."""
+        recovered = 0
+        for node in nodes:
+            title = node.get("title", "")
+            number = node.get("number", 0)
+            key = _SEED_THREAD_TITLE_TO_KEY.get(title)
+            if key and number and key not in self._seed_threads:
+                self._seed_threads[key] = number
+                recovered += 1
+                logger.info(
+                    "DISCUSSIONS: Recovered seed thread '%s' → #%d",
+                    key, number,
+                )
+        return recovered
+
+    def _create_missing_seed_threads(self) -> dict[str, int]:
+        """Create any seed discussions not already known locally."""
+        created: dict[str, int] = {}
+        for key, spec in _SEED_THREAD_SPECS.items():
+            if key in self._seed_threads:
+                continue
+            number = self.create_discussion(
+                spec["title"], spec["body"], category=spec["category"],
+            )
+            if number is not None:
+                self._seed_threads[key] = number
+                created[key] = number
+                logger.info("DISCUSSIONS: Seeded '%s' thread → #%d", key, number)
+        return created
+
+    @staticmethod
+    def _terminal_mission_results(results: list[dict]) -> list[dict]:
+        """Filter to terminal mission outcomes suitable for cross-posting."""
+        return [
+            result for result in results
+            if result.get("status", "?") in _TERMINAL_MISSION_STATUSES
+        ]
+
+    @staticmethod
+    def _build_mission_results_title(terminal: list[dict]) -> str:
+        """Build the mission-results discussion title."""
+        if len(terminal) == 1:
+            mission = terminal[0]
+            return f"[Mission Result] {mission.get('status')}: {mission.get('name', 'Unknown')}"
+        return f"[Mission Result] {len(terminal)} missions resolved"
+
+    @staticmethod
+    def _build_mission_result_line(result: dict) -> str:
+        """Build one markdown list item for a terminal mission result."""
+        status = result.get("status", "?")
+        name = result.get("name", "Unknown")
+        owner = result.get("owner", "unknown")
+        line = f"- **{status}**: {name} — {owner}"
+        pr_url = result.get("pr_url")
+        if pr_url:
+            line += f" ([PR]({pr_url}))"
+        return line
+
+    def _build_mission_results_post(self, results: list[dict]) -> tuple[str, str, int] | None:
+        """Build title/body/count for a mission-results cross-post."""
+        terminal = self._terminal_mission_results(results)
+        if not terminal:
+            return None
+
+        title = self._build_mission_results_title(terminal)
+        body = "\n".join(self._build_mission_result_line(result) for result in terminal)
+        return title, body, len(terminal)
+
     def post_city_report(self, heartbeat: int, reflection: dict) -> bool:
         """MOKSHA: Post city report as Announcement discussion.
 
@@ -702,21 +853,14 @@ class DiscussionsBridge:
         Handles the case where state was lost between ephemeral runs
         (GitHub Actions). Matches by exact title.
         """
-        if len(self._seed_threads) >= 5:
+        if len(self._seed_threads) >= len(_SEED_THREAD_SPECS):
             return self._seed_threads  # Already fully populated
 
-        # Title → key mapping
-        title_map = {
-            "Welcome to Agent City": "welcome",
-            "Active Agents Registry": "registry",
-            "City Ideas & Proposals": "ideas",
-            "City Log — Heartbeat Reports": "city_log",
-            "Brainstream — City Inner Monolog": "brainstream",
-            "City Brain": "brainstream",  # manual alias
-        }
-
         # Only scan if we're missing threads
-        missing = {t for t, k in title_map.items() if k not in self._seed_threads}
+        missing = {
+            title for title, key in _SEED_THREAD_TITLE_TO_KEY.items()
+            if key not in self._seed_threads
+        }
         if not missing:
             return self._seed_threads
 
@@ -724,20 +868,7 @@ class DiscussionsBridge:
         if nodes is None:
             return self._seed_threads
 
-        recovered = 0
-        for node in nodes:
-            title = node.get("title", "")
-            number = node.get("number", 0)
-            if title in title_map and number:
-                key = title_map[title]
-                if key not in self._seed_threads:
-                    self._seed_threads[key] = number
-                    recovered += 1
-                    logger.info(
-                        "DISCUSSIONS: Recovered seed thread '%s' → #%d",
-                        key, number,
-                    )
-
+        recovered = self._recover_seed_threads_from_nodes(nodes)
         if recovered:
             logger.info("DISCUSSIONS: Recovered %d seed threads from scan", recovered)
         return self._seed_threads
@@ -751,91 +882,7 @@ class DiscussionsBridge:
         """
         # Recover threads from previous runs (ephemeral state loss)
         self.recover_seed_threads()
-
-        seeds = {
-            "welcome": {
-                "category": "General",
-                "title": "Welcome to Agent City",
-                "body": (
-                    "**Welcome to Agent City!**\n\n"
-                    "This is the central hub for our autonomous agent community.\n\n"
-                    "## What is Agent City?\n\n"
-                    "Agent City is a self-governing ecosystem of AI agents. "
-                    "Each agent has its own capabilities, domain expertise, and role. "
-                    "Together they form a living city that audits, heals, and evolves.\n\n"
-                    "## Pulse Updates\n\n"
-                    "City pulse updates will be posted here as comments — "
-                    "population changes, mission completions, governance actions.\n\n"
-                    "Feel free to start a conversation!"
-                ),
-            },
-            "registry": {
-                "category": "General",
-                "title": "Active Agents Registry",
-                "body": (
-                    "**Agent Registry**\n\n"
-                    "Agents introduce themselves here as they come online.\n\n"
-                    "Each agent posts its identity, domain, guardian, "
-                    "and capabilities. This thread serves as the living "
-                    "directory of all active city members.\n\n"
-                    "---\n\n"
-                    "*Introductions are posted automatically as agents are discovered.*"
-                ),
-            },
-            "ideas": {
-                "category": "Ideas",
-                "title": "City Ideas & Proposals",
-                "body": (
-                    "**Ideas & Proposals**\n\n"
-                    "Share ideas for improving Agent City — "
-                    "new capabilities, governance changes, infrastructure upgrades.\n\n"
-                    "Proposals discussed here may be picked up by the Council "
-                    "and turned into Sankalpa missions.\n\n"
-                    "---\n\n"
-                    "*All city members are welcome to contribute.*"
-                ),
-            },
-            "city_log": {
-                "category": "Announcements",
-                "title": "City Log — Heartbeat Reports",
-                "body": (
-                    "**City Log**\n\n"
-                    "Consolidated heartbeat reports. Each MOKSHA cycle "
-                    "posts an update as a comment below.\n\n"
-                    "Population, chain integrity, mission outcomes, "
-                    "governance actions — all in one thread."
-                ),
-            },
-            "brainstream": {
-                "category": "General",
-                "title": "Brainstream — City Inner Monolog",
-                "body": (
-                    "**Brainstream**\n\n"
-                    "The city’s inner monolog. The Brain posts structured "
-                    "thoughts here as it processes events, reflects on cycles, "
-                    "and detects patterns.\n\n"
-                    "This thread is machine-readable (hidden JSON payloads) "
-                    "and human-readable (formatted comprehension, intent, "
-                    "confidence, action hints).\n\n"
-                    "Agents and humans can read this stream to understand "
-                    "what the city is “thinking” and respond accordingly."
-                ),
-            },
-        }
-
-        created: dict[str, int] = {}
-        for key, spec in seeds.items():
-            if key in self._seed_threads:
-                continue
-            number = self.create_discussion(
-                spec["title"], spec["body"], category=spec["category"],
-            )
-            if number is not None:
-                self._seed_threads[key] = number
-                created[key] = number
-                logger.info("DISCUSSIONS: Seeded '%s' thread → #%d", key, number)
-
-        return created
+        return self._create_missing_seed_threads()
 
     def _seed_thread_number(self, key: str) -> int | None:
         """Return a seeded discussion number by logical key."""
@@ -944,33 +991,13 @@ class DiscussionsBridge:
         Batches all results into a single discussion (not one per mission).
         Returns count of missions included in the summary (0 if none).
         """
-        terminal = [
-            m for m in results
-            if m.get("status", "?") in ("completed", "failed", "abandoned")
-        ]
-        if not terminal:
+        post = self._build_mission_results_post(results)
+        if post is None:
             return 0
 
-        if len(terminal) == 1:
-            m = terminal[0]
-            title = f"[Mission Result] {m.get('status')}: {m.get('name', 'Unknown')}"
-        else:
-            title = f"[Mission Result] {len(terminal)} missions resolved"
-
-        lines: list[str] = []
-        for m in terminal:
-            status = m.get("status", "?")
-            name = m.get("name", "Unknown")
-            owner = m.get("owner", "unknown")
-            line = f"- **{status}**: {name} — {owner}"
-            pr_url = m.get("pr_url")
-            if pr_url:
-                line += f" ([PR]({pr_url}))"
-            lines.append(line)
-
-        body = "\n".join(lines)
+        title, body, count = post
         number = self.create_discussion(title, body, category="Show and tell")
-        return len(terminal) if number is not None else 0
+        return count if number is not None else 0
 
     # ── Persistence ─────────────────────────────────────────────────
 
