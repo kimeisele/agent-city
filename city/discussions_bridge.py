@@ -672,6 +672,116 @@ class DiscussionsBridge:
             f"{alive} agents alive, {total} total, {events} events this cycle"
         )
 
+    @staticmethod
+    def _build_spawner_section(spawner: dict) -> list[str]:
+        """Build the spawner stats section for a city report."""
+        if not spawner:
+            return []
+        return [
+            f"**Spawner**: {spawner.get('system_agents', 0)} system, "
+            f"{spawner.get('promoted_total', 0)} promoted, "
+            f"{spawner.get('cartridge_bindings', 0)} cartridges"
+        ]
+
+    @staticmethod
+    def _build_mission_section(terminal: list[dict]) -> list[str]:
+        """Build the mission-results section for a city report."""
+        if not terminal:
+            return []
+        lines = [f"\n**Missions completed this cycle**: {len(terminal)}"]
+        for mission in terminal[:5]:
+            lines.append(f"- {mission.get('name', '?')}: {mission.get('status', '?')}")
+        return lines
+
+    @staticmethod
+    def _build_immune_section(immune: dict) -> list[str]:
+        """Build the immune-system section for a city report."""
+        if not immune:
+            return []
+        return [
+            f"\n**Immune**: {immune.get('heals_attempted', 0)} heals attempted, "
+            f"{immune.get('heals_succeeded', 0)} succeeded"
+        ]
+
+    @staticmethod
+    def _build_governance_section(governance: dict) -> list[str]:
+        """Build the governance/council section for a city report."""
+        if not governance:
+            return []
+        open_proposals = governance.get("open_proposals", 0)
+        seats = governance.get("council_members", 0)
+        mayor = governance.get("elected_mayor", "")
+        if seats <= 0:
+            return []
+        mayor_line = f", mayor: {mayor}" if mayor else ""
+        return [
+            f"\n**Council**: {seats} seats{mayor_line}, "
+            f"{open_proposals} open proposals"
+        ]
+
+    @staticmethod
+    def _build_pr_lifecycle_section(
+        pr_lifecycle: list[dict],
+        pr_stats: dict,
+    ) -> list[str]:
+        """Build PR lifecycle change/stat lines for a city report."""
+        lines: list[str] = []
+        if pr_lifecycle:
+            lines.append(f"\n**PR Lifecycle**: {len(pr_lifecycle)} changes")
+            for pr_event in pr_lifecycle[:5]:
+                action = pr_event.get("action", "?")
+                pr_url = pr_event.get("pr_url", "")
+                lines.append(f"- `{action}` {pr_url}")
+
+        if pr_stats and pr_stats.get("total_tracked", 0) > 0:
+            by_status = pr_stats.get("by_status", {})
+            status_parts = [f"{key}: {value}" for key, value in by_status.items()]
+            lines.append(f"**PRs tracked**: {', '.join(status_parts)}")
+        return lines
+
+    @staticmethod
+    def _build_economy_section(economy: dict) -> list[str]:
+        """Build the prana economy section for a city report."""
+        if not economy:
+            return []
+        return [
+            f"\n**Economy**: total prana={economy.get('total_prana', '?')}, "
+            f"avg={economy.get('avg_prana', '?')}, "
+            f"min={economy.get('min_prana', '?')}, "
+            f"dormant={economy.get('dormant_count', 0)}"
+        ]
+
+    @staticmethod
+    def _build_brain_operations_section(brain_ops: list[str]) -> list[str]:
+        """Build the Brain decisions section for a city report."""
+        if not brain_ops:
+            return []
+        lines = [f"\n**Brain Decisions**: {len(brain_ops)}"]
+        for brain_op in brain_ops[:5]:
+            lines.append(f"- `{brain_op}`")
+        return lines
+
+    @staticmethod
+    def _build_operations_section(ops_log: list[str]) -> list[str]:
+        """Build the notable operations section for a city report."""
+        if not ops_log:
+            return []
+
+        notable = [
+            op for op in ops_log
+            if any(k in op for k in (
+                "disc_replied", "disc_dedup", "brain_", "critique_",
+                "prana_", "quarantine", "retract", "mission",
+            ))
+        ]
+        if not notable:
+            return []
+
+        lines = [f"\n**Operations**: {len(notable)} notable / {len(ops_log)} total"]
+        for op in notable[:10]:
+            lines.append(f"- `{op}`")
+        return lines
+
     def _build_city_report_body(self, heartbeat: int, reflection: dict) -> tuple[str, str]:
         """Build city report title + markdown body."""
         stats = reflection.get("city_stats", {})
@@ -687,81 +797,17 @@ class DiscussionsBridge:
             f"**Chain integrity**: {'valid' if reflection.get('chain_valid') else 'BROKEN'}",
         ]
 
-        spawner = reflection.get("spawner_stats", {})
-        if spawner:
-            lines.append(
-                f"**Spawner**: {spawner.get('system_agents', 0)} system, "
-                f"{spawner.get('promoted_total', 0)} promoted, "
-                f"{spawner.get('cartridge_bindings', 0)} cartridges"
-            )
-
-        terminal = reflection.get("mission_results_terminal", [])
-        if terminal:
-            lines.append(f"\n**Missions completed this cycle**: {len(terminal)}")
-            for m in terminal[:5]:
-                lines.append(f"- {m.get('name', '?')}: {m.get('status', '?')}")
-
-        immune = reflection.get("immune_stats", {})
-        if immune:
-            lines.append(
-                f"\n**Immune**: {immune.get('heals_attempted', 0)} heals attempted, "
-                f"{immune.get('heals_succeeded', 0)} succeeded"
-            )
-
-        governance = reflection.get("governance", {})
-        if governance:
-            open_p = governance.get("open_proposals", 0)
-            seats = governance.get("council_members", 0)
-            mayor = governance.get("elected_mayor", "")
-            if seats > 0:
-                mayor_line = f", mayor: {mayor}" if mayor else ""
-                lines.append(
-                    f"\n**Council**: {seats} seats{mayor_line}, "
-                    f"{open_p} open proposals"
-                )
-
-        pr_lifecycle = reflection.get("pr_lifecycle_changes", [])
-        if pr_lifecycle:
-            lines.append(f"\n**PR Lifecycle**: {len(pr_lifecycle)} changes")
-            for pr_ev in pr_lifecycle[:5]:
-                action = pr_ev.get("action", "?")
-                pr_url = pr_ev.get("pr_url", "")
-                lines.append(f"- `{action}` {pr_url}")
-
-        pr_stats = reflection.get("pr_lifecycle_stats", {})
-        if pr_stats and pr_stats.get("total_tracked", 0) > 0:
-            by_status = pr_stats.get("by_status", {})
-            status_parts = [f"{k}: {v}" for k, v in by_status.items()]
-            lines.append(f"**PRs tracked**: {', '.join(status_parts)}")
-
-        economy = reflection.get("economy_stats", {})
-        if economy:
-            lines.append(
-                f"\n**Economy**: total prana={economy.get('total_prana', '?')}, "
-                f"avg={economy.get('avg_prana', '?')}, "
-                f"min={economy.get('min_prana', '?')}, "
-                f"dormant={economy.get('dormant_count', 0)}"
-            )
-
-        brain_ops = reflection.get("brain_operations", [])
-        if brain_ops:
-            lines.append(f"\n**Brain Decisions**: {len(brain_ops)}")
-            for bop in brain_ops[:5]:
-                lines.append(f"- `{bop}`")
-
-        ops_log = reflection.get("operations_log", [])
-        if ops_log:
-            notable = [
-                op for op in ops_log
-                if any(k in op for k in (
-                    "disc_replied", "disc_dedup", "brain_", "critique_",
-                    "prana_", "quarantine", "retract", "mission",
-                ))
-            ]
-            if notable:
-                lines.append(f"\n**Operations**: {len(notable)} notable / {len(ops_log)} total")
-                for op in notable[:10]:
-                    lines.append(f"- `{op}`")
+        lines.extend(self._build_spawner_section(reflection.get("spawner_stats", {})))
+        lines.extend(self._build_mission_section(reflection.get("mission_results_terminal", [])))
+        lines.extend(self._build_immune_section(reflection.get("immune_stats", {})))
+        lines.extend(self._build_governance_section(reflection.get("governance", {})))
+        lines.extend(self._build_pr_lifecycle_section(
+            reflection.get("pr_lifecycle_changes", []),
+            reflection.get("pr_lifecycle_stats", {}),
+        ))
+        lines.extend(self._build_economy_section(reflection.get("economy_stats", {})))
+        lines.extend(self._build_brain_operations_section(reflection.get("brain_operations", [])))
+        lines.extend(self._build_operations_section(reflection.get("operations_log", [])))
 
         return title, f"### {title}\n\n" + "\n".join(lines)
 
