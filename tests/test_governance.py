@@ -11,7 +11,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -127,17 +127,38 @@ class TestMayorPower(unittest.TestCase):
         )
         self.assertIsNone(p)
 
-        # New mayor can
-        p2 = self.council.propose(
-            "New mayor freezes",
+    @patch("city.membrane.authorize_ingress", return_value=(False, "access<operator"))
+    def test_council_execution_requires_internal_authority(self, authorize_ingress):
+        """Passed proposals must still cross an explicit internal authority gate."""
+        from city.karma_handlers.council import _execute_proposal
+
+        p = self.council.propose(
+            "Freeze market",
             "Desc",
-            "NewMayor",
+            "Mayor",
             ProposalType.MARKETPLACE,
             {"type": "freeze_market"},
             time.time(),
-            heartbeat=200,
+            heartbeat=0,
         )
-        self.assertIsNotNone(p2)
+        self.assertIsNotNone(p)
+
+        self.council.vote(p.id, "Mayor", VoteChoice.YES, 5000)
+        self.council.vote(p.id, "V1", VoteChoice.YES, 4000)
+        passed = self.council.tally(p.id)
+        self.assertEqual(passed.status, ProposalStatus.PASSED)
+
+        ctx = MagicMock()
+        ctx.council = self.council
+
+        executed = _execute_proposal(ctx, passed)
+
+        self.assertFalse(executed)
+        self.assertFalse(self.council.is_market_frozen)
+
+        _, kwargs = authorize_ingress.call_args
+        self.assertEqual(kwargs["membrane"]["surface"], "local")
+        self.assertEqual(kwargs["membrane"]["source_class"], "governance")
 
 
 # ── Marketplace Governance Tests ───────────────────────────────────

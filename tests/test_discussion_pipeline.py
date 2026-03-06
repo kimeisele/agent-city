@@ -958,12 +958,14 @@ def test_action_hint_operator_requires_operator_access(mock_ctx):
 def test_action_hint_operator_allowed_for_registered_operator(mock_ctx):
     """Registered operators can execute operator-tier hints from Discussions."""
     from city.karma_handlers.gateway import _execute_action_hint
+    from city.membrane import internal_membrane_snapshot
 
     mock_ctx.pokedex.register_operator(
         "OpsUser",
         operator_type="github_operator",
         access_class="operator",
         registered_by="test",
+        membrane=internal_membrane_snapshot(),
     )
 
     thought = MagicMock()
