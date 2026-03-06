@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -24,6 +26,30 @@ def _mock_pokedex(current_level: int = 0) -> MagicMock:
     pokedex.update_claim_level.return_value = None
     pokedex.verify_identity.return_value = True
     return pokedex
+
+
+def _claims_membrane():
+    from city.membrane import internal_membrane_snapshot
+
+    return internal_membrane_snapshot(source_class="claims")
+
+
+def _make_pokedex(tmp_path: Path):
+    from unittest.mock import MagicMock, patch
+
+    mock_bank = MagicMock()
+    mock_bank.get_balance.return_value = 0
+    mock_bank.get_system_stats.return_value = {}
+
+    with patch("city.pokedex.CivicBank", return_value=mock_bank):
+        with patch("city.pokedex.get_config", return_value={"economy": {}}):
+            from city.pokedex import Pokedex
+
+            return Pokedex(
+                db_path=str(tmp_path / "test.db"),
+                bank=mock_bank,
+                constitution_path=str(tmp_path / "CONSTITUTION.md"),
+            )
 
 
 def test_claim_level_ordering():
@@ -45,7 +71,11 @@ def test_self_claim_success():
         pokedex,
     )
     assert result is True
-    pokedex.update_claim_level.assert_called_once_with("alice", ClaimLevel.SELF_CLAIMED)
+    pokedex.update_claim_level.assert_called_once_with(
+        "alice",
+        ClaimLevel.SELF_CLAIMED,
+        membrane=_claims_membrane(),
+    )
 
 
 def test_self_claim_no_tag():
@@ -83,7 +113,11 @@ def test_platform_challenge_flow():
     result = mgr.verify_platform_response("bob", f"Here is my proof: {nonce}", pokedex)
     assert result is True
     assert not mgr.has_pending_challenge("bob")
-    pokedex.update_claim_level.assert_called_once_with("bob", ClaimLevel.PLATFORM_VERIFIED)
+    pokedex.update_claim_level.assert_called_once_with(
+        "bob",
+        ClaimLevel.PLATFORM_VERIFIED,
+        membrane=_claims_membrane(),
+    )
 
 
 def test_platform_challenge_wrong_nonce():
@@ -107,7 +141,11 @@ def test_crypto_verify():
     result = mgr.verify_crypto_claim("dave", "nonce123", "valid_sig_b64", pokedex)
     assert result is True
     pokedex.verify_identity.assert_called_once_with("dave", b"nonce123", "valid_sig_b64")
-    pokedex.update_claim_level.assert_called_once_with("dave", ClaimLevel.CRYPTO_VERIFIED)
+    pokedex.update_claim_level.assert_called_once_with(
+        "dave",
+        ClaimLevel.CRYPTO_VERIFIED,
+        membrane=_claims_membrane(),
+    )
 
 
 def test_crypto_verify_bad_signature():
@@ -119,6 +157,29 @@ def test_crypto_verify_bad_signature():
     result = mgr.verify_crypto_claim("eve", "nonce456", "bad_sig", pokedex)
     assert result is False
     pokedex.update_claim_level.assert_not_called()
+
+
+def test_update_claim_level_denied_without_authority(tmp_path):
+    """Direct claim-level mutations must fail without explicit authority."""
+    pdx = _make_pokedex(tmp_path)
+    pdx.register("alice")
+
+    with pytest.raises(PermissionError, match="claim_level_denied:access<operator"):
+        pdx.update_claim_level("alice", ClaimLevel.CRYPTO_VERIFIED)
+
+
+def test_update_claim_level_allowed_with_claims_membrane(tmp_path):
+    """Verified claim mutations succeed with explicit trusted claims membrane."""
+    pdx = _make_pokedex(tmp_path)
+    pdx.register("alice")
+
+    pdx.update_claim_level(
+        "alice",
+        ClaimLevel.CRYPTO_VERIFIED,
+        membrane=_claims_membrane(),
+    )
+
+    assert pdx.get_claim_level("alice") == int(ClaimLevel.CRYPTO_VERIFIED)
 
 
 if __name__ == "__main__":

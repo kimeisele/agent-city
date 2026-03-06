@@ -180,6 +180,23 @@ class TestAgentSpawner(unittest.TestCase):
         self.assertEqual(stats["system_agents"], 2)
         self.assertEqual(stats["cartridge_bindings"], 2)
 
+    def test_materialize_existing_uses_internal_membrane_for_claim_migration(self):
+        """Boot-time claim migration must carry explicit internal authority."""
+        from city.membrane import internal_membrane_snapshot
+
+        citizens = [{"name": "alice"}]
+        spawner, pokedex, _, _ = self._make_spawner(citizens=citizens)
+        pokedex.get_claim_level.return_value = 0
+
+        count = spawner.materialize_existing()
+
+        self.assertEqual(count, 1)
+        pokedex.update_claim_level.assert_called_once_with(
+            "alice",
+            1,
+            membrane=internal_membrane_snapshot(source_class="spawner"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

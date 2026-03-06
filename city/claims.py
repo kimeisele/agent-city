@@ -26,6 +26,12 @@ from enum import IntEnum
 logger = logging.getLogger("AGENT_CITY.CLAIMS")
 
 
+def _claims_membrane() -> dict[str, object]:
+    from city.membrane import internal_membrane_snapshot
+
+    return internal_membrane_snapshot(source_class="claims")
+
+
 class ClaimLevel(IntEnum):
     """Graduated identity verification levels."""
 
@@ -75,7 +81,11 @@ class ClaimManager:
         if current_level >= ClaimLevel.SELF_CLAIMED:
             return False  # Already at or above this level
 
-        pokedex.update_claim_level(agent_name, ClaimLevel.SELF_CLAIMED)
+        pokedex.update_claim_level(
+            agent_name,
+            ClaimLevel.SELF_CLAIMED,
+            membrane=_claims_membrane(),
+        )
         logger.info("SELF_CLAIMED: %s (proof: post title match)", agent_name)
         return True
 
@@ -121,7 +131,11 @@ class ClaimManager:
         if current_level >= ClaimLevel.PLATFORM_VERIFIED:
             return False
 
-        pokedex.update_claim_level(agent_name, ClaimLevel.PLATFORM_VERIFIED)
+        pokedex.update_claim_level(
+            agent_name,
+            ClaimLevel.PLATFORM_VERIFIED,
+            membrane=_claims_membrane(),
+        )
         logger.info("PLATFORM_VERIFIED: %s (proof: DM nonce match)", agent_name)
         return True
 
@@ -151,7 +165,11 @@ class ClaimManager:
         if current_level >= ClaimLevel.CRYPTO_VERIFIED:
             return False
 
-        pokedex.update_claim_level(agent_name, ClaimLevel.CRYPTO_VERIFIED)
+        pokedex.update_claim_level(
+            agent_name,
+            ClaimLevel.CRYPTO_VERIFIED,
+            membrane=_claims_membrane(),
+        )
         logger.info("CRYPTO_VERIFIED: %s (proof: ECDSA signature)", agent_name)
         return True
 

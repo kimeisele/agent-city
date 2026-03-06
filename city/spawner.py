@@ -166,7 +166,13 @@ class AgentSpawner:
 
             # Ensure citizens are at least claim_level 1 (contributor)
             if self._pokedex.get_claim_level(name) < 1:
-                self._pokedex.update_claim_level(name, 1)
+                from city.membrane import internal_membrane_snapshot
+
+                self._pokedex.update_claim_level(
+                    name,
+                    1,
+                    membrane=internal_membrane_snapshot(source_class="spawner"),
+                )
                 logger.info("Migrated %s to claim_level=1 (contributor)", name)
 
             # Generate cartridge if not already cached
