@@ -79,6 +79,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     from city.gateway import CityGateway
     from city.mayor.lifecycle import MayorLifecycleBridge
     from city.network import CityNetwork
+    from city.pokedex import Pokedex
     from city.supervision import CitySupervisionBridge
 
     db_path = Path(getattr(args, "db"))
