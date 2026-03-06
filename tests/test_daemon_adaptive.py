@@ -20,6 +20,7 @@ from city.daemon import (
     CityEntropy,
     DaemonService,
 )
+from city.supervision import CitySupervisionBridge
 
 
 def test_entropy_perfect_health():
@@ -108,6 +109,48 @@ def test_entropy_with_nadi_pressure():
     # Health calculation: 1.0 - (0.0 dead + 0.0 contracts + 0.25 queue + 0.0 pathogen) = 0.75
     assert daemon.entropy.health == 0.75
     assert daemon.entropy.recommended_hz == GAJENDRA
+
+
+def test_supervision_bridge_runs_adaptive_self_heal_cycle():
+    """Supervision bridge owns adaptation + diagnostics semantics."""
+    from unittest.mock import MagicMock
+    from city.registry import CityServiceRegistry, SVC_CITY_NADI, SVC_IMMUNE
+
+    mayor = MagicMock()
+    registry = CityServiceRegistry()
+    mayor._registry = registry
+    mayor._pokedex.stats.return_value = {"total": 10, "active": 10}
+    mayor._gateway_queue = []
+
+    nadi = MagicMock()
+    nadi.pending_count.return_value = 120
+    immune = MagicMock()
+    immune.stats.return_value = {"active_pathogens": 0}
+    immune.run_self_diagnostics.return_value = ["heal-1"]
+    registry.register(SVC_CITY_NADI, nadi)
+    registry.register(SVC_IMMUNE, immune)
+
+    bridge = CitySupervisionBridge(mayor=mayor)
+
+    assert bridge.run_heartbeat() is True
+    assert bridge.frequency_hz == GAJENDRA
+    assert bridge.stats()["total_beats"] == 1
+    immune.run_self_diagnostics.assert_called_once()
+
+
+def test_daemon_uses_injected_supervision_bridge():
+    """Daemon wrapper should delegate runtime truth to explicit supervision."""
+    from unittest.mock import MagicMock
+
+    mayor = MagicMock()
+    bridge = CitySupervisionBridge(mayor=mayor, frequency_hz=2.0)
+
+    daemon = DaemonService(mayor=mayor, supervision=bridge)
+    daemon.set_frequency(100.0)
+
+    assert daemon.supervision is bridge
+    assert daemon.frequency_hz == GAJENDRA
+    assert daemon.stats()["frequency_hz"] == GAJENDRA
 
 
 if __name__ == "__main__":

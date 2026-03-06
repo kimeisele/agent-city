@@ -16,6 +16,7 @@ from city.registry import (
 if TYPE_CHECKING:
     from city.mayor import Mayor
     from city.pokedex import Pokedex
+    from city.supervision import CitySupervisionBridge
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ class CityRuntime:
     pokedex: Pokedex
     factory_stats: dict
     state_paths: RuntimeStatePaths
+    supervision: CitySupervisionBridge | None = None
     assistant: object | None = None
     discussions: object | None = None
 
@@ -72,6 +74,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     from city.factory import BuildContext, CityServiceFactory, default_definitions
     from city.gateway import CityGateway
     from city.network import CityNetwork
+    from city.supervision import CitySupervisionBridge
 
     db_path = Path(getattr(args, "db"))
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -117,6 +120,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
         mayor=mayor,
         pokedex=pokedex,
         factory_stats=factory.stats(),
+        supervision=CitySupervisionBridge(mayor=mayor),
         assistant=registry.get(SVC_MOLTBOOK_ASSISTANT),
         discussions=registry.get(SVC_DISCUSSIONS),
         state_paths=state_paths,
@@ -165,6 +169,15 @@ def persist_city_runtime(runtime: CityRuntime, log: logging.Logger) -> None:
     _persist_venu_state(runtime.state_paths.venu_state_path, log)
     _persist_city_registry_state(runtime.state_paths.city_registry_state_path, log)
     _checkpoint_pokedex(runtime.pokedex, log)
+
+
+def build_daemon_service(runtime: CityRuntime) -> object:
+    from city.daemon import DaemonService
+
+    return DaemonService(
+        mayor=runtime.mayor,
+        supervision=runtime.supervision,
+    )
 
 
 def _wire_moltbook_client(*, runtime: CityRuntime, log: logging.Logger) -> None:
