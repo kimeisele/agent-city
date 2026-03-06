@@ -144,7 +144,6 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
         label="Assistant",
     )
     _restore_venu_state(state_paths.venu_state_path, log)
-    _restore_city_registry_state(state_paths.city_registry_state_path, log)
     _restore_json_state(
         runtime.discussions,
         state_paths.discussions_state_path,
@@ -176,7 +175,6 @@ def persist_city_runtime(runtime: CityRuntime, log: logging.Logger) -> None:
         label="Discussions",
     )
     _persist_venu_state(runtime.state_paths.venu_state_path, log)
-    _persist_city_registry_state(runtime.state_paths.city_registry_state_path, log)
     _checkpoint_pokedex(runtime.pokedex, log)
 
 
@@ -278,22 +276,18 @@ def _persist_venu_state(path: Path, log: logging.Logger) -> None:
 
 
 def _restore_city_registry_state(path: Path, log: logging.Logger) -> None:
-    try:
-        from city.city_registry import get_city_registry
-
-        if path.exists():
-            get_city_registry().restore(json.loads(path.read_text()))
-    except Exception as exc:
-        log.debug("CityRegistry restore skipped: %s", exc)
+    if path.exists():
+        log.info(
+            "CityRegistry snapshot ignored: %s is deprecated; city.db is authoritative",
+            path,
+        )
 
 
 def _persist_city_registry_state(path: Path, log: logging.Logger) -> None:
-    try:
-        from city.city_registry import get_city_registry
-
-        path.write_text(json.dumps(get_city_registry().snapshot(), indent=2))
-    except Exception as exc:
-        log.warning("CityRegistry state save failed: %s", exc)
+    log.debug(
+        "CityRegistry snapshot disabled for %s; runtime authority lives in city.db",
+        path,
+    )
 
 
 def _spawn_system_agents(registry: CityServiceRegistry, log: logging.Logger) -> None:

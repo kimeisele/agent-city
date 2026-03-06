@@ -95,10 +95,9 @@ def _register_seed_threads(ctx: PhaseContext) -> None:
 def _sync_registry_to_bridge(ctx: PhaseContext) -> None:
     """Populate bridge cache from CityRegistry (domain → transport).
 
-    On cold start the registry may have state from a previous run
-    (restored from city_registry_state.json) while the bridge has
-    nothing. This ensures the bridge cache is populated from the
-    authoritative registry before seed_discussions() runs.
+    During a live process the registry may already know seed threads while the
+    bridge cache is empty. This keeps transport caches aligned with the runtime
+    registry before seed_discussions() runs.
     """
     try:
         from city.city_registry import EntityKind
