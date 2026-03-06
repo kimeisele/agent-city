@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 logger = logging.getLogger("AGENT_CITY.INTENT_EXECUTOR")
 
@@ -56,6 +56,7 @@ class CityIntentExecutor:
     _executed: int = 0
     _failed: int = 0
     _unhandled: int = 0
+    _denied: int = 0
 
     def __post_init__(self) -> None:
         self._register_builtins()
@@ -90,6 +91,15 @@ class CityIntentExecutor:
             )
             return f"missing_handler:{handler_name}"
 
+        allowed, denial_reason = _authorize_intent_execution(ctx, intent, handler_name)
+        if not allowed:
+            self._denied += 1
+            logger.warning(
+                "IntentExecutor: denied %s (signal=%s, reason=%s)",
+                handler_name, intent.signal, denial_reason,
+            )
+            return f"denied:{handler_name}:{denial_reason}"
+
         try:
             result = fn(ctx, intent)
             self._executed += 1
@@ -105,17 +115,28 @@ class CityIntentExecutor:
             )
             return f"error:{handler_name}:{e}"
 
-    def execute_brain_action(self, ctx: Any, action: Any, attention: Any = None) -> str:
+    def execute_brain_action(
+        self,
+        ctx: Any,
+        action: Any,
+        attention: Any = None,
+        **intent_context: Any,
+    ) -> str:
         """Unified dispatch for BrainActions.
 
         Schritt 6B: Single entry point for both gateway + brain_health.
         BrainAction → CityIntent → CityAttention.route() → execute().
         """
-        intent = action.to_city_intent()
+        intent_context.setdefault("source", "brain")
+        intent = action.to_city_intent(**intent_context)
         handler_name = attention.route(intent.signal) if attention else None
         return self.execute(ctx, intent, handler_name)
 
-    def execute_batch(self, ctx: Any, intents_and_handlers: list[tuple[Any, str | None]]) -> list[str]:
+    def execute_batch(
+        self,
+        ctx: Any,
+        intents_and_handlers: list[tuple[Any, str | None]],
+    ) -> list[str]:
         """Execute multiple intents at once."""
         return [self.execute(ctx, intent, handler) for intent, handler in intents_and_handlers]
 
@@ -125,6 +146,7 @@ class CityIntentExecutor:
             "executed": self._executed,
             "failed": self._failed,
             "unhandled": self._unhandled,
+            "denied": self._denied,
         }
 
     # ── Built-in Handlers ────────────────────────────────────────────
@@ -149,6 +171,44 @@ class CityIntentExecutor:
         self.register("handle_brain_retract", _handle_brain_retract)
         self.register("handle_brain_quarantine", _handle_brain_quarantine)
         self.register("handle_brain_run_status", _handle_brain_run_status)
+
+
+def _intent_authority_requirement(intent: Any, handler_name: str) -> Any | None:
+    signal = str(getattr(intent, "signal", ""))
+    if not (signal.startswith("brain:") or handler_name.startswith("handle_brain_")):
+        return None
+
+    from city.brain_action import parse_action_hint
+    from city.membrane import requirement_for_auth_tier
+
+    hint = signal.split(":", 1)[1] if signal.startswith("brain:") else ""
+    if not hint and handler_name.startswith("handle_brain_"):
+        hint = handler_name.removeprefix("handle_brain_")
+
+    action = parse_action_hint(hint)
+    if action is None:
+        return None
+    return requirement_for_auth_tier(action.auth_tier)
+
+
+def _authorize_intent_execution(
+    ctx: Any,
+    intent: Any,
+    handler_name: str,
+) -> tuple[bool, str]:
+    requirement = _intent_authority_requirement(intent, handler_name)
+    if requirement is None:
+        return True, "ok"
+
+    from city.membrane import authorize_ingress
+
+    context = getattr(intent, "context", {}) or {}
+    return authorize_ingress(
+        ctx,
+        membrane=context.get("membrane"),
+        author=str(context.get("author", "")),
+        requirement=requirement,
+    )
 
 
 # =============================================================================
@@ -177,7 +237,6 @@ def _handle_investigate_prana_drain(ctx: Any, intent: Any) -> str:
 
     # If Brain available, ask it to investigate
     if ctx.brain is not None:
-        from city.brain_action import ActionVerb
         hint = f"investigate: {deaths} agent deaths in one cycle — check metabolic drain"
         logger.info("IntentExecutor: requesting Brain investigation: %s", hint)
         return f"brain_investigate:{deaths}_deaths"

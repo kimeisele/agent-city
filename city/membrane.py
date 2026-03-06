@@ -233,6 +233,24 @@ def authorize_ingress(
     return True, "ok"
 
 
+def internal_membrane_snapshot(
+    *,
+    source_class: str = "local",
+    access_class: AccessClass = AccessClass.SOVEREIGN,
+    claim_level: ClaimLevel = ClaimLevel.CRYPTO_VERIFIED,
+    auth_route: AuthRoute | str = AuthRoute.LOCAL,
+) -> dict[str, Any]:
+    route = auth_route.value if isinstance(auth_route, AuthRoute) else str(auth_route)
+    return {
+        "surface": IngressSurface.LOCAL.value,
+        "intent_signal": f"ingress:{IngressSurface.LOCAL.value}",
+        "source_class": source_class,
+        "access_class": access_class.value,
+        "claim_floor": int(claim_level),
+        "auth_route": route,
+    }
+
+
 def build_ingress_envelope(surface: IngressSurface, item: dict[str, Any]) -> IngressEnvelope:
     authority = AUTHORITY_MAP[surface]
     source = str(item.get("source") or surface.value)
