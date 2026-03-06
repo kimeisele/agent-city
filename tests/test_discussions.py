@@ -667,6 +667,7 @@ def test_snapshot_restore_roundtrip():
     bridge._seen_discussion_numbers = {1, 2, 3}
     bridge._seen_comment_ids = {"c1", "c2"}
     bridge._last_report_hb = 42
+    bridge._last_post_at = 1234.5
     bridge._ops = {"scans": 10, "posts": 5, "comments": 3}
     bridge._responded_discussions = {1: 1000.0, 2: 2000.0}
     bridge._seed_threads = {"welcome": 10, "registry": 11}
@@ -680,6 +681,7 @@ def test_snapshot_restore_roundtrip():
     assert new_bridge._seen_discussion_numbers == {1, 2, 3}
     assert new_bridge._seen_comment_ids == {"c1", "c2"}
     assert new_bridge._last_report_hb == 42
+    assert new_bridge._last_post_at == 1234.5
     assert new_bridge._ops["scans"] == 10
     assert new_bridge._responded_discussions[1] == 1000.0
     assert new_bridge._seed_threads["welcome"] == 10
@@ -713,6 +715,68 @@ def test_snapshot_trims_large_state():
     assert snap["posted_hashes"][-1] == "p249"
 
 
+@patch("city.discussions_bridge._gh_graphql")
+def test_sqlite_scan_cursor_survives_restart(mock_gql, tmp_path):
+    db_path = tmp_path / "city.db"
+    bridge = _make_bridge(_db_path=str(db_path))
+    mock_gql.return_value = _scan_response([
+        _discussion_node(42, comments=[_comment_node("c1", "hello", "alice")]),
+    ])
+
+    signals = bridge.scan()
+
+    assert len(signals) == 1
+    assert signals[0]["is_new"] is True
+
+    bridge2 = _make_bridge(_db_path=str(db_path))
+    mock_gql.reset_mock()
+    mock_gql.return_value = _scan_response([
+        _discussion_node(42, comments=[_comment_node("c1", "hello", "alice")]),
+    ])
+
+    assert bridge2.scan() == []
+
+
+@patch("city.discussions_bridge._gh_graphql")
+def test_sqlite_comment_dedup_survives_restart(mock_gql, tmp_path):
+    db_path = tmp_path / "city.db"
+    bridge = _make_bridge(_db_path=str(db_path))
+    mock_gql.side_effect = [
+        _get_discussion_response("D_city", 10),
+        _add_comment_response("C_one"),
+    ]
+
+    assert bridge.comment(10, "hello city") is True
+
+    bridge2 = _make_bridge(_db_path=str(db_path))
+    mock_gql.reset_mock()
+
+    assert bridge2.comment(10, "hello city") is False
+    mock_gql.assert_not_called()
+
+
+@patch("city.discussions_bridge._gh_graphql")
+def test_sqlite_seed_threads_and_report_gate_survive_restart(mock_gql, tmp_path):
+    db_path = tmp_path / "city.db"
+    bridge = _make_bridge(_db_path=str(db_path))
+    bridge._recover_seed_threads_from_nodes([
+        _discussion_node(77, title="City Log — Heartbeat Reports", author="bot"),
+    ])
+    mock_gql.side_effect = [
+        _get_discussion_response("D_city_log", 77),
+        _add_comment_response("C_report"),
+    ]
+
+    assert bridge.post_city_report(5, {"city_stats": {"total": 1}, "chain_valid": True}) is True
+
+    bridge2 = _make_bridge(_db_path=str(db_path))
+    assert bridge2._seed_threads["city_log"] == 77
+    mock_gql.reset_mock()
+
+    assert bridge2.post_city_report(5, {"city_stats": {"total": 1}, "chain_valid": True}) is False
+    mock_gql.assert_not_called()
+
+
 # ── Stats ─────────────────────────────────────────────────────────────
 
 
@@ -722,6 +786,10 @@ def test_stats_structure():
     assert "discussions_seen" in stats
     assert "comments_seen" in stats
     assert "last_report_hb" in stats
+    assert "last_post_age_s" in stats
+    assert "last_response_age_s" in stats
+    assert "responded_discussions" in stats
+    assert "comments_this_cycle" in stats
     assert "ops" in stats
     assert stats["ops"]["scans"] == 0
 
