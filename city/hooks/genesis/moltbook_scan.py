@@ -15,33 +15,13 @@ from typing import TYPE_CHECKING
 
 from config import get_config
 
+from city.membrane import IngressSurface, enqueue_ingress
 from city.phase_hook import GENESIS, BasePhaseHook
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.HOOKS.GENESIS.MOLTBOOK")
-
-
-def _enqueue_item(ctx: PhaseContext, item: dict) -> None:
-    """Enqueue item via CityNadi (preferred) or gateway_queue (fallback)."""
-    if ctx.city_nadi is not None:
-        ctx.city_nadi.enqueue(
-            source=item.get("source", "unknown"),
-            text=item.get("text", ""),
-            conversation_id=item.get("conversation_id", ""),
-            from_agent=item.get("from_agent", ""),
-            post_id=item.get("post_id", ""),
-            code_signals=item.get("code_signals"),
-            discussion_number=item.get("discussion_number", 0),
-            discussion_title=item.get("discussion_title", ""),
-            direct_agent=item.get("direct_agent", ""),
-            agent_name=item.get("agent_name", ""),
-        )
-    else:
-        ctx.gateway_queue.append(item)
-
-
 # Tracks seen message IDs to avoid re-processing across heartbeats
 _seen_message_ids: set[str] = set()
 
@@ -166,8 +146,9 @@ class DMInboxHook(BasePhaseHook):
                         if not sender or not content:
                             continue
 
-                        _enqueue_item(
+                        enqueue_ingress(
                             ctx,
+                            IngressSurface.MOLTBOOK_DM,
                             {
                                 "source": "dm",
                                 "text": content,
@@ -250,8 +231,9 @@ class SubmoltScanHook(BasePhaseHook):
 
             # Enqueue code signals for KARMA processing
             if signal.get("code_signals"):
-                _enqueue_item(
+                enqueue_ingress(
                     ctx,
+                    IngressSurface.SUBMOLT_SIGNAL,
                     {
                         "source": signal.get("source", "submolt"),
                         "text": signal["title"],

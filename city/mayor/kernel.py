@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from city.gateway import CityGateway
+from city.membrane import IngressSurface, enqueue_ingress
 from city.network import CityNetwork
 from city.phases import PhaseContext
 from city.pokedex import Pokedex
@@ -182,13 +183,15 @@ class Mayor:
         from_agent: str = "",
     ) -> None:
         """Add an item to the gateway queue for KARMA processing."""
-        self._gateway_queue.append(
+        enqueue_ingress(
+            self,
+            IngressSurface.LOCAL,
             {
                 "source": source,
                 "text": text,
                 "conversation_id": conversation_id,
                 "from_agent": from_agent,
-            }
+            },
         )
 
     def mark_active(self, name: str) -> None:

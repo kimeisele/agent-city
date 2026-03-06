@@ -16,6 +16,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+from city.membrane import IngressSurface, enqueue_ingress, queue_item
 from city.phase_hook import GENESIS, BasePhaseHook
 
 if TYPE_CHECKING:
@@ -60,27 +61,6 @@ def _ingest_brain_feedback(ctx: PhaseContext, body: str) -> None:
         parsed.get("heartbeat", "?"),
         parsed.get("intent", "?"),
     )
-
-
-def _enqueue_item(ctx: PhaseContext, item: dict) -> None:
-    """Enqueue item via CityNadi (preferred) or gateway_queue (fallback)."""
-    if ctx.city_nadi is not None:
-        ctx.city_nadi.enqueue(
-            source=item.get("source", "unknown"),
-            text=item.get("text", ""),
-            conversation_id=item.get("conversation_id", ""),
-            from_agent=item.get("from_agent", ""),
-            post_id=item.get("post_id", ""),
-            code_signals=item.get("code_signals"),
-            discussion_number=item.get("discussion_number", 0),
-            discussion_title=item.get("discussion_title", ""),
-            direct_agent=item.get("direct_agent", ""),
-            agent_name=item.get("agent_name", ""),
-        )
-    else:
-        ctx.gateway_queue.append(item)
-
-
 SEED_THREAD_KEYS = ("welcome", "registry", "ideas", "city_log", "brainstream")
 
 
@@ -315,11 +295,15 @@ class DiscussionScannerHook(BasePhaseHook):
                                 "GENESIS: Discussion @mention spawned agent %s",
                                 mention,
                             )
-                        _enqueue_item(ctx, {**enqueue_base, "direct_agent": mention})
+                        enqueue_ingress(
+                            ctx,
+                            IngressSurface.GITHUB_DISCUSSION,
+                            {**enqueue_base, "direct_agent": mention},
+                        )
                         operations.append(f"disc_mention:{mention}:#{signal['number']}")
                 else:
                     # No mentions → general discussion enqueue
-                    _enqueue_item(ctx, enqueue_base)
+                    enqueue_ingress(ctx, IngressSurface.GITHUB_DISCUSSION, enqueue_base)
 
                 # Mark as enqueued in ledger
                 if ctx.thread_state is not None and comment_id:
@@ -360,7 +344,7 @@ class AgentIntroHook(BasePhaseHook):
                 continue
             if ctx.pokedex.has_asset(name, "word_token", "introduced"):
                 continue
-            _enqueue_item(ctx, {
+            queue_item(ctx, {
                 "source": "agent_intro",
                 "text": f"New agent: {name}",
                 "agent_name": name,

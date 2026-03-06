@@ -16,31 +16,13 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from city.membrane import IngressSurface, enqueue_ingress
 from city.phase_hook import GENESIS, BasePhaseHook
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.HOOKS.GENESIS.FEDERATION")
-
-
-def _enqueue_item(ctx: PhaseContext, item: dict) -> None:
-    """Enqueue item via CityNadi (preferred) or gateway_queue (fallback)."""
-    if ctx.city_nadi is not None:
-        ctx.city_nadi.enqueue(
-            source=item.get("source", "unknown"),
-            text=item.get("text", ""),
-            conversation_id=item.get("conversation_id", ""),
-            from_agent=item.get("from_agent", ""),
-            post_id=item.get("post_id", ""),
-            code_signals=item.get("code_signals"),
-            discussion_number=item.get("discussion_number", 0),
-            discussion_title=item.get("discussion_title", ""),
-            direct_agent=item.get("direct_agent", ""),
-            agent_name=item.get("agent_name", ""),
-        )
-    else:
-        ctx.gateway_queue.append(item)
 
 
 def _execute_directive(ctx: PhaseContext, directive: object) -> bool:
@@ -139,8 +121,9 @@ class FederationNadiHook(BasePhaseHook):
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         fed_messages = ctx.federation_nadi.receive()
         for msg in fed_messages:
-            _enqueue_item(
+            enqueue_ingress(
                 ctx,
+                IngressSurface.FEDERATION,
                 {
                     "source": f"federation:{msg.source}",
                     "text": msg.operation,
