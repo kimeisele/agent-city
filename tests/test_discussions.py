@@ -194,6 +194,28 @@ def test_scan_new_comment_on_old_discussion(mock_gql):
 
 
 @patch("city.discussions_bridge._gh_graphql")
+def test_scan_detects_edited_comment(mock_gql):
+    bridge = _make_bridge()
+    mock_gql.return_value = _scan_response([
+        _discussion_node(1, "First", comments=[_comment_node("c1", "old")]),
+    ])
+    bridge.scan()
+
+    mock_gql.return_value = _scan_response([
+        _discussion_node(1, "First", comments=[_comment_node("c1", "new")]),
+    ])
+    signals = bridge.scan()
+
+    assert len(signals) == 1
+    assert signals[0]["new_comments"] == [{
+        "id": "c1",
+        "body": "new",
+        "author": "bob",
+        "edited": True,
+    }]
+
+
+@patch("city.discussions_bridge._gh_graphql")
 def test_scan_gh_failure_returns_empty(mock_gql):
     bridge = _make_bridge()
     mock_gql.return_value = None
@@ -235,6 +257,19 @@ def test_comment_gh_failure(mock_gql):
     bridge = _make_bridge()
     mock_gql.return_value = None
     assert bridge.comment(1, "test") is False
+
+
+@patch("city.discussions_bridge._gh_graphql")
+def test_comment_dedup_blocks_duplicate_body(mock_gql):
+    bridge = _make_bridge()
+    mock_gql.side_effect = [
+        _get_discussion_response("D_abc", 1),
+        _add_comment_response("C_new"),
+    ]
+
+    assert bridge.comment(1, "test body") is True
+    assert bridge.comment(1, "test body") is False
+    assert mock_gql.call_count == 2
 
 
 # ── Create Discussion ─────────────────────────────────────────────────
