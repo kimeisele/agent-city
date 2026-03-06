@@ -18,9 +18,13 @@ data/*.db
 data/*.db-journal
 data/*.db-shm
 data/*.db-wal
-data/mayor_state.json
-data/council_state.json
-.vibe/state/
+data/*.json
+data/*.bin
+data/.heartbeat.lock
+data/agents/
+data/synapses/
+workspaces/
+.vibe/
 broadcasts/
 **/__pycache__/
 *.py[codz]

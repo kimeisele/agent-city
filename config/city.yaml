@@ -174,14 +174,23 @@ agent_classes:
 git:
   # Runtime state — auto-ignored, never committed
   runtime_patterns:
+    # SQLite databases + WAL artefacts
     - "data/*.db"
     - "data/*.db-journal"
     - "data/*.db-shm"
     - "data/*.db-wal"
-    - "data/mayor_state.json"
-    - "data/council_state.json"
-    - ".vibe/state/"
+    # All JSON state in data/ root (NOT data/federation/ — those are durable)
+    - "data/*.json"
+    # Binary runtime state
+    - "data/*.bin"
+    - "data/.heartbeat.lock"
+    # Ephemeral runtime directories
+    - "data/agents/"
+    - "data/synapses/"
+    - "workspaces/"
+    - ".vibe/"
     - "broadcasts/"
+    # Python / tooling artefacts
     - "**/__pycache__/"
     - "*.py[codz]"
     - "*.log"
