@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from city.runtime import (
     CityRuntime,
     RuntimeStatePaths,
+    _restore_city_registry_state,
     bootstrap_steward_substrate,
     build_daemon_service,
     persist_city_runtime,
@@ -71,12 +72,6 @@ def test_persist_city_runtime_saves_snapshots_and_checkpoints(tmp_path, monkeypa
     monkeypatch.setitem(sys.modules, "vibe_core", fake_pkg)
     monkeypatch.setitem(sys.modules, "vibe_core.mahamantra", fake_mod)
 
-    saved_city_registry = {"entities": ["sys_mayor"]}
-    monkeypatch.setattr(
-        "city.city_registry.get_city_registry",
-        lambda: SimpleNamespace(snapshot=lambda: saved_city_registry),
-    )
-
     checkpoint_calls: list[str] = []
     fake_conn = SimpleNamespace(
         execute=lambda sql: checkpoint_calls.append(sql),
@@ -106,11 +101,18 @@ def test_persist_city_runtime_saves_snapshots_and_checkpoints(tmp_path, monkeypa
         "discussions": [1, 2]
     }
     assert runtime.state_paths.venu_state_path.read_bytes() == b"venu-state"
-    assert (
-        json.loads(runtime.state_paths.city_registry_state_path.read_text())
-        == saved_city_registry
-    )
+    assert not runtime.state_paths.city_registry_state_path.exists()
     assert checkpoint_calls == ["PRAGMA wal_checkpoint(TRUNCATE)", "close"]
+
+
+def test_restore_city_registry_state_ignores_deprecated_snapshot(tmp_path, caplog):
+    snapshot_path = tmp_path / "city_registry_state.json"
+    snapshot_path.write_text(json.dumps({"registry_bytes": "deadbeef", "key_to_slot": {"thread:stale": 1}}))
+
+    with caplog.at_level(logging.INFO):
+        _restore_city_registry_state(snapshot_path, logging.getLogger("test.runtime"))
+
+    assert "city.db is authoritative" in caplog.text
 
 
 def test_build_daemon_service_reuses_runtime_supervision():
