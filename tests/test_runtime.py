@@ -14,8 +14,10 @@ from city.runtime import (
     CityRuntime,
     RuntimeStatePaths,
     bootstrap_steward_substrate,
+    build_daemon_service,
     persist_city_runtime,
 )
+from city.supervision import CitySupervisionBridge
 
 
 def test_runtime_state_paths_from_db_path(tmp_path):
@@ -107,3 +109,14 @@ def test_persist_city_runtime_saves_snapshots_and_checkpoints(tmp_path, monkeypa
         == saved_city_registry
     )
     assert checkpoint_calls == ["PRAGMA wal_checkpoint(TRUNCATE)", "close"]
+
+
+def test_build_daemon_service_reuses_runtime_supervision():
+    mayor = SimpleNamespace()
+    supervision = CitySupervisionBridge(mayor=mayor, frequency_hz=2.0)
+    runtime = SimpleNamespace(mayor=mayor, supervision=supervision)
+
+    daemon = build_daemon_service(runtime)
+
+    assert daemon.supervision is supervision
+    assert daemon.mayor is mayor

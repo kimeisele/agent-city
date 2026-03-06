@@ -109,7 +109,7 @@ def main() -> None:
     log.info("Heartbeat lock acquired (pid=%d)", os.getpid())
 
     from city.registry import SVC_DAEMON
-    from city.runtime import build_city_runtime, persist_city_runtime
+    from city.runtime import build_city_runtime, build_daemon_service, persist_city_runtime
 
     runtime = build_city_runtime(args=args, config=_cfg, log=log)
 
@@ -126,9 +126,7 @@ def main() -> None:
 
     # Daemon mode: continuous adaptive-frequency operation
     if args.daemon:
-        from city.daemon import DaemonService
-
-        daemon = DaemonService(mayor=runtime.mayor)
+        daemon = build_daemon_service(runtime)
         runtime.registry.register(SVC_DAEMON, daemon)
         print("Daemon mode: starting continuous heartbeat (Ctrl+C to stop)")
         try:
