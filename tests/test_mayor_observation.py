@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from city.mayor_observation import MayorObservationBridge
+from city.mayor.observation import MayorObservationBridge
 from city.registry import CityServiceRegistry, SVC_REFLECTION
 
 
@@ -25,7 +25,7 @@ def test_observation_bridge_records_execution():
 
 def test_observation_bridge_buffers_and_trims_events(monkeypatch):
     monkeypatch.setattr(
-        "city.mayor_observation.get_config",
+        "city.mayor.observation.get_config",
         lambda: {"mayor": {"event_buffer_max": 2, "event_buffer_trim": 1}},
     )
     mayor = SimpleNamespace(_recent_events=[])

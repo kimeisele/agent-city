@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from city.mayor_execution import MayorExecutionBridge
+from city.mayor.execution import MayorExecutionBridge
 from city.registry import CityServiceRegistry
 
 

@@ -15,7 +15,7 @@ from city.registry import (
 
 if TYPE_CHECKING:
     from city.mayor import Mayor
-    from city.mayor_lifecycle import MayorLifecycleBridge
+    from city.mayor.lifecycle import MayorLifecycleBridge
     from city.pokedex import Pokedex
     from city.supervision import CitySupervisionBridge
 
@@ -77,7 +77,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     from vibe_core.cartridges.system.civic.tools.economy import CivicBank
     from city.factory import BuildContext, CityServiceFactory, default_definitions
     from city.gateway import CityGateway
-    from city.mayor_lifecycle import MayorLifecycleBridge
+    from city.mayor.lifecycle import MayorLifecycleBridge
     from city.network import CityNetwork
     from city.supervision import CitySupervisionBridge
 

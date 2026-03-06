@@ -10,7 +10,7 @@ from vibe_core.mahamantra.protocols import QUARTERS
 from city.registry import SVC_EVENT_BUS
 
 if TYPE_CHECKING:
-    from city.mayor import Mayor
+    from .kernel import Mayor
     from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.MAYOR.EXECUTION")

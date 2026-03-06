@@ -3,14 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from city.mayor_context import MayorContextBridge
-from city.mayor_execution import MayorExecutionBridge
-from city.mayor_lifecycle import MayorLifecycleBridge
-from city.mayor_observation import MayorObservationBridge
+from .context import MayorContextBridge
+from .execution import MayorExecutionBridge
+from .lifecycle import MayorLifecycleBridge
+from .observation import MayorObservationBridge
 from city.registry import SVC_BRAIN, SVC_BRAIN_MEMORY, SVC_CONVERSATION_TRACKER
 
 if TYPE_CHECKING:
-    from city.mayor import Mayor
+    from .kernel import Mayor
 
 
 @dataclass(frozen=True)

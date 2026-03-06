@@ -24,36 +24,22 @@ from pathlib import Path
 from typing import TypedDict
 
 from city.gateway import CityGateway
-from city.mayor_boot import MayorBootBridge
-from city.mayor_context import MayorContextBridge
-from city.mayor_execution import (
-    DEPARTMENT_NAMES,
-    DHARMA,
-    GENESIS,
-    KARMA,
-    MOKSHA,
-    HeartbeatResult,
-    MayorExecutionBridge,
-)
-from city.mayor_lifecycle import MayorLifecycleBridge
-from city.mayor_observation import MayorObservationBridge
-from city.mayor_services import MayorServiceBridge
 from city.network import CityNetwork
 from city.phases import PhaseContext
 from city.pokedex import Pokedex
 from city.registry import CityServiceRegistry
 
-logger = logging.getLogger("AGENT_CITY.MAYOR")
+from .boot import MayorBootBridge
+from .context import MayorContextBridge
+from .execution import (
+    HeartbeatResult,
+    MayorExecutionBridge,
+)
+from .lifecycle import MayorLifecycleBridge
+from .observation import MayorObservationBridge
+from .services import MayorServiceBridge
 
-__all__ = [
-    "GENESIS",
-    "DHARMA",
-    "KARMA",
-    "MOKSHA",
-    "DEPARTMENT_NAMES",
-    "HeartbeatResult",
-    "Mayor",
-]
+logger = logging.getLogger("AGENT_CITY.MAYOR")
 
 
 class MayorState(TypedDict):
@@ -97,10 +83,8 @@ class Mayor:
     _active_agents: set[str] = field(default_factory=set)
     _gateway_queue: list[dict] = field(default_factory=list)
 
-    # Service registry (preferred wiring path)
     _registry: CityServiceRegistry = field(default_factory=CityServiceRegistry)
 
-    # Legacy service fields (backward compat — prefer _registry)
     _contracts: object = None
     _issues: object = None
     _sankalpa: object = None
@@ -119,20 +103,16 @@ class Mayor:
     _immune: object = None
     _prahlad: object = None
 
-    # Internal state
     _last_audit_time: float = field(default=0.0)
     _recent_events: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        # Migrate legacy kwargs into registry (backward compat)
         if self._service_bridge is None:
             self._service_bridge = MayorServiceBridge()
         self._service_bridge.sync_legacy_services(self)
         if self._boot is None:
             self._boot = MayorBootBridge()
         self._boot.bootstrap(self)
-
-    # ── PhaseContext Builder ──────────────────────────────────────────
 
     def _build_ctx(self) -> PhaseContext:
         """Build PhaseContext from current Mayor state."""
@@ -142,8 +122,6 @@ class Mayor:
         """Sync mutable state back from PhaseContext after phase execution."""
         self._context.sync_from_phase_context(self, ctx)
 
-    # ── Heartbeat Loop ────────────────────────────────────────────────
-
     def heartbeat(self) -> HeartbeatResult:
         """Execute one heartbeat cycle.
 
@@ -151,8 +129,6 @@ class Mayor:
         """
         start_time = time.time()
         result = self._execution.run_heartbeat(self)
-
-        # Record execution for reflection (every heartbeat)
         duration_ms = (time.time() - start_time) * 1000
         self._record_execution(result["department"], duration_ms)
 
@@ -167,16 +143,10 @@ class Mayor:
             results.append(self.heartbeat())
         return results
 
-    # ── Async CI/CD Arsenal Integration ───────────────────────────────
-
     def process_github_webhook(
         self, payload: bytes, signature_header: str, secret: str, github_token: str
     ) -> dict:
-        """Process an asynchronous GitHub webhook from the CI/CD Arsenal.
-
-        If a workflow failed, fetches the JSON report artifact and injects
-        the extracted tracebacks directly into the Immune System.
-        """
+        """Process an asynchronous GitHub webhook from the CI/CD Arsenal."""
         result = self._gateway.ingest_github_webhook(payload, signature_header, secret)
 
         if result.get("status") == "success" and result.get("event") == "workflow_run_failed":
@@ -194,20 +164,14 @@ class Mayor:
 
         return result
 
-    # ── Reflection Recording ──────────────────────────────────────────
-
     def _record_execution(self, department: str, duration_ms: float) -> None:
         self._observation.record_execution(self, department, duration_ms)
-
-    # ── Event Handlers ────────────────────────────────────────────────
 
     def _wire_event_handlers(self) -> None:
         self._observation.wire_event_handlers(self)
 
     def _on_city_event(self, event: object) -> None:
         self._observation.on_city_event(self, event)
-
-    # ── External Interface ────────────────────────────────────────────
 
     def enqueue(
         self,
@@ -217,14 +181,7 @@ class Mayor:
         conversation_id: str = "",
         from_agent: str = "",
     ) -> None:
-        """Add an item to the gateway queue for KARMA processing.
-
-        Args:
-            source: Origin identifier (e.g. 'dm', 'feed', agent name).
-            text: Message content.
-            conversation_id: Moltbook DM conversation ID for response routing.
-            from_agent: Sender's Moltbook username.
-        """
+        """Add an item to the gateway queue for KARMA processing."""
         self._gateway_queue.append(
             {
                 "source": source,
@@ -237,8 +194,6 @@ class Mayor:
     def mark_active(self, name: str) -> None:
         """Mark an agent as active for the current metabolism cycle."""
         self._active_agents.add(name)
-
-    # ── State Persistence ─────────────────────────────────────────────
 
     def _load_state(self) -> None:
         self._lifecycle.restore_mayor(self)
