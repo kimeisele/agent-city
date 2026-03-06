@@ -31,8 +31,8 @@ class MarketplaceHandler(BaseKarmaHandler):
         return True
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        all_specs = getattr(ctx, "_all_specs", {})
-        all_inventories = getattr(ctx, "_all_inventories", {})
+        all_specs = ctx.all_specs
+        all_inventories = ctx.all_inventories
 
         # Council freeze (redundant but safe — also logged)
         if ctx.council is not None and ctx.council.is_market_frozen:
@@ -141,8 +141,8 @@ def _process_marketplace(
     all_inventories: dict[str, list[dict]] | None = None,
 ) -> None:
     """Shim: old call signature → MarketplaceHandler."""
-    ctx._all_specs = all_specs  # type: ignore[attr-defined]
-    ctx._all_inventories = all_inventories or {}  # type: ignore[attr-defined]
+    ctx.all_specs = all_specs
+    ctx.all_inventories = all_inventories or {}
     handler = MarketplaceHandler()
     if handler.should_run(ctx):
         handler.execute(ctx, operations)

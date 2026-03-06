@@ -91,8 +91,8 @@ class CognitionHandler(DIWAwareHandler, BaseKarmaHandler):
         return True
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        all_specs = getattr(ctx, "_all_specs", {})
-        all_inventories = getattr(ctx, "_all_inventories", {})
+        all_specs = ctx.all_specs
+        all_inventories = ctx.all_inventories
         _route_to_cartridges(ctx, operations, all_specs, all_inventories)
 
 

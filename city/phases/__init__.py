@@ -80,6 +80,10 @@ class PhaseContext:
     # Internal state (not services)
     last_audit_time: float = 0.0
     recent_events: list = field(default_factory=list)
+    all_specs: dict[str, dict] = field(default_factory=dict)
+    all_inventories: dict[str, list[dict]] = field(default_factory=dict)
+    responded_threads: set[int] = field(default_factory=set)
+    responded_threads_agents: set[str] = field(default_factory=set)
 
     def __init__(
         self,
@@ -94,6 +98,10 @@ class PhaseContext:
         registry=None,
         last_audit_time=0.0,
         recent_events=None,
+        all_specs=None,
+        all_inventories=None,
+        responded_threads=None,
+        responded_threads_agents=None,
         **kwargs,
     ):
         self.pokedex = pokedex
@@ -108,6 +116,12 @@ class PhaseContext:
         self._legacy_services = {}
         self.last_audit_time = last_audit_time
         self.recent_events = recent_events if recent_events is not None else []
+        self.all_specs = all_specs if all_specs is not None else {}
+        self.all_inventories = all_inventories if all_inventories is not None else {}
+        self.responded_threads = responded_threads if responded_threads is not None else set()
+        self.responded_threads_agents = (
+            responded_threads_agents if responded_threads_agents is not None else set()
+        )
 
         # Migrate legacy kwargs into registry
         _LEGACY_NAMES = {

@@ -85,8 +85,8 @@ class GatewayHandler(BaseKarmaHandler):
         # Collect agent specs ONCE for this cycle (shared via ctx)
         all_specs = _get_all_specs(ctx)
         all_inventories = _get_all_inventories(ctx)
-        ctx._all_specs = all_specs  # type: ignore[attr-defined]
-        ctx._all_inventories = all_inventories  # type: ignore[attr-defined]
+        ctx.all_specs = all_specs
+        ctx.all_inventories = all_inventories
 
         # Reset discussions per-cycle counter
         if ctx.discussions is not None:
@@ -94,9 +94,9 @@ class GatewayHandler(BaseKarmaHandler):
 
         # 9D: Per-cycle thread dedup — prevent responding to same thread twice
         responded_threads: set[int] = set()
-        ctx._responded_threads = responded_threads  # type: ignore[attr-defined]
+        ctx.responded_threads = responded_threads
         # 9D: Per-cycle agent diversity — track which agents responded
-        ctx._responded_threads_agents: set[str] = set()  # type: ignore[attr-defined]
+        ctx.responded_threads_agents = set()
 
         for item in queue_items:
             source = item.get("source", "unknown")
@@ -188,7 +188,7 @@ def _handle_discussion_item(
     comment_id = item.get("comment_id", "")
 
     # 9D: Per-cycle dedup — skip threads already responded to this cycle
-    responded = getattr(ctx, "_responded_threads", set())
+    responded = ctx.responded_threads
     if discussion_number in responded:
         operations.append(f"disc_dedup:#{discussion_number}")
         return
@@ -489,12 +489,8 @@ def _handle_discussion_item(
                     source=f"disc_response:#{discussion_number}",
                 )
             # 9D: Mark thread + agent as responded for per-cycle dedup/diversity
-            responded = getattr(ctx, "_responded_threads", None)
-            if responded is not None:
-                responded.add(discussion_number)
-            agents_responded = getattr(ctx, "_responded_threads_agents", None)
-            if agents_responded is not None:
-                agents_responded.add(agent_name)
+            ctx.responded_threads.add(discussion_number)
+            ctx.responded_threads_agents.add(agent_name)
 
             # 8D: Release claim after successful post
             if _claim_ticket is not None:
@@ -750,7 +746,7 @@ def _route_discussion_to_agent(
         return None, None, -1.0
 
     # 9D: Routing diversity — deprioritize agents who already responded this cycle
-    responded_this_cycle = getattr(ctx, "_responded_threads_agents", set())
+    responded_this_cycle = ctx.responded_threads_agents
     diverse_specs: dict[str, dict] = {}
     fallback_specs: dict[str, dict] = {}
     for name, spec in eligible_specs.items():
