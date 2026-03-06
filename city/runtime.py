@@ -15,6 +15,7 @@ from city.registry import (
 
 if TYPE_CHECKING:
     from city.mayor import Mayor
+    from city.mayor_lifecycle import MayorLifecycleBridge
     from city.pokedex import Pokedex
     from city.supervision import CitySupervisionBridge
 
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class RuntimeStatePaths:
     db_path: Path
+    mayor_state_path: Path
     bridge_state_path: Path
     assistant_state_path: Path
     discussions_state_path: Path
@@ -33,6 +35,7 @@ class RuntimeStatePaths:
         root = db_path.parent
         return cls(
             db_path=db_path,
+            mayor_state_path=root / "mayor_state.json",
             bridge_state_path=root / "bridge_state.json",
             assistant_state_path=root / "assistant_state.json",
             discussions_state_path=root / "discussions_state.json",
@@ -49,6 +52,7 @@ class CityRuntime:
     pokedex: Pokedex
     factory_stats: dict
     state_paths: RuntimeStatePaths
+    mayor_lifecycle: MayorLifecycleBridge | None = None
     supervision: CitySupervisionBridge | None = None
     assistant: object | None = None
     discussions: object | None = None
@@ -73,6 +77,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     from vibe_core.cartridges.system.civic.tools.economy import CivicBank
     from city.factory import BuildContext, CityServiceFactory, default_definitions
     from city.gateway import CityGateway
+    from city.mayor_lifecycle import MayorLifecycleBridge
     from city.network import CityNetwork
     from city.supervision import CitySupervisionBridge
 
@@ -107,10 +112,13 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     disabled = config.get("services", {}).get("disabled", [])
     factory.build_all(registry, build_ctx, disabled=disabled)
 
+    mayor_lifecycle = MayorLifecycleBridge(state_path=state_paths.mayor_state_path)
     mayor = Mayor(
         _pokedex=pokedex,
         _gateway=gateway,
         _network=network,
+        _state_path=state_paths.mayor_state_path,
+        _lifecycle=mayor_lifecycle,
         _registry=registry,
         _offline_mode=getattr(args, "offline", False),
     )
@@ -120,6 +128,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
         mayor=mayor,
         pokedex=pokedex,
         factory_stats=factory.stats(),
+        mayor_lifecycle=mayor_lifecycle,
         supervision=CitySupervisionBridge(mayor=mayor),
         assistant=registry.get(SVC_MOLTBOOK_ASSISTANT),
         discussions=registry.get(SVC_DISCUSSIONS),
