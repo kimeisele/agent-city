@@ -2,6 +2,12 @@
 import pytest
 
 
+def _root_membrane():
+    from city.membrane import internal_membrane_snapshot
+
+    return internal_membrane_snapshot(source_class="tests")
+
+
 def test_event_chain_detects_deletion(tmp_dir):
     """DELETE an event from the middle → chain verification MUST fail.
 
@@ -18,7 +24,7 @@ def test_event_chain_detects_deletion(tmp_dir):
     pdx.register("Agent1")
     pdx.register("Agent2")
     pdx.activate("Agent1")
-    pdx.freeze("Agent1", "test_violation")
+    pdx.freeze("Agent1", "test_violation", membrane=_root_membrane())
 
     assert pdx.verify_event_chain(), "Chain should be valid before tampering"
 

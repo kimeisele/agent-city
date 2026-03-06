@@ -13,6 +13,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from city.membrane import internal_membrane_snapshot
 from city.phase_hook import DHARMA, BasePhaseHook
 from city.seed_constants import HIBERNATION_THRESHOLD
 
@@ -71,6 +72,7 @@ class MetabolizeHook(BasePhaseHook):
         from city.registry import SVC_PRANA_ENGINE, SVC_REACTOR
 
         engine = ctx.registry.get(SVC_PRANA_ENGINE) if ctx.registry else None
+        root_membrane = internal_membrane_snapshot(source_class="dharma")
 
         _t0 = time.monotonic()
         if engine is not None and engine.booted:
@@ -79,7 +81,11 @@ class MetabolizeHook(BasePhaseHook):
             dead = []
             for name in dormant_names:
                 try:
-                    ctx.pokedex.freeze(name, "dormant:prana_exhaustion")
+                    ctx.pokedex.freeze(
+                        name,
+                        "dormant:prana_exhaustion",
+                        membrane=root_membrane,
+                    )
                     dead.append(name)
                 except Exception as e:
                     logger.warning("PranaEngine: freeze %s failed: %s", name, e)
@@ -201,6 +207,7 @@ def _hibernate_low_prana(ctx: PhaseContext, threshold: int) -> list[str]:
     Agents can be revived later via unfreeze() when energy is injected.
     """
     hibernated: list[str] = []
+    root_membrane = internal_membrane_snapshot(source_class="dharma")
     for agent in ctx.pokedex.list_citizens():
         name = agent["name"]
         cell = ctx.pokedex.get_cell(name)
@@ -208,7 +215,11 @@ def _hibernate_low_prana(ctx: PhaseContext, threshold: int) -> list[str]:
             continue
         if cell.prana < threshold:
             try:
-                ctx.pokedex.freeze(name, "auto_hibernation:low_prana")
+                ctx.pokedex.freeze(
+                    name,
+                    "auto_hibernation:low_prana",
+                    membrane=root_membrane,
+                )
                 hibernated.append(name)
                 logger.info(
                     "DHARMA: Agent %s hibernated (prana=%d < %d)",

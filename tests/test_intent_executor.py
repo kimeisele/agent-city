@@ -13,6 +13,12 @@ from city.intent_executor import CityIntentExecutor
 from city.reactor import CityIntent
 
 
+def _root_membrane():
+    from city.membrane import internal_membrane_snapshot
+
+    return internal_membrane_snapshot(source_class="tests")
+
+
 def _intent(signal: str = "zone_empty", priority: str = "high", **ctx) -> CityIntent:
     return CityIntent(signal=signal, priority=priority, context=ctx)
 
@@ -262,7 +268,17 @@ class TestBrainActionDispatch:
             "handle_brain_quarantine",
         )
         assert "quarantined" in result
-        ctx.pokedex.freeze.assert_called_once()
+        ctx.pokedex.freeze.assert_called_once_with(
+            "bad_bot",
+            "quarantine:spam",
+            author="OpsUser",
+            membrane={
+                "surface": "github_discussion",
+                "access_class": "observer",
+                "claim_floor": 0,
+                "auth_route": "github_handle",
+            },
+        )
 
     @patch("city.missions.create_discussion_mission")
     def test_brain_create_mission_denied_without_authority(self, create_mission):
@@ -400,7 +416,7 @@ class TestPokedexLifecycleCallback:
         fired = []
         p.on_transition(lambda name, fr, to, reason: fired.append((name, fr, to)))
 
-        p.freeze("cb_agent", "test")
+        p.freeze("cb_agent", "test", membrane=_root_membrane())
         assert len(fired) == 1
         assert fired[0] == ("cb_agent", "citizen", "frozen")
 
@@ -409,12 +425,12 @@ class TestPokedexLifecycleCallback:
         p = Pokedex(db_path=str(tmp_path / "test.db"))
         p.discover("cb_agent2")
         p.register("cb_agent2")
-        p.freeze("cb_agent2", "test")
+        p.freeze("cb_agent2", "test", membrane=_root_membrane())
 
         fired = []
         p.on_transition(lambda name, fr, to, reason: fired.append((name, fr, to)))
 
-        p.unfreeze("cb_agent2", "amnesty")
+        p.unfreeze("cb_agent2", "amnesty", membrane=_root_membrane())
         assert len(fired) == 1
         assert fired[0] == ("cb_agent2", "frozen", "active")
 

@@ -35,6 +35,8 @@ def mock_ctx():
     ctx.brain = MagicMock()  # Brain is online
     ctx.thread_state = MagicMock()
     ctx.thread_state.stats.return_value = {"unanswered": 3}
+    ctx.discussions = MagicMock()
+    ctx.discussions.stats.return_value = {"last_post_age_s": 7200.0}
     return ctx
 
 
@@ -376,6 +378,32 @@ class TestGovernanceLayer:
         # Context should reflect system state
         # avg_prana = 10000 / (8+4) = 833.33
         assert actions.triggered_rules is not None
+
+    def test_civic_context_uses_discussions_post_telemetry(self, mock_ctx):
+        """Discussions bridge telemetry should feed governance timing."""
+        layer = GovernanceLayer()
+
+        context = layer._build_civic_context(mock_ctx)
+
+        assert context.hours_since_last_post == pytest.approx(2.0)
+        assert context.last_execution == {}
+
+    def test_evaluation_respects_cooldowns_across_heartbeats(self, mock_ctx):
+        """Repeated governance evaluation should reuse civic execution history."""
+        layer = GovernanceLayer()
+        mock_ctx.pokedex.stats.return_value = {
+            "total_prana": 3000,
+            "active": 6,
+            "citizen": 4,
+            "dormant": 2,
+        }
+
+        first = layer.evaluate_governance_actions(mock_ctx)
+        assert any(rule.name == "economy_critical_alert" for rule in first.triggered_rules)
+
+        mock_ctx.heartbeat_count = 43
+        second = layer.evaluate_governance_actions(mock_ctx)
+        assert all(rule.name != "economy_critical_alert" for rule in second.triggered_rules)
 
     def test_governance_stats(self, mock_ctx):
         """Governance layer should provide comprehensive stats."""

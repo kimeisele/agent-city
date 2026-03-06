@@ -431,11 +431,17 @@ def _handle_brain_retract(ctx: Any, intent: Any) -> str:
 
 def _handle_brain_quarantine(ctx: Any, intent: Any) -> str:
     """Brain wants to quarantine an agent."""
-    agent_name = intent.context.get("target", "")
-    reason = intent.context.get("detail", "brain_action")
+    context = getattr(intent, "context", {}) or {}
+    agent_name = context.get("target", "")
+    reason = context.get("detail", "brain_action")
     if agent_name and ctx.pokedex is not None:
         try:
-            ctx.pokedex.freeze(agent_name, f"quarantine:{reason[:60]}")
+            ctx.pokedex.freeze(
+                agent_name,
+                f"quarantine:{reason[:60]}",
+                author=str(context.get("author", "")),
+                membrane=context.get("membrane"),
+            )
             return f"quarantined:{agent_name}"
         except Exception as e:
             return f"error:quarantine:{e}"

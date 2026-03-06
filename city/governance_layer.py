@@ -108,16 +108,14 @@ class GovernanceLayer:
             except Exception:
                 pass
         
-        # Get last execution times
-        last_execution = {}
-        # This would be populated from persistent storage in a real implementation
+        # Get last execution times from the actual civic engine.
+        last_execution = self._civic_engine.last_execution_map()
         
         # Check quorum (simplified)
         has_quorum = alive_agents >= 5  # Basic quorum check
         
-        # Calculate hours since last post (simplified)
-        hours_since_last_post = 0.0
-        # This would be calculated from actual posting history
+        # Calculate hours since last Discussions post from bridge telemetry.
+        hours_since_last_post = self._hours_since_last_post(ctx)
         
         return CivicContext(
             heartbeat_count=heartbeat,
@@ -131,6 +129,27 @@ class GovernanceLayer:
             has_quorum=has_quorum,
             last_execution=last_execution,
         )
+
+    @staticmethod
+    def _hours_since_last_post(ctx) -> float:
+        """Resolve Discussions posting age in hours from observable bridge stats."""
+        discussions = getattr(ctx, "discussions", None)
+        if discussions is None or not hasattr(discussions, "stats"):
+            return 0.0
+
+        try:
+            stats = discussions.stats()
+        except Exception:
+            return 0.0
+
+        age_s = stats.get("last_post_age_s")
+        if age_s is None:
+            return 0.0
+
+        try:
+            return max(float(age_s), 0.0) / 3600.0
+        except (TypeError, ValueError):
+            return 0.0
 
     def _should_post_city_report(self, triggered_rules) -> bool:
         """Check if any triggered rules require city report posting."""

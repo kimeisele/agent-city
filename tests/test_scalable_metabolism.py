@@ -27,6 +27,12 @@ import pytest
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
+def _root_membrane():
+    from city.membrane import internal_membrane_snapshot
+
+    return internal_membrane_snapshot(source_class="tests")
+
+
 def _make_pokedex(tmp_path: Path, config_override: dict | None = None):
     """Create a minimal Pokedex pointing at tmp_path for isolated tests."""
     mock_bank = MagicMock()
@@ -197,7 +203,7 @@ def test_metabolize_all_skips_frozen(tmp_path):
     pkdx = _make_pokedex(tmp_path)
     _discover_and_register(pkdx, "agent-frozen")
     pkdx.activate("agent-frozen")
-    pkdx.freeze("agent-frozen", "test")
+    pkdx.freeze("agent-frozen", "test", membrane=_root_membrane())
 
     initial_cur = pkdx._conn.cursor()
     initial_cur.execute("SELECT prana FROM agents WHERE name = ?", ("agent-frozen",))
