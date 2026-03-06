@@ -466,7 +466,7 @@ def test_per_cycle_thread_dedup(mock_ctx):
     from city.karma_handlers.gateway import _handle_discussion_item
 
     mock_ctx.brain = MagicMock()
-    mock_ctx._responded_threads = {42}  # Already responded to #42
+    mock_ctx.responded_threads = {42}  # Already responded to #42
 
     item = {
         "discussion_number": 42,
@@ -482,7 +482,7 @@ def test_per_cycle_dedup_allows_new_thread(mock_ctx):
     """9D: Different thread is NOT deduped."""
     from city.karma_handlers.gateway import _handle_discussion_item
 
-    mock_ctx._responded_threads = {42}  # Only #42 is deduped
+    mock_ctx.responded_threads = {42}  # Only #42 is deduped
 
     # Thread #99 should pass dedup gate (will fail later at routing, but not dedup)
     item = {
@@ -501,7 +501,7 @@ def test_routing_diversity_prefers_new_agents(mock_ctx):
     from city.karma_handlers.gateway import _route_discussion_to_agent
 
     mock_ctx.active_agents = {"agent_a", "agent_b"}
-    mock_ctx._responded_threads_agents = {"agent_a"}  # A already responded
+    mock_ctx.responded_threads_agents = {"agent_a"}  # A already responded
 
     _base = {"domain": "general", "capability_tier": "contributor", "capabilities": ["observe"]}
     specs = {
@@ -521,7 +521,7 @@ def test_routing_diversity_fallback_when_all_responded(mock_ctx):
     from city.karma_handlers.gateway import _route_discussion_to_agent
 
     mock_ctx.active_agents = {"agent_a"}
-    mock_ctx._responded_threads_agents = {"agent_a"}  # Only agent, already responded
+    mock_ctx.responded_threads_agents = {"agent_a"}  # Only agent, already responded
 
     specs = {
         "agent_a": {

@@ -22,7 +22,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypedDict
+from typing import ClassVar, TypedDict
 
 from vibe_core.mahamantra.protocols import QUARTERS
 
@@ -144,33 +144,36 @@ class Mayor:
     _recent_events: list = field(default_factory=list)
 
     # Legacy field → registry name mapping
-    _LEGACY_FIELD_MAP: dict[str, str] = field(default_factory=dict, repr=False, init=False)
+    _LEGACY_FIELD_MAP: ClassVar[dict[str, str]] = {
+        "_contracts": SVC_CONTRACTS,
+        "_issues": SVC_ISSUES,
+        "_sankalpa": SVC_SANKALPA,
+        "_audit": SVC_AUDIT,
+        "_reflection": SVC_REFLECTION,
+        "_executor": SVC_EXECUTOR,
+        "_council": SVC_COUNCIL,
+        "_federation": SVC_FEDERATION,
+        "_moltbook_bridge": SVC_MOLTBOOK_BRIDGE,
+        "_moltbook_client": SVC_MOLTBOOK_CLIENT,
+        "_city_nadi": SVC_CITY_NADI,
+        "_knowledge_graph": SVC_KNOWLEDGE_GRAPH,
+        "_event_bus": SVC_EVENT_BUS,
+        "_learning": SVC_LEARNING,
+        "_agent_nadi": SVC_AGENT_NADI,
+        "_immune": SVC_IMMUNE,
+        "_prahlad": SVC_PRAHLAD,
+    }
 
-    def __post_init__(self) -> None:
-        # Migrate legacy kwargs into registry (backward compat)
-        _field_to_svc = {
-            "_contracts": SVC_CONTRACTS,
-            "_issues": SVC_ISSUES,
-            "_sankalpa": SVC_SANKALPA,
-            "_audit": SVC_AUDIT,
-            "_reflection": SVC_REFLECTION,
-            "_executor": SVC_EXECUTOR,
-            "_council": SVC_COUNCIL,
-            "_federation": SVC_FEDERATION,
-            "_moltbook_bridge": SVC_MOLTBOOK_BRIDGE,
-            "_moltbook_client": SVC_MOLTBOOK_CLIENT,
-            "_city_nadi": SVC_CITY_NADI,
-            "_knowledge_graph": SVC_KNOWLEDGE_GRAPH,
-            "_event_bus": SVC_EVENT_BUS,
-            "_learning": SVC_LEARNING,
-            "_agent_nadi": SVC_AGENT_NADI,
-            "_immune": SVC_IMMUNE,
-            "_prahlad": SVC_PRAHLAD,
-        }
-        for field_name, svc_name in _field_to_svc.items():
+    def _sync_legacy_services_to_registry(self) -> None:
+        """Register any legacy Mayor service fields into the central registry."""
+        for field_name, svc_name in self._LEGACY_FIELD_MAP.items():
             val = getattr(self, field_name, None)
             if val is not None and not self._registry.has(svc_name):
                 self._registry.register(svc_name, val)
+
+    def __post_init__(self) -> None:
+        # Migrate legacy kwargs into registry (backward compat)
+        self._sync_legacy_services_to_registry()
 
         # Brain in a Jar — LLM cognition organ (lazy provider init)
         if not self._registry.has(SVC_BRAIN):
@@ -214,29 +217,7 @@ class Mayor:
     def _build_ctx(self) -> PhaseContext:
         """Build PhaseContext from current Mayor state."""
         # Sync any post-init field mutations into registry
-        _field_to_svc = {
-            "_contracts": SVC_CONTRACTS,
-            "_issues": SVC_ISSUES,
-            "_sankalpa": SVC_SANKALPA,
-            "_audit": SVC_AUDIT,
-            "_reflection": SVC_REFLECTION,
-            "_executor": SVC_EXECUTOR,
-            "_council": SVC_COUNCIL,
-            "_federation": SVC_FEDERATION,
-            "_moltbook_bridge": SVC_MOLTBOOK_BRIDGE,
-            "_moltbook_client": SVC_MOLTBOOK_CLIENT,
-            "_city_nadi": SVC_CITY_NADI,
-            "_knowledge_graph": SVC_KNOWLEDGE_GRAPH,
-            "_event_bus": SVC_EVENT_BUS,
-            "_learning": SVC_LEARNING,
-            "_agent_nadi": SVC_AGENT_NADI,
-            "_immune": SVC_IMMUNE,
-            "_prahlad": SVC_PRAHLAD,
-        }
-        for field_name, svc_name in _field_to_svc.items():
-            val = getattr(self, field_name, None)
-            if val is not None and not self._registry.has(svc_name):
-                self._registry.register(svc_name, val)
+        self._sync_legacy_services_to_registry()
 
         return PhaseContext(
             pokedex=self._pokedex,

@@ -42,8 +42,8 @@ class SankalpaHandler(BaseKarmaHandler):
             logger.info("KARMA: Sankalpa intent — %s (idle=%dmin)", intent.title, idle_minutes)
 
         # Process issue/exec missions
-        all_specs = getattr(ctx, "_all_specs", {})
-        all_inventories = getattr(ctx, "_all_inventories", {})
+        all_specs = ctx.all_specs
+        all_inventories = ctx.all_inventories
         _process_issue_missions(ctx, operations, all_specs, all_inventories)
 
 
@@ -190,8 +190,8 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
         return False
 
     # 7C-1: Route mission to best agent and run Cartridge process()
-    all_specs = getattr(ctx, "_all_specs", {})
-    all_inventories = getattr(ctx, "_all_inventories", {})
+    all_specs = ctx.all_specs
+    all_inventories = ctx.all_inventories
     agent_name = None
     cartridge_result = None
 

@@ -50,8 +50,8 @@ class HealHandler(DIWAwareHandler, BaseKarmaHandler):
         return True
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        all_specs = getattr(ctx, "_all_specs", {})
-        all_inventories = getattr(ctx, "_all_inventories", {})
+        all_specs = ctx.all_specs
+        all_inventories = ctx.all_inventories
 
         from city.mission_router import authorize_mission
         from city.registry import SVC_ROUTER
