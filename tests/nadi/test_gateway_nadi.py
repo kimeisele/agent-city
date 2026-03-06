@@ -116,6 +116,25 @@ def test_city_nadi_preserves_conversation_id():
     assert items[0]["from_agent"] == "alice"
 
 
+def test_city_nadi_preserves_extra_payload():
+    """Arbitrary membrane metadata survives enqueue → drain."""
+    from city.nadi_hub import CityNadi
+
+    nadi = CityNadi(_endpoint_id="test_extra_payload")
+    nadi.enqueue(
+        "discussion",
+        "hello",
+        extra_payload={
+            "comment_id": "comment_1",
+            "membrane": {"surface": "github_discussion"},
+        },
+    )
+
+    items = nadi.drain()
+    assert items[0]["comment_id"] == "comment_1"
+    assert items[0]["membrane"]["surface"] == "github_discussion"
+
+
 def test_city_nadi_stats():
     """Stats reflect message counts."""
     from city.nadi_hub import CityNadi

@@ -59,6 +59,10 @@ class GatewayResult(TypedDict):
     seed: int
     source: str
     source_class: str
+    membrane_surface: str
+    access_class: str
+    claim_floor: int
+    auth_route: str
     source_address: int
     buddhi_function: str
     buddhi_chapter: int
@@ -89,11 +93,19 @@ class CityGateway:
     def address_book(self) -> CityAddressBook:
         return self._address_book
 
-    def process(self, input_text: str, source: str) -> GatewayResult:
+    def process(
+        self,
+        input_text: str,
+        source: str,
+        *,
+        membrane: dict | None = None,
+    ) -> GatewayResult:
         """Process external input through the gateway.
 
         Pipeline: Compress → Buddhi.think → Address Resolution.
         """
+        membrane = membrane or {}
+
         # Step 1: MahaCompression — sanitize input to deterministic seed
         compressed = self._compression.compress(input_text)
 
@@ -109,7 +121,11 @@ class CityGateway:
         result: GatewayResult = {
             "seed": compressed.seed,
             "source": source,
-            "source_class": _classify_source(source),
+            "source_class": str(membrane.get("source_class") or _classify_source(source)),
+            "membrane_surface": str(membrane.get("surface", "legacy")),
+            "access_class": str(membrane.get("access_class", "observer")),
+            "claim_floor": int(membrane.get("claim_floor", 0) or 0),
+            "auth_route": str(membrane.get("auth_route", "legacy")),
             "source_address": source_address,
             "buddhi_function": cognition.function,
             "buddhi_chapter": cognition.chapter,

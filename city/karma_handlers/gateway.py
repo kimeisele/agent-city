@@ -111,7 +111,11 @@ class GatewayHandler(BaseKarmaHandler):
 
             try:
                 enriched_text = f"{text}\n\n{kg_context}" if kg_context else text
-                result = ctx.gateway.process(enriched_text, source)
+                result = ctx.gateway.process(
+                    enriched_text,
+                    source,
+                    membrane=item.get("membrane"),
+                )
 
                 discussion_number = item.get("discussion_number")
                 if discussion_number and source == "discussion":
@@ -623,7 +627,7 @@ def _execute_action_hint(
     6C-9: Edit-dedup — same hint for same comment_id is skipped.
     Schritt 2: Uses typed ActionParser instead of startswith() chains.
     """
-    from city.brain_action import ActionVerb, parse_action_hint
+    from city.brain_action import parse_action_hint
 
     hint = thought.action_hint
     if not hint:

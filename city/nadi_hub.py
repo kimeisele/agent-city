@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger("AGENT_CITY.NADI")
 
@@ -83,6 +84,7 @@ class CityNadi:
         discussion_title: str = "",
         direct_agent: str = "",
         agent_name: str = "",
+        extra_payload: dict[str, Any] | None = None,
     ) -> bool:
         """Enqueue a message for KARMA processing.
 
@@ -97,6 +99,7 @@ class CityNadi:
             discussion_number: GitHub Discussion number (for discussion routing).
             discussion_title: Discussion thread title.
             direct_agent: @mentioned agent name for direct routing.
+            extra_payload: Arbitrary passthrough metadata preserved on drain.
 
         Returns True if enqueued, False if Nadi unavailable.
         """
@@ -140,6 +143,10 @@ class CityNadi:
                 payload["direct_agent"] = direct_agent
             if agent_name:
                 payload["agent_name"] = agent_name
+            if extra_payload:
+                for key, value in extra_payload.items():
+                    if key not in payload:
+                        payload[key] = value
 
             msg = NadiMessage(
                 source=source,
@@ -182,25 +189,11 @@ class CityNadi:
             # Convert to dict format (backward compatible with old gateway_queue)
             result = []
             for msg in messages:
-                item = {
-                    "source": msg.payload.get("source", msg.source),
-                    "text": msg.payload.get("text", ""),
-                    "conversation_id": msg.payload.get("conversation_id", ""),
-                    "from_agent": msg.payload.get("from_agent", ""),
-                }
-                # Preserve extra fields
-                if msg.payload.get("post_id"):
-                    item["post_id"] = msg.payload["post_id"]
-                if msg.payload.get("code_signals"):
-                    item["code_signals"] = msg.payload["code_signals"]
-                if msg.payload.get("discussion_number"):
-                    item["discussion_number"] = msg.payload["discussion_number"]
-                if msg.payload.get("discussion_title"):
-                    item["discussion_title"] = msg.payload["discussion_title"]
-                if msg.payload.get("direct_agent"):
-                    item["direct_agent"] = msg.payload["direct_agent"]
-                if msg.payload.get("agent_name"):
-                    item["agent_name"] = msg.payload["agent_name"]
+                item = dict(msg.payload)
+                item.setdefault("source", msg.source)
+                item.setdefault("text", "")
+                item.setdefault("conversation_id", "")
+                item.setdefault("from_agent", "")
                 result.append(item)
             return result
 
