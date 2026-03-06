@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from city.phases import PhaseContext
 
 if TYPE_CHECKING:
-    from city.mayor import Mayor
+    from .kernel import Mayor
 
 
 @dataclass(frozen=True)

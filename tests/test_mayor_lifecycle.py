@@ -8,7 +8,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from city.mayor_lifecycle import MayorLifecycleBridge
+from city.mayor.lifecycle import MayorLifecycleBridge
 from city.registry import CityServiceRegistry, SVC_CONVERSATION_TRACKER
 
 

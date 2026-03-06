@@ -17,7 +17,7 @@ from city.runtime import (
     build_daemon_service,
     persist_city_runtime,
 )
-from city.mayor_lifecycle import MayorLifecycleBridge
+from city.mayor.lifecycle import MayorLifecycleBridge
 from city.supervision import CitySupervisionBridge
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from city.mayor_boot import MayorBootBridge
+from city.mayor.boot import MayorBootBridge
 from city.registry import (
     SVC_BRAIN,
     SVC_BRAIN_MEMORY,
@@ -50,10 +50,10 @@ def test_boot_bridge_initializes_defaults_and_restore(monkeypatch, tmp_path):
     class FakeTracker:
         pass
 
-    monkeypatch.setattr("city.mayor_boot.MayorContextBridge", FakeContext)
-    monkeypatch.setattr("city.mayor_boot.MayorExecutionBridge", FakeExecution)
-    monkeypatch.setattr("city.mayor_boot.MayorObservationBridge", FakeObservation)
-    monkeypatch.setattr("city.mayor_boot.MayorLifecycleBridge", FakeLifecycle)
+    monkeypatch.setattr("city.mayor.boot.MayorContextBridge", FakeContext)
+    monkeypatch.setattr("city.mayor.boot.MayorExecutionBridge", FakeExecution)
+    monkeypatch.setattr("city.mayor.boot.MayorObservationBridge", FakeObservation)
+    monkeypatch.setattr("city.mayor.boot.MayorLifecycleBridge", FakeLifecycle)
     monkeypatch.setattr("city.brain.CityBrain", FakeBrain)
     monkeypatch.setattr("city.brain_memory.BrainMemory", FakeBrainMemory)
     monkeypatch.setattr("city.discussions_commands.ConversationTracker", FakeTracker)

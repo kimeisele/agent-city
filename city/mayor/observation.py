@@ -8,7 +8,7 @@ from city.registry import SVC_REFLECTION
 from config import get_config
 
 if TYPE_CHECKING:
-    from city.mayor import Mayor
+    from .kernel import Mayor
 
 logger = logging.getLogger("AGENT_CITY.MAYOR.OBSERVATION")
 

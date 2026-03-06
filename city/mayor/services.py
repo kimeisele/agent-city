@@ -24,7 +24,7 @@ from city.registry import (
 )
 
 if TYPE_CHECKING:
-    from city.mayor import Mayor
+    from .kernel import Mayor
 
 
 LEGACY_SERVICE_FIELDS: dict[str, str] = {

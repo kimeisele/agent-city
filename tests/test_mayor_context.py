@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from city.mayor_context import MayorContextBridge
-from city.mayor_services import MayorServiceBridge
+from city.mayor.context import MayorContextBridge
+from city.mayor.services import MayorServiceBridge
 from city.registry import SVC_COUNCIL, CityServiceRegistry
 
 
