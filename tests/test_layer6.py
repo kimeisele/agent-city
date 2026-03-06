@@ -64,6 +64,46 @@ def test_build_city_report():
     assert "DIR-001" in d["directive_acks"]
 
 
+def test_outbound_builders_include_recent_actions(tmp_path):
+    from city.gateway import CityGateway
+    from city.hooks.moksha.outbound import _build_city_report, _build_post_data
+    from city.network import CityNetwork
+    from city.phases import PhaseContext
+    from city.pokedex import Pokedex
+    from vibe_core.cartridges.system.civic.tools.economy import CivicBank
+
+    bank = CivicBank(db_path=str(tmp_path / "economy.db"))
+    pokedex = Pokedex(db_path=str(tmp_path / "city.db"), bank=bank)
+    gateway = CityGateway()
+    network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
+    ctx = PhaseContext(
+        pokedex=pokedex,
+        gateway=gateway,
+        network=network,
+        heartbeat_count=42,
+        offline_mode=True,
+        state_path=tmp_path / "mayor_state.json",
+    )
+    reflection = {
+        "city_stats": {"total": 3, "active": 1, "citizen": 1},
+        "chain_valid": True,
+        "brain_operations": ["brain_reflect"],
+        "pr_results": [{"branch": "fix/42", "pr_url": "https://example/pr/42"}],
+    }
+    operations = ["mission_lifecycle:reported", "federation_report:sent"]
+
+    post_data = _build_post_data(ctx, reflection, operations)
+    report = _build_city_report(ctx, reflection, operations)
+
+    assert post_data["recent_actions"] == [
+        "mission_lifecycle:reported",
+        "federation_report:sent",
+        "brain_reflect",
+        "pr_created:fix/42",
+    ]
+    assert report.recent_actions == post_data["recent_actions"]
+
+
 def test_send_report_dry_run():
     """Dry-run logs but doesn't call gh CLI."""
     from city.federation import CityReport, FederationRelay

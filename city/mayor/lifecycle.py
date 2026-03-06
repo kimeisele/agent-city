@@ -34,6 +34,8 @@ class MayorLifecycleBridge:
         try:
             data = json.loads(self.state_path.read_text())
             mayor._heartbeat_count = data.get("heartbeat_count", 0)
+            mayor._total_governance_actions = data.get("total_governance_actions", 0)
+            mayor._total_operations = data.get("total_operations", 0)
         except (json.JSONDecodeError, KeyError, OSError, TypeError):
             return
 
@@ -53,8 +55,8 @@ class MayorLifecycleBridge:
             "last_heartbeat": time.time(),
             "discovered_agents": [a["name"] for a in mayor._pokedex.list_all()],
             "archived_agents": [a["name"] for a in mayor._pokedex.list_by_status("archived")],
-            "total_governance_actions": 0,
-            "total_operations": 0,
+            "total_governance_actions": getattr(mayor, "_total_governance_actions", 0),
+            "total_operations": getattr(mayor, "_total_operations", 0),
         }
         try:
             self.state_path.write_text(json.dumps(state, indent=2))
