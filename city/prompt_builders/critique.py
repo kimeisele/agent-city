@@ -9,7 +9,7 @@ Extracted from brain_prompt._payload_critique (10B).
 
 from __future__ import annotations
 
-from city.prompt_registry import SCHEMA_BASE, SCHEMA_EXTENDED, PromptContext
+from city.prompt_registry import PromptContext
 
 
 class CritiqueBuilder:
@@ -56,10 +56,12 @@ class CritiqueBuilder:
 
     def build_schema(self) -> str:
         return (
-            "Critically evaluate the Field Digest. Identify anomalies, "
-            "quality issues, workflow failures, or agent misbehavior. "
-            "If problems found, propose concrete fixes via action_hint. "
-            f"Respond with JSON: {{{SCHEMA_BASE}{SCHEMA_EXTENDED}}}"
+            "Critically evaluate the system's output quality. Are agents "
+            "producing meaningful content or mechanical repetition? Are "
+            "there anomalies in behavior — spam, misbehavior, dead loops? "
+            "Is language quality acceptable? Are workflows functioning as "
+            "intended? If you detect problems, propose a concrete fix. "
+            "Be harsh but precise. What evidence supports your critique?"
         )
 
     def build_user_message(self, ctx: PromptContext) -> str:

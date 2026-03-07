@@ -9,7 +9,7 @@ Extracted from brain_prompt._payload_health.
 
 from __future__ import annotations
 
-from city.prompt_registry import SCHEMA_BASE, SCHEMA_EXTENDED, PromptContext
+from city.prompt_registry import PromptContext
 
 
 class HealthCheckBuilder:
@@ -61,8 +61,12 @@ class HealthCheckBuilder:
 
     def build_schema(self) -> str:
         return (
-            "Evaluate system health. Identify bottlenecks or anomalies. "
-            f"Respond with JSON: {{{SCHEMA_BASE}{SCHEMA_EXTENDED}}}"
+            "Evaluate the system's health. What is working correctly? "
+            "What is failing or degrading, and what is the root cause — "
+            "not just the symptom? Are there patterns in the failures? "
+            "How confident are you in this diagnosis? If a specific action "
+            "would improve the situation, name it precisely. What evidence "
+            "supports your assessment?"
         )
 
     def build_user_message(self, ctx: PromptContext) -> str:

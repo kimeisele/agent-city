@@ -221,41 +221,30 @@ class TestReadOnlyVerbs:
         assert ActionVerb.CREATE_MISSION not in READ_ONLY_VERBS
 
 
-# ── SCHEMA_EXTENDED SSOT Tests (Fix 1) ──────────────────────────────
+# ── ActionVerb Completeness Tests ─────────────────────────────────────
 
 
-class TestSchemaExtendedSSOT:
-    """SCHEMA_EXTENDED must be generated from ActionVerb enum — no drift."""
+class TestActionVerbCompleteness:
+    """ActionVerb enum must cover all verbs used in the action system."""
 
-    def test_all_verbs_in_schema(self):
-        from city.prompt_registry import SCHEMA_EXTENDED
+    def test_all_verbs_have_auth_tier(self):
+        """Every ActionVerb must have a defined auth tier."""
+        from city.brain_action import _VERB_AUTH
 
         for verb in ActionVerb:
-            assert verb.value in SCHEMA_EXTENDED, (
-                f"ActionVerb.{verb.name} ({verb.value}) missing from SCHEMA_EXTENDED"
+            assert verb in _VERB_AUTH, (
+                f"ActionVerb.{verb.name} has no auth tier in _VERB_AUTH"
             )
 
-    def test_no_phantom_verbs(self):
-        """SCHEMA_EXTENDED shouldn't contain verb:target patterns not in ActionVerb."""
-        from city.prompt_registry import SCHEMA_EXTENDED
+    def test_parse_roundtrip(self):
+        """Every ActionVerb can be parsed from a hint string."""
+        from city.brain_action import parse_action_hint
 
-        # Extract "verb:<target>" patterns — the actual action_hint format
-        import re
-        verb_target = re.findall(r'"([a-z_]+)(?::<[^"]*>)"', SCHEMA_EXTENDED)
-        bare_verbs = re.findall(r'"([a-z_]+)"', SCHEMA_EXTENDED)
-        verb_values = {v.value for v in ActionVerb}
-        # Non-verb field names in the schema
-        _SCHEMA_FIELDS = {"action_hint", "evidence"}
-        for q in verb_target + bare_verbs:
-            if q in _SCHEMA_FIELDS:
-                continue
-            assert q in verb_values, f"Phantom verb '{q}' in SCHEMA_EXTENDED but not in ActionVerb"
-
-    def test_schema_extended_is_string(self):
-        from city.prompt_registry import SCHEMA_EXTENDED
-
-        assert isinstance(SCHEMA_EXTENDED, str)
-        assert len(SCHEMA_EXTENDED) > 50
+        for verb in ActionVerb:
+            hint = f"{verb.value}:test_target"
+            action = parse_action_hint(hint)
+            assert action is not None, f"parse_action_hint failed for '{hint}'"
+            assert action.verb == verb
 
 
 # ── Rejected Actions Feedback Loop Tests (Fix 2) ────────────────────

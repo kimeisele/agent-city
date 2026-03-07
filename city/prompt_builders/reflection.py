@@ -9,7 +9,7 @@ Extracted from brain_prompt._payload_reflection.
 
 from __future__ import annotations
 
-from city.prompt_registry import SCHEMA_BASE, SCHEMA_EXTENDED, PromptContext
+from city.prompt_registry import PromptContext
 
 
 class ReflectionBuilder:
@@ -89,8 +89,11 @@ class ReflectionBuilder:
 
     def build_schema(self) -> str:
         return (
-            "Reflect on this cycle. What worked? What should change? "
-            f"Respond with JSON: {{{SCHEMA_BASE}{SCHEMA_EXTENDED}}}"
+            "Reflect on this MURALI rotation. What worked well? What "
+            "degraded or failed? Did the system learn anything — new "
+            "patterns, resolved issues, persistent problems? What should "
+            "change in the next cycle? If you see a concrete improvement, "
+            "name it. How confident are you in this reflection?"
         )
 
     def build_user_message(self, ctx: PromptContext) -> str:

@@ -411,6 +411,56 @@ def create_community_mission(
     return mission_id
 
 
+def create_brain_mission(
+    ctx: object,
+    verb: str,
+    target: str,
+    detail: str = "",
+    severity: str = "medium",
+) -> str | None:
+    """Create a Sankalpa mission from a Brain action (bottleneck, health check, escalation).
+
+    These handlers previously emitted reactor pain that nobody consumed.
+    Now they create real missions that the system processes.
+
+    Deduplicates: skips if an active brain mission for the same verb+target exists.
+    """
+    if ctx.sankalpa is None:
+        return None
+
+    from vibe_core.mahamantra.protocols.sankalpa.types import (
+        MissionPriority,
+        MissionStatus,
+        SankalpaMission,
+    )
+
+    target_key = target.replace(" ", "_")[:30]
+    prefix = f"brain_{verb}_{target_key}"
+    for existing in ctx.sankalpa.registry.get_active_missions():
+        if existing.id.startswith(prefix) and existing.status == MissionStatus.ACTIVE:
+            logger.debug(
+                "Brain mission for %s/%s already exists (%s), skipping",
+                verb, target, existing.id,
+            )
+            return existing.id
+
+    priority_map = {"high": MissionPriority.HIGH, "critical": MissionPriority.CRITICAL}
+    priority = priority_map.get(severity, MissionPriority.MEDIUM)
+    hb = getattr(ctx, "heartbeat_count", 0)
+    mission_id = f"brain_{verb}_{target_key}_{hb}"
+    mission = SankalpaMission(
+        id=mission_id,
+        name=f"Brain {verb}: {target[:50]}",
+        description=detail or f"Brain detected {verb}: {target}",
+        priority=priority,
+        status=MissionStatus.ACTIVE,
+        owner="mayor",
+    )
+    ctx.sankalpa.registry.add_mission(mission)
+    logger.info("Created brain mission %s", mission_id)
+    return mission_id
+
+
 def create_federation_mission(ctx: object, directive: object) -> bool:
     """Create a Sankalpa mission from a federation directive."""
     from vibe_core.mahamantra.protocols.sankalpa.types import (

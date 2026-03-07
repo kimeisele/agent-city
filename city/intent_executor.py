@@ -314,35 +314,33 @@ def _handle_emergency_energy_injection(ctx: Any, intent: Any) -> str:  # noqa: E
 
 
 def _handle_brain_flag_bottleneck(ctx: Any, intent: Any) -> str:
-    """Brain flagged a bottleneck → emit reactor pain signal."""
+    """Brain flagged a bottleneck → create investigation mission."""
     target = intent.context.get("target", "unknown")
-    source = intent.context.get("source", "brain")
-    if hasattr(ctx, "reactor") and ctx.reactor is not None:
-        try:
-            ctx.reactor.emit_pain(
-                source=f"brain_{source}",
-                severity=0.5,
-                detail=f"Bottleneck flagged: {target}",
-            )
-            return f"bottleneck_flagged:{target}"
-        except Exception as e:
-            return f"error:flag_bottleneck:{e}"
+    detail = intent.context.get("detail", "")
+    from city.missions import create_brain_mission
+
+    mission_id = create_brain_mission(
+        ctx, "bottleneck", target,
+        detail=detail or f"Bottleneck flagged: {target}",
+    )
+    if mission_id:
+        return f"bottleneck_mission:{mission_id}"
     return f"logged:bottleneck:{target}"
 
 
 def _handle_brain_check_health(ctx: Any, intent: Any) -> str:
-    """Brain requested health check → emit reactor pain signal."""
+    """Brain requested health check → create health investigation mission."""
     target = intent.context.get("target", "unknown")
-    if hasattr(ctx, "reactor") and ctx.reactor is not None:
-        try:
-            ctx.reactor.emit_pain(
-                source="brain_health_check",
-                severity=0.3,
-                detail=f"Health check requested for {target}",
-            )
-        except Exception:
-            pass
-    return f"health_check:{target}"
+    detail = intent.context.get("detail", "")
+    from city.missions import create_brain_mission
+
+    mission_id = create_brain_mission(
+        ctx, "health_check", target,
+        detail=detail or f"Health check requested for {target}",
+    )
+    if mission_id:
+        return f"health_mission:{mission_id}"
+    return f"logged:health_check:{target}"
 
 
 def _handle_brain_investigate(ctx: Any, intent: Any) -> str:
@@ -399,19 +397,19 @@ def _handle_brain_assign_agent(ctx: Any, intent: Any) -> str:
 
 
 def _handle_brain_escalate(ctx: Any, intent: Any) -> str:
-    """Brain escalates an issue → emit high-severity reactor pain."""
+    """Brain escalates an issue → create high-priority investigation mission."""
     target = intent.context.get("target", "unknown")
-    source = intent.context.get("source", "brain")
-    if hasattr(ctx, "reactor") and ctx.reactor is not None:
-        try:
-            ctx.reactor.emit_pain(
-                source=f"brain_{source}",
-                severity=0.7,
-                detail=f"Escalation: {target[:100]}",
-            )
-        except Exception:
-            pass
-    return f"escalated:{target[:40]}"
+    detail = intent.context.get("detail", "")
+    from city.missions import create_brain_mission
+
+    mission_id = create_brain_mission(
+        ctx, "escalation", target,
+        detail=detail or f"Escalation: {target[:100]}",
+        severity="high",
+    )
+    if mission_id:
+        return f"escalation_mission:{mission_id}"
+    return f"logged:escalation:{target[:40]}"
 
 
 def _handle_brain_retract(ctx: Any, intent: Any) -> str:

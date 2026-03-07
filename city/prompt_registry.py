@@ -81,7 +81,11 @@ class PromptBuilder(Protocol):
         ...
 
     def build_schema(self) -> str:
-        """Return JSON schema instruction for this ThoughtKind."""
+        """Return cognitive instruction for this ThoughtKind.
+
+        Guides WHAT to think about, not HOW to format output.
+        JSON structure is enforced at the API level (response_format).
+        """
         ...
 
     def build_user_message(self, ctx: PromptContext) -> str:
@@ -145,54 +149,6 @@ class PromptRegistry:
 
     def __len__(self) -> int:
         return len(self._builders)
-
-
-# ── Shared Schema Fragments ──────────────────────────────────────────
-# Builders import these to compose their schemas. DRY, typed.
-
-SCHEMA_BASE = (
-    '"comprehension": "1-2 sentence understanding", '
-    '"intent": "propose|inquiry|govern|observe|connect", '
-    '"domain_relevance": "which domain this touches", '
-    '"key_concepts": ["up to 5 concepts"], '
-    '"confidence": 0.0 to 1.0'
-)
-
-def _build_schema_extended() -> str:
-    """Dynamically build SCHEMA_EXTENDED from ActionVerb enum.
-
-    Single Source of Truth: if a verb is added to brain_action.py,
-    the LLM schema automatically includes it. No hardcoded drift.
-    """
-    from city.brain_action import ActionVerb
-
-    # Build "verb:target" examples from the canonical enum
-    _VERB_EXAMPLES: dict[str, str] = {
-        "run_status": "run_status",
-        "flag_bottleneck": "flag_bottleneck:<domain>",
-        "check_health": "check_health:<domain>",
-        "investigate": "investigate:<topic>",
-        "create_mission": "create_mission:<description>",
-        "assign_agent": "assign_agent:<agent_name>:<task>",
-        "escalate": "escalate:<reason>",
-        "retract": "retract:<comment_id>",
-        "quarantine": "quarantine:<agent_name>",
-    }
-
-    # Build from enum — any verb without an explicit example uses "verb:<target>"
-    examples = []
-    for verb in ActionVerb:
-        example = _VERB_EXAMPLES.get(verb.value, f"{verb.value}:<target>")
-        examples.append(f'"{example}"')
-
-    hint_values = " or ".join(examples)
-    return (
-        f', "action_hint": "" or {hint_values}, '
-        '"evidence": ["up to 3 data points"]'
-    )
-
-
-SCHEMA_EXTENDED = _build_schema_extended()
 
 
 # ── Echo Chamber Guard (shared across all builders) ──────────────────

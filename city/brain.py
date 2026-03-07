@@ -47,6 +47,56 @@ class ThoughtKind(StrEnum):
     CRITIQUE = "critique"            # 10B: critical evaluation of system output quality
 
 
+# ── Model Metabolism (Yantra Multi-Model Routing) ────────────────────
+
+
+class ModelTier(StrEnum):
+    """Cost-aware model tiers for cognition routing.
+
+    Standard = DeepSeek via OpenRouter (cheap, the workhorse).
+    Flash/Pro = ADDITIONAL capacity via Google free tier (direct API).
+
+    Until Google provider supports messages + JSON mode, all tiers
+    use DeepSeek. The architecture is ready — flip the models when
+    Google direct is wired.
+
+    COST RULE: OpenRouter = DeepSeek ONLY. Never route expensive
+    models through OpenRouter. Flash/Pro use Google free tier or
+    fall back to DeepSeek. Real money is at stake.
+    """
+
+    FLASH = "flash"        # Additional: Google free tier (routine bulk)
+    STANDARD = "standard"  # Default: DeepSeek v3.2 (cheap workhorse)
+    PRO = "pro"            # Additional: Google free tier (critical decisions)
+
+
+# ThoughtKind → default ModelTier
+_KIND_TIER: dict[str, ModelTier] = {
+    "health_check": ModelTier.FLASH,
+    "signal": ModelTier.FLASH,
+    "comprehension": ModelTier.STANDARD,
+    "reflection": ModelTier.STANDARD,
+    "insight": ModelTier.STANDARD,
+    "critique": ModelTier.PRO,
+}
+
+# The ONE cheap model on OpenRouter. All tiers use this until Google direct is ready.
+_OPENROUTER_MODEL = "deepseek/deepseek-v3.2"
+
+# Future Google free tier models (NOT YET ACTIVE — Google provider needs messages + JSON mode)
+_GOOGLE_FLASH_MODEL = "gemini-2.0-flash"
+_GOOGLE_PRO_MODEL = "gemini-1.5-pro"
+
+# ModelTier → model string
+# Currently all DeepSeek (safe, cheap). When Google direct is ready,
+# Flash/Pro switch to Google free tier with DeepSeek as fallback.
+_DEFAULT_TIER_MODELS: dict[ModelTier, str] = {
+    ModelTier.FLASH: _OPENROUTER_MODEL,    # future: _GOOGLE_FLASH_MODEL (free)
+    ModelTier.STANDARD: _OPENROUTER_MODEL,  # always DeepSeek
+    ModelTier.PRO: _OPENROUTER_MODEL,       # future: _GOOGLE_PRO_MODEL (free)
+}
+
+
 class BrainIntent(StrEnum):
     """Cognitive intent classification. Deterministic vocabulary."""
 
@@ -177,8 +227,8 @@ class Thought:
     def format_for_post(self) -> str:
         """Format thought as structured text for discussion posting.
 
-        This is the feedback loop entry point: posted thoughts become
-        discussion content that can be scanned → comprehended → reacted to.
+        Transparent: shows what the Brain actually produced. If this
+        looks bad, the fix is in the Brain's internals, not in hiding fields.
         """
         lines: list[str] = []
         if self.kind != ThoughtKind.COMPREHENSION:
@@ -256,7 +306,8 @@ class CityBrain:
     def __init__(self) -> None:
         self._provider: object | None = None
         self._available: bool | None = None  # None = not checked yet
-        self._model = "deepseek/deepseek-v3.2"
+        self._tier_models: dict[ModelTier, str] = dict(_DEFAULT_TIER_MODELS)
+        self._model = _OPENROUTER_MODEL  # always DeepSeek — the cheap workhorse
 
     @property
     def is_available(self) -> bool:
@@ -371,7 +422,19 @@ class CityBrain:
         ]
 
         thought_kind = ThoughtKind(kind) if kind in ThoughtKind.__members__.values() else ThoughtKind.COMPREHENSION
-        thought = self._invoke_and_parse(messages, kind=thought_kind)
+
+        # Model metabolism: select tier model based on ThoughtKind
+        tier = _KIND_TIER.get(kind, ModelTier.STANDARD)
+        model = self._tier_models.get(tier, self._model)
+        thought = self._invoke_and_parse(messages, kind=thought_kind, model=model)
+
+        # Fallback: if tier model failed and it wasn't standard, retry with standard
+        if thought is None and model != self._model:
+            logger.info(
+                "Brain: %s tier (%s) failed, falling back to standard (%s)",
+                tier.value, model, self._model,
+            )
+            thought = self._invoke_and_parse(messages, kind=thought_kind, model=self._model)
 
         if thought is not None:
             self._log_thought(kind, thought)
@@ -504,15 +567,17 @@ class CityBrain:
         messages: list[dict],
         *,
         kind: ThoughtKind = ThoughtKind.COMPREHENSION,
+        model: str | None = None,
     ) -> Thought | None:
         """Invoke LLM with JSON mode + timeout. Parse into Thought.
 
         Logs failures transparently — never silent.
         """
+        model = model or self._model
         try:
             response = self._provider.invoke(  # type: ignore[union-attr]
                 messages=messages,
-                model=self._model,
+                model=model,
                 max_tokens=_MAX_TOKENS,
                 temperature=0.3,
                 max_retries=2,

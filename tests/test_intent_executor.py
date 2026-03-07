@@ -219,10 +219,61 @@ class TestBrainActionDispatch:
         assert intent.context["discussion_number"] == 42
         assert intent.context["source"] == "discussion"
 
-    def test_brain_escalate_handler(self):
-        reactor = MagicMock()
+    @patch("city.missions.create_brain_mission", return_value="brain_bottleneck_engineering_42")
+    def test_brain_flag_bottleneck_creates_mission(self, create_mission):
         ctx = _mock_ctx()
-        ctx.reactor = reactor
+        ex = CityIntentExecutor()
+        result = ex.execute(
+            ctx,
+            _intent("brain:flag_bottleneck", target="engineering"),
+            "handle_brain_flag_bottleneck",
+        )
+        assert "bottleneck_mission" in result
+        create_mission.assert_called_once_with(
+            ctx, "bottleneck", "engineering",
+            detail="Bottleneck flagged: engineering",
+        )
+
+    def test_brain_flag_bottleneck_no_sankalpa(self):
+        ctx = _mock_ctx()
+        ctx.sankalpa = None
+        ex = CityIntentExecutor()
+        result = ex.execute(
+            ctx,
+            _intent("brain:flag_bottleneck", target="engineering"),
+            "handle_brain_flag_bottleneck",
+        )
+        assert result == "logged:bottleneck:engineering"
+
+    @patch("city.missions.create_brain_mission", return_value="brain_health_check_metabolism_42")
+    def test_brain_check_health_creates_mission(self, create_mission):
+        ctx = _mock_ctx()
+        ex = CityIntentExecutor()
+        result = ex.execute(
+            ctx,
+            _intent("brain:check_health", target="metabolism"),
+            "handle_brain_check_health",
+        )
+        assert "health_mission" in result
+        create_mission.assert_called_once_with(
+            ctx, "health_check", "metabolism",
+            detail="Health check requested for metabolism",
+        )
+
+    def test_brain_check_health_no_sankalpa(self):
+        ctx = _mock_ctx()
+        ctx.sankalpa = None
+        ex = CityIntentExecutor()
+        result = ex.execute(
+            ctx,
+            _intent("brain:check_health", target="metabolism"),
+            "handle_brain_check_health",
+        )
+        assert result == "logged:health_check:metabolism"
+
+    @patch("city.missions.create_brain_mission", return_value="brain_escalation_memory_leak_42")
+    def test_brain_escalate_handler(self, create_mission):
+        ctx = _mock_ctx()
         ctx.pokedex.get.return_value = {"status": "citizen"}
         ctx.pokedex.get_operator.return_value = None
         ctx.pokedex.get_claim_level.return_value = 0
@@ -243,8 +294,12 @@ class TestBrainActionDispatch:
             ),
             "handle_brain_escalate",
         )
-        assert "escalated" in result
-        reactor.emit_pain.assert_called_once()
+        assert "escalation_mission" in result
+        create_mission.assert_called_once_with(
+            ctx, "escalation", "memory leak",
+            detail="Escalation: memory leak",
+            severity="high",
+        )
 
     def test_brain_quarantine_handler(self):
         ctx = _mock_ctx()

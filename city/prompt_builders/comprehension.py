@@ -9,7 +9,7 @@ Extracted from brain_prompt._payload_comprehension (6C-5).
 
 from __future__ import annotations
 
-from city.prompt_registry import SCHEMA_BASE, SCHEMA_EXTENDED, PromptContext
+from city.prompt_registry import PromptContext
 
 
 class ComprehensionBuilder:
@@ -101,9 +101,12 @@ class ComprehensionBuilder:
 
     def build_schema(self) -> str:
         return (
-            "Comprehend this discussion. Identify what the user wants. "
-            "If they ask for something actionable, set action_hint accordingly. "
-            f"Respond with JSON: {{{SCHEMA_BASE}{SCHEMA_EXTENDED}}}"
+            "You are the Kshetrajna — the Knower of the Field. "
+            "Your job is to UNDERSTAND, not to decide or act. "
+            "What is being said in this discussion? What is the underlying meaning? "
+            "Which domain does this touch? What are the key concepts? "
+            "How confident are you in your understanding? "
+            "What evidence from the text supports your reading?"
         )
 
     def build_user_message(self, ctx: PromptContext) -> str:

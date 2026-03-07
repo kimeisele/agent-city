@@ -190,26 +190,26 @@ class TestEchoChamberGuard:
 
 
 class TestBuildSchema:
-    def test_health_check_schema(self):
+    def test_health_check_schema_is_cognitive(self):
         schema = build_schema("health_check")
-        assert "action_hint" in schema
-        assert "evidence" in schema
-        assert "Evaluate system health" in schema
+        assert "Respond with JSON" not in schema
+        assert "health" in schema.lower()
+        assert "action" in schema
 
-    def test_reflection_schema(self):
+    def test_reflection_schema_is_cognitive(self):
         schema = build_schema("reflection")
-        assert "Reflect on this cycle" in schema
-        assert "action_hint" in schema
+        assert "Respond with JSON" not in schema
+        assert "reflect" in schema.lower()
 
-    def test_comprehension_schema(self):
+    def test_comprehension_schema_is_cognitive(self):
         schema = build_schema("comprehension")
-        assert "comprehension" in schema
-        # 6C-5: comprehension now includes action_hint for NL intent→action
-        assert "action_hint" in schema
+        assert "Respond with JSON" not in schema
+        assert "understand" in schema.lower()  # Kshetrajna: understanding, not deciding
+        assert "concepts" in schema.lower()
 
     def test_unknown_kind_falls_back(self):
         schema = build_schema("nonexistent_kind")
-        assert "comprehension" in schema  # falls back to comprehension
+        assert "understand" in schema.lower()  # falls back to comprehension
 
 
 # ── Assembly Tests ────────────────────────────────────────────────────
