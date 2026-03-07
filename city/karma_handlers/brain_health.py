@@ -57,8 +57,17 @@ class BrainHealthHandler(BaseKarmaHandler):
 
         snapshot = build_context_snapshot(ctx)
         save_before_snapshot(snapshot, ctx.state_path.parent)
+
+        # Observability: log explicitly when Brain is offline
+        if not ctx.brain.is_available:
+            operations.append("brain_health:OFFLINE")
+            logger.info("Brain: cognition offline — no LLM provider available")
+            return
+
         health_thought = ctx.brain.evaluate_health(snapshot, memory=ctx.brain_memory)
         if health_thought is None:
+            operations.append("brain_health:NOOP")
+            logger.info("Brain: evaluate_health returned None — LLM call failed or timed out")
             return
 
         operations.append(
