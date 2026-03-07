@@ -152,12 +152,20 @@ class ProviderChamber:
 
                 response = payload.provider.invoke(**call_kwargs)
 
-                # Track usage
+                # Track usage (steward-protocol uses input_tokens/output_tokens,
+                # OpenAI uses prompt_tokens/completion_tokens)
                 input_tokens = 0
                 output_tokens = 0
                 if hasattr(response, "usage") and response.usage:
-                    input_tokens = getattr(response.usage, "input_tokens", 0)
-                    output_tokens = getattr(response.usage, "output_tokens", 0)
+                    usage = response.usage
+                    input_tokens = (
+                        getattr(usage, "input_tokens", 0)
+                        or getattr(usage, "prompt_tokens", 0)
+                    )
+                    output_tokens = (
+                        getattr(usage, "output_tokens", 0)
+                        or getattr(usage, "completion_tokens", 0)
+                    )
 
                 # Update cell lifecycle (prana decreases with usage)
                 cell.lifecycle.prana = max(0, cell.lifecycle.prana - (input_tokens + output_tokens))
@@ -313,12 +321,16 @@ class _GoogleAdapter:
         if messages:
             parts = []
             for msg in messages:
-                role = msg.get("role", "user")
                 content = msg.get("content", "")
                 if content:
                     parts.append(content)
-            kwargs["prompt"] = "\n\n".join(parts)
-            # Also pass messages for providers that support it
+            prompt = "\n\n".join(parts)
+            # Belt-and-suspenders: reinforce JSON mode in prompt text
+            # (some genai SDK versions ignore response_mime_type)
+            rf = kwargs.get("response_format")
+            if rf and isinstance(rf, dict) and rf.get("type") == "json_object":
+                prompt += "\n\nIMPORTANT: Respond with valid JSON only. No markdown."
+            kwargs["prompt"] = prompt
             kwargs["messages"] = messages
         elif "prompt" not in kwargs:
             kwargs["prompt"] = ""
