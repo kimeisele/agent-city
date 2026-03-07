@@ -117,7 +117,7 @@ def _emit_anomaly_intents(ctx, executor, diag):
             from city.registry import SVC_ATTENTION
             attention = ctx.registry.get(SVC_ATTENTION) if ctx.registry else None
             if attention is not None:
-                handler_name = attention.route(intent)
+                handler_name = attention.route(intent.signal)
                 if handler_name:
                     executor.execute(ctx, intent, handler_name)
     except Exception as e:
