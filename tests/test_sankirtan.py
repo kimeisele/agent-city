@@ -242,6 +242,8 @@ class TestFailover:
 
 class TestUsageTracking:
     def test_prana_decreases_with_usage(self):
+        from vibe_core.mahamantra.substrate.cell_system.cell import METABOLIC_COST
+
         chamber = ProviderChamber()
         response = FakeResponse(usage=FakeUsage(input_tokens=100, output_tokens=50))
         chamber.add_provider(
@@ -250,8 +252,9 @@ class TestUsageTracking:
         )
         chamber.invoke(messages=[{"role": "user", "content": "hi"}])
         cell = chamber._cells[0]
-        assert cell.lifecycle.prana == _PRANA_FREE - 150, (
-            "Prana MUST decrease by total tokens used"
+        total_tokens = 100 + 50
+        assert cell.lifecycle.prana == _PRANA_FREE - total_tokens - METABOLIC_COST, (
+            "Prana MUST decrease by total tokens + METABOLIC_COST per metabolize()"
         )
 
     def test_daily_reset_refreshes(self):
