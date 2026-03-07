@@ -9,7 +9,7 @@ Extracted from brain_prompt._payload_signal.
 
 from __future__ import annotations
 
-from city.prompt_registry import SCHEMA_BASE, PromptContext
+from city.prompt_registry import PromptContext
 
 
 class SignalBuilder:
@@ -50,8 +50,10 @@ class SignalBuilder:
 
     def build_schema(self) -> str:
         return (
-            "What does this signal mean for this agent? "
-            f"Respond with JSON: {{{SCHEMA_BASE}}}"
+            "What does this signal mean for this agent? Why does it "
+            "resonate? What concepts connect sender and receiver? "
+            "What domain is affected? How confident are you in this "
+            "interpretation?"
         )
 
     def build_user_message(self, ctx: PromptContext) -> str:

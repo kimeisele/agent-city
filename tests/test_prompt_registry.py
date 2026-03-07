@@ -24,8 +24,6 @@ from city.prompt_registry import (
     PromptBuilder,
     PromptContext,
     PromptRegistry,
-    SCHEMA_BASE,
-    SCHEMA_EXTENDED,
     render_past_thoughts,
 )
 
@@ -219,12 +217,13 @@ class TestComprehensionBuilder:
         assert "SYSTEM STATE" in text
         assert "48/51" in text
 
-    def test_schema_contains_action_hint(self):
+    def test_schema_is_cognitive_instruction(self):
         from city.prompt_builders.comprehension import ComprehensionBuilder
 
         schema = ComprehensionBuilder().build_schema()
-        assert "action_hint" in schema
-        assert "comprehension" in schema
+        assert "Respond with JSON" not in schema
+        assert "understand" in schema.lower()  # Kshetrajna: comprehension, not decision
+        assert "concepts" in schema.lower()
 
     def test_kind(self):
         from city.prompt_builders.comprehension import ComprehensionBuilder
@@ -352,12 +351,13 @@ class TestCritiqueBuilder:
         assert "FIELD DIGEST" in text
         assert "Agent spam detected" in text
 
-    def test_schema_contains_action_hint(self):
+    def test_schema_is_cognitive_instruction(self):
         from city.prompt_builders.critique import CritiqueBuilder
 
         schema = CritiqueBuilder().build_schema()
-        assert "action_hint" in schema
+        assert "Respond with JSON" not in schema
         assert "anomalies" in schema.lower()
+        assert "fix" in schema
 
     def test_user_message_includes_field_summary(self):
         from city.prompt_builders.critique import CritiqueBuilder
@@ -419,18 +419,20 @@ class TestGetPromptRegistry:
         assert reg1 is reg2
 
 
-# ── Schema Fragments Tests ───────────────────────────────────────────
+# ── Cognitive Schema Tests ───────────────────────────────────────────
 
 
-class TestSchemaFragments:
-    def test_schema_base_contains_required_fields(self):
-        assert "comprehension" in SCHEMA_BASE
-        assert "intent" in SCHEMA_BASE
-        assert "confidence" in SCHEMA_BASE
-        assert "key_concepts" in SCHEMA_BASE
+class TestAllBuildersNoCognitiveSchemaInSchema:
+    """All builders must produce cognitive instructions, not JSON templates."""
 
-    def test_schema_extended_contains_action_hint(self):
-        assert "action_hint" in SCHEMA_EXTENDED
-        assert "evidence" in SCHEMA_EXTENDED
-        assert "retract" in SCHEMA_EXTENDED
-        assert "quarantine" in SCHEMA_EXTENDED
+    def test_no_builder_uses_respond_with_json(self):
+        from city.brain_prompt import get_prompt_registry
+
+        reg = get_prompt_registry()
+        for kind in reg.kinds:
+            builder = reg.get(kind)
+            schema = builder.build_schema()
+            assert "Respond with JSON" not in schema, (
+                f"Builder '{kind}' still uses 'Respond with JSON' — "
+                f"JSON mode is API-level, not prompt-level"
+            )

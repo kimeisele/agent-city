@@ -93,17 +93,29 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
-def _reset_venu_singleton():
-    """Reset the mahamantra VenuOrchestrator singleton between tests.
+def _reset_singletons(monkeypatch):
+    """Reset singletons + prevent real API calls between tests.
 
-    The singleton accumulates ticks across the process lifetime.
-    Without this, DIW energy gate outcomes depend on test ordering.
+    VenuOrchestrator: accumulates ticks across process lifetime.
+    LLMProvider: cached in ServiceRegistry, can hang on SSL if real API key present.
+    Without these resets, test outcomes depend on ordering.
     """
     try:
         from vibe_core.mahamantra import mahamantra
         mahamantra.venu.reset()
     except Exception:
         pass
+
+    # Prevent real LLM API calls — force NoOpProvider in all tests
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    try:
+        from vibe_core.di import ServiceRegistry
+        from vibe_core.runtime.providers.base import LLMProvider
+        ServiceRegistry.unregister(LLMProvider)
+    except Exception:
+        pass
+
     yield
 
 

@@ -5,3 +5,19 @@ providers:
   google:
     default_model: gemini-2.0-flash
     api_key_env: GOOGLE_API_KEY
+
+# Model metabolism: cost-aware tier routing
+# COST RULE: OpenRouter = DeepSeek ONLY. Never route expensive models through OpenRouter.
+# Flash/Pro are ADDITIONAL capacity via Google free tier (direct API).
+# Until Google provider supports messages + JSON mode, all tiers use DeepSeek.
+model_tiers:
+  standard: deepseek/deepseek-v3.2     # DEFAULT — cheap workhorse via OpenRouter
+  flash: deepseek/deepseek-v3.2        # FUTURE: gemini-2.0-flash via Google direct (free)
+  pro: deepseek/deepseek-v3.2          # FUTURE: gemini-1.5-pro via Google direct (free)
+
+# Google free tier quotas (for budget planning when Google direct is active):
+#   gemini-2.0-flash: 15 RPM, 1M TPM, 1500 RPD (free during preview)
+#   gemini-1.5-pro:   2 RPM, 32K TPM, 50 RPD (free tier)
+# With 96 heartbeats/day (every 15 min), 24 KARMA beats need Brain calls.
+# Flash free tier (1500 RPD) covers ALL heartbeats with massive headroom.
+# Pro free tier (50 RPD) covers 2x daily critique cycles.

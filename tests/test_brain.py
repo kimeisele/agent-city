@@ -21,10 +21,16 @@ from city.brain import (
     BrainIntent,
     BrainProtocol,
     CityBrain,
+    ModelTier,
     Thought,
     ThoughtKind,
     _BRAIN_TIMEOUT,
+    _DEFAULT_TIER_MODELS,
+    _GOOGLE_FLASH_MODEL,
+    _GOOGLE_PRO_MODEL,
+    _KIND_TIER,
     _MAX_TOKENS,
+    _OPENROUTER_MODEL,
     _normalize_intent,
     _normalize_keys,
     _parse_json_thought,
@@ -832,3 +838,217 @@ class TestBuddhiValidate:
             assert any(
                 "cognitive_dissonance" in e for e in result.evidence
             )
+
+
+# ── Model Metabolism (Yantra Multi-Model) ───────────────────────────
+
+
+class TestModelTier:
+    """Watertight model metabolism tests.
+
+    These tests MUST FAIL if model strings, tier mappings, or cost rules
+    are changed. Real money is at stake — OpenRouter = DeepSeek ONLY.
+    """
+
+    def test_all_tiers_are_strings(self):
+        for tier in ModelTier:
+            assert isinstance(tier.value, str)
+
+    def test_exactly_three_tiers(self):
+        assert set(ModelTier) == {ModelTier.FLASH, ModelTier.STANDARD, ModelTier.PRO}
+
+    # ── COST RULES (watertight) ──────────────────────────────────────
+
+    def test_openrouter_model_is_deepseek(self):
+        """OpenRouter = DeepSeek ONLY. Never route expensive models through OpenRouter."""
+        assert _OPENROUTER_MODEL == "deepseek/deepseek-v3.2"
+
+    def test_all_tiers_use_deepseek_until_google_direct(self):
+        """Until Google provider supports messages + JSON mode, all tiers use DeepSeek.
+        This test MUST FAIL if someone switches a tier to an expensive model.
+        """
+        for tier in ModelTier:
+            assert _DEFAULT_TIER_MODELS[tier] == "deepseek/deepseek-v3.2", (
+                f"ModelTier.{tier.value} uses '{_DEFAULT_TIER_MODELS[tier]}' — "
+                f"MUST be 'deepseek/deepseek-v3.2' until Google direct is wired. "
+                f"Real money is at stake!"
+            )
+
+    def test_google_flash_model_reserved(self):
+        """Google free tier models are defined but NOT yet active."""
+        assert _GOOGLE_FLASH_MODEL == "gemini-2.0-flash"
+        assert _GOOGLE_PRO_MODEL == "gemini-1.5-pro"
+        # These must NOT appear in active tier models yet
+        for tier in ModelTier:
+            assert _DEFAULT_TIER_MODELS[tier] != _GOOGLE_FLASH_MODEL, (
+                f"ModelTier.{tier.value} uses Google Flash but Google provider "
+                f"doesn't support messages + JSON mode yet!"
+            )
+            assert _DEFAULT_TIER_MODELS[tier] != _GOOGLE_PRO_MODEL, (
+                f"ModelTier.{tier.value} uses Google Pro but Google provider "
+                f"doesn't support messages + JSON mode yet!"
+            )
+
+    def test_brain_model_is_deepseek(self):
+        """Brain._model must always be DeepSeek (the cheap fallback)."""
+        brain = CityBrain()
+        assert brain._model == "deepseek/deepseek-v3.2"
+
+    # ── TIER MAPPING (watertight) ────────────────────────────────────
+
+    def test_all_thought_kinds_have_tier(self):
+        """Every ThoughtKind maps to a ModelTier."""
+        for kind in ThoughtKind:
+            assert kind.value in _KIND_TIER, f"ThoughtKind '{kind.value}' has no tier mapping"
+
+    def test_every_tier_has_default_model(self):
+        """Every ModelTier has a default model string."""
+        for tier in ModelTier:
+            assert tier in _DEFAULT_TIER_MODELS, f"ModelTier '{tier.value}' has no default model"
+
+    def test_kind_tier_mapping_exact(self):
+        """Exact ThoughtKind → ModelTier mapping. Fails if changed."""
+        assert _KIND_TIER["health_check"] == ModelTier.FLASH
+        assert _KIND_TIER["signal"] == ModelTier.FLASH
+        assert _KIND_TIER["comprehension"] == ModelTier.STANDARD
+        assert _KIND_TIER["reflection"] == ModelTier.STANDARD
+        assert _KIND_TIER["insight"] == ModelTier.STANDARD
+        assert _KIND_TIER["critique"] == ModelTier.PRO
+
+    # ── INTEGRATION (model actually used in calls) ───────────────────
+
+    def test_brain_init_has_tier_models(self):
+        brain = CityBrain()
+        for tier in ModelTier:
+            assert brain._tier_models[tier] == _DEFAULT_TIER_MODELS[tier]
+
+    def test_health_check_invokes_with_deepseek(self):
+        """health_check (FLASH tier) invokes with DeepSeek — not an expensive model."""
+        from city.brain_context import ContextSnapshot
+
+        json_response = json.dumps({
+            "comprehension": "System stable.",
+            "intent": "observe",
+            "confidence": 0.8,
+        })
+        brain = CityBrain()
+        brain._available = True
+        mock_provider = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = json_response
+        mock_provider.invoke.return_value = mock_response
+        brain._provider = mock_provider
+
+        snap = ContextSnapshot(agent_count=51, alive_count=48)
+        brain.evaluate_health(snap)
+
+        call_kwargs = mock_provider.invoke.call_args
+        assert call_kwargs.kwargs["model"] == "deepseek/deepseek-v3.2"
+
+    def test_critique_invokes_with_deepseek(self):
+        """critique (PRO tier) invokes with DeepSeek — Google Pro not yet available."""
+        from city.brain_context import ContextSnapshot
+
+        json_response = json.dumps({
+            "comprehension": "Output quality needs attention.",
+            "intent": "govern",
+            "confidence": 0.85,
+        })
+        brain = CityBrain()
+        brain._available = True
+        mock_provider = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = json_response
+        mock_provider.invoke.return_value = mock_response
+        brain._provider = mock_provider
+
+        snap = ContextSnapshot(agent_count=10, alive_count=8)
+        brain.critique_field("test summary", snapshot=snap)
+
+        call_kwargs = mock_provider.invoke.call_args
+        assert call_kwargs.kwargs["model"] == "deepseek/deepseek-v3.2"
+
+    def test_comprehension_invokes_with_deepseek(self):
+        """comprehension (STANDARD tier) invokes with DeepSeek."""
+        json_response = json.dumps({
+            "comprehension": "Discussion about governance.",
+            "intent": "propose",
+            "confidence": 0.9,
+        })
+        brain = CityBrain()
+        brain._available = True
+        mock_provider = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = json_response
+        mock_provider.invoke.return_value = mock_response
+        brain._provider = mock_provider
+
+        brain.comprehend_discussion(
+            discussion_text="test",
+            agent_spec={"name": "test"},
+            gateway_result={},
+        )
+
+        call_kwargs = mock_provider.invoke.call_args
+        assert call_kwargs.kwargs["model"] == "deepseek/deepseek-v3.2"
+
+    def test_fallback_to_deepseek_on_tier_failure(self):
+        """When tier model fails, fallback is DeepSeek (same model currently, but architecture ready)."""
+        from city.brain_context import ContextSnapshot
+
+        json_response = json.dumps({
+            "comprehension": "System ok.",
+            "intent": "observe",
+            "confidence": 0.7,
+        })
+        brain = CityBrain()
+        brain._available = True
+        mock_provider = MagicMock()
+
+        # Simulate future: flash tier uses different model that fails
+        brain._tier_models[ModelTier.FLASH] = "google/gemini-2.0-flash"
+        mock_success = MagicMock()
+        mock_success.content = json_response
+        mock_provider.invoke.side_effect = [
+            ConnectionError("flash unavailable"),  # flash fails
+            mock_success,                           # DeepSeek succeeds
+        ]
+        brain._provider = mock_provider
+
+        snap = ContextSnapshot(agent_count=10, alive_count=8)
+        thought = brain.evaluate_health(snap)
+
+        assert thought is not None
+        assert mock_provider.invoke.call_count == 2
+        # Fallback must be DeepSeek
+        second_call = mock_provider.invoke.call_args_list[1]
+        assert second_call.kwargs["model"] == "deepseek/deepseek-v3.2"
+
+    def test_no_double_call_when_all_tiers_same_model(self):
+        """When tier model == standard model, no fallback retry (saves API call)."""
+        brain = CityBrain()
+        brain._available = True
+        mock_provider = MagicMock()
+        mock_provider.invoke.side_effect = ConnectionError("down")
+        brain._provider = mock_provider
+
+        thought = brain.comprehend_discussion(
+            discussion_text="test",
+            agent_spec={"name": "test"},
+            gateway_result={},
+        )
+
+        assert thought is None
+        assert mock_provider.invoke.call_count == 1  # no retry — same model
+
+    def test_no_expensive_models_in_openrouter(self):
+        """Guard: no Claude, GPT, or Gemini Pro models in tier defaults.
+        These cost real money on OpenRouter. Only DeepSeek is allowed.
+        """
+        expensive_prefixes = ("anthropic/", "openai/", "google/gemini-1.5-pro")
+        for tier, model in _DEFAULT_TIER_MODELS.items():
+            for prefix in expensive_prefixes:
+                assert not model.startswith(prefix), (
+                    f"ModelTier.{tier.value} uses expensive model '{model}' on OpenRouter! "
+                    f"Only deepseek/* is allowed. Use Google direct for free Gemini."
+                )
