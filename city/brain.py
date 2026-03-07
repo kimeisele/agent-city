@@ -305,6 +305,7 @@ class CityBrain:
 
     def __init__(self) -> None:
         self._provider: object | None = None
+        self._chamber: object | None = None  # ProviderChamber (lazy init)
         self._available: bool | None = None  # None = not checked yet
         self._tier_models: dict[ModelTier, str] = dict(_DEFAULT_TIER_MODELS)
         self._model = _OPENROUTER_MODEL  # always DeepSeek — the cheap workhorse
@@ -320,10 +321,30 @@ class CityBrain:
         return self._ensure_provider()
 
     def _ensure_provider(self) -> bool:
-        """Lazy init. Returns False if no LLM available."""
+        """Lazy init. Tries ProviderChamber first, falls back to single provider.
+
+        Priority:
+        1. ProviderChamber (real MahaCellUnified substrate, multi-provider)
+        2. Single provider via factory (backward compat)
+        3. Offline (NoOp)
+        """
         if self._available is not None:
             return self._available
         try:
+            # Try ProviderChamber first (real substrate, multi-provider)
+            try:
+                from city.sankirtan import build_chamber
+
+                chamber = build_chamber()
+                if len(chamber) > 0:
+                    self._chamber = chamber
+                    self._available = True
+                    logger.info("Brain: ProviderChamber active (%d cells)", len(chamber))
+                    return True
+            except Exception as e:
+                logger.debug("Brain: ProviderChamber not available: %s", e)
+
+            # Fallback to single provider
             from vibe_core.runtime.providers.factory import get_llm_provider
             from vibe_core.runtime.providers.base import NoOpProvider
 
@@ -575,15 +596,29 @@ class CityBrain:
         """
         model = model or self._model
         try:
-            response = self._provider.invoke(  # type: ignore[union-attr]
-                messages=messages,
-                model=model,
-                max_tokens=_MAX_TOKENS,
-                temperature=0.3,
-                max_retries=2,
-                response_format={"type": "json_object"},
-                timeout=_BRAIN_TIMEOUT,
-            )
+            if self._chamber is not None:
+                # ProviderChamber: real MahaCellUnified substrate.
+                # Chamber picks provider by prana order, uses cell's own model.
+                response = self._chamber.invoke(  # type: ignore[union-attr]
+                    messages=messages,
+                    max_tokens=_MAX_TOKENS,
+                    temperature=0.3,
+                    response_format={"type": "json_object"},
+                    timeout=_BRAIN_TIMEOUT,
+                )
+                if response is None:
+                    logger.warning("Brain: all provider cells exhausted")
+                    return None
+            else:
+                response = self._provider.invoke(  # type: ignore[union-attr]
+                    messages=messages,
+                    model=model,
+                    max_tokens=_MAX_TOKENS,
+                    temperature=0.3,
+                    max_retries=2,
+                    response_format={"type": "json_object"},
+                    timeout=_BRAIN_TIMEOUT,
+                )
             raw = response.content
             logger.debug("Brain raw response: %s", raw[:500])
             thought = _parse_json_thought(raw, kind=kind)
