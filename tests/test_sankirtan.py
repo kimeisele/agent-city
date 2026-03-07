@@ -22,11 +22,11 @@ import pytest
 from vibe_core.mahamantra.protocols._seed import COSMIC_FRAME, MAHA_QUANTUM
 from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
 
-from city.sankirtan import (
+from steward.provider import (
     ProviderChamber,
     ProviderPayload,
     _AdapterResponse,
-    _GoogleAdapter,
+    GoogleAdapter,
     _PRANA_CHEAP,
     _PRANA_FREE,
     _is_valid_key,
@@ -296,7 +296,7 @@ class TestGoogleAdapter:
     def test_adapter_builds_prompt_from_messages(self):
         """GoogleAdapter MUST build prompt from messages for GoogleProvider compat."""
         provider = FakeProvider()
-        adapter = _GoogleAdapter(provider)
+        adapter = GoogleAdapter(provider)
         adapter.invoke(
             messages=[
                 {"role": "system", "content": "You are helpful."},
@@ -312,7 +312,7 @@ class TestGoogleAdapter:
     def test_adapter_passes_messages_through(self):
         """GoogleAdapter still passes messages for providers that support it."""
         provider = FakeProvider()
-        adapter = _GoogleAdapter(provider)
+        adapter = GoogleAdapter(provider)
         adapter.invoke(
             messages=[{"role": "user", "content": "hi"}],
             model="gemini-2.5-flash",

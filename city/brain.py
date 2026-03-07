@@ -333,7 +333,7 @@ class CityBrain:
         try:
             # Try ProviderChamber first (real substrate, multi-provider)
             try:
-                from city.sankirtan import build_chamber
+                from steward.provider import build_chamber
 
                 chamber = build_chamber()
                 if len(chamber) > 0:
