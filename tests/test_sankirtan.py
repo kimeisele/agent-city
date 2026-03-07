@@ -303,3 +303,56 @@ class TestIsValidKey:
     ])
     def test_accepts_real_keys(self, key):
         assert _is_valid_key(key)
+
+
+# ── Brain ↔ Chamber Integration ─────────────────────────────────────────
+
+
+class TestBrainChamberIntegration:
+    """Verify Brain uses ProviderChamber when available."""
+
+    def test_brain_uses_chamber(self):
+        from city.brain import CityBrain
+
+        brain = CityBrain()
+        chamber = ProviderChamber()
+        response = FakeResponse(content='{"comprehension":"test","intent":"observe","confidence":0.8}')
+        chamber.add_provider(
+            name="test", provider=FakeProvider(response), model="m1",
+            source_address=MAHA_QUANTUM * 10,
+        )
+        brain._chamber = chamber
+        brain._available = True
+
+        thought = brain._invoke_and_parse(
+            [{"role": "system", "content": "test"}, {"role": "user", "content": "hi"}]
+        )
+        assert thought is not None
+        assert thought.comprehension == "test"
+
+    def test_brain_chamber_exhausted_returns_none(self):
+        from city.brain import CityBrain
+
+        brain = CityBrain()
+        brain._chamber = ProviderChamber()  # empty
+        brain._available = True
+
+        thought = brain._invoke_and_parse(
+            [{"role": "system", "content": "test"}, {"role": "user", "content": "hi"}]
+        )
+        assert thought is None
+
+    def test_brain_falls_back_to_single_provider(self):
+        from city.brain import CityBrain
+
+        brain = CityBrain()
+        response = FakeResponse(content='{"comprehension":"fallback","intent":"observe","confidence":0.5}')
+        brain._provider = FakeProvider(response)
+        brain._chamber = None
+        brain._available = True
+
+        thought = brain._invoke_and_parse(
+            [{"role": "system", "content": "test"}, {"role": "user", "content": "hi"}]
+        )
+        assert thought is not None
+        assert thought.comprehension == "fallback"
