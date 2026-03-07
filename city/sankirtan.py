@@ -149,8 +149,6 @@ class ProviderChamber:
                 call_kwargs = dict(kwargs)
                 call_kwargs["model"] = payload.model  # always cell's own model
                 call_kwargs.pop("max_retries", None)  # some providers don't accept this
-                # GoogleProvider requires 'prompt' positional arg
-                call_kwargs.setdefault("prompt", "")
 
                 response = payload.provider.invoke(**call_kwargs)
 
@@ -246,10 +244,11 @@ def build_chamber() -> ProviderChamber:
         try:
             from vibe_core.runtime.providers.google import GoogleProvider
 
-            provider = GoogleProvider(api_key=google_key)
+            raw_provider = GoogleProvider(api_key=google_key)
+            adapter = _GoogleAdapter(raw_provider)
             chamber.add_provider(
                 name="google_flash",
-                provider=provider,
+                provider=adapter,
                 model="gemini-2.5-flash",
                 source_address=_ADDR_GOOGLE,
                 prana=_PRANA_FREE,
@@ -297,6 +296,35 @@ def build_chamber() -> ProviderChamber:
     return chamber
 
 
+class _GoogleAdapter:
+    """Adapter: normalizes messages → prompt for GoogleProvider.
+
+    GoogleProvider.invoke(prompt, model, ..., messages) has varying
+    signatures across steward-protocol versions. This adapter ensures
+    the prompt is always built from messages, regardless of signature.
+    """
+
+    def __init__(self, provider: Any) -> None:
+        self._provider = provider
+
+    def invoke(self, **kwargs: Any) -> Any:
+        messages = kwargs.pop("messages", None)
+        # Build prompt from messages (Google needs explicit prompt)
+        if messages:
+            parts = []
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if content:
+                    parts.append(content)
+            kwargs["prompt"] = "\n\n".join(parts)
+            # Also pass messages for providers that support it
+            kwargs["messages"] = messages
+        elif "prompt" not in kwargs:
+            kwargs["prompt"] = ""
+        return self._provider.invoke(**kwargs)
+
+
 def _add_mistral_provider(chamber: ProviderChamber, api_key: str) -> None:
     """Add Mistral using OpenAI-compatible API."""
     try:
@@ -311,7 +339,7 @@ def _add_mistral_provider(chamber: ProviderChamber, api_key: str) -> None:
     chamber.add_provider(
         name="mistral",
         provider=adapter,
-        model="ministral-8b-latest",
+        model="mistral-small-latest",
         source_address=_ADDR_MISTRAL,
         prana=_PRANA_FREE,
         daily_call_limit=2880,   # 2 RPM × 60 min × 24 hr
@@ -328,7 +356,7 @@ class _MistralAdapter:
 
     def invoke(self, **kwargs: Any) -> Any:
         messages = kwargs.get("messages")
-        model = kwargs.get("model", "ministral-8b-latest")
+        model = kwargs.get("model", "mistral-small-latest")
         max_tokens = kwargs.get("max_tokens", 512)
         temperature = kwargs.get("temperature", 0.3)
         response_format = kwargs.get("response_format")

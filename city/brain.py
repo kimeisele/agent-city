@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("AGENT_CITY.BRAIN")
 
 _BRAIN_TIMEOUT = 12  # seconds — OpenRouter aggregator needs headroom
-_MAX_TOKENS = 1024   # enough for JSON output from small models (ministral-8b is verbose)
+_MAX_TOKENS = 1024   # enough for structured JSON from small models
 
 
 # ── Typed Intent ──────────────────────────────────────────────────────
