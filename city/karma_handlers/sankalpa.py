@@ -56,7 +56,8 @@ def _process_issue_missions(
     """Process Sankalpa missions created from GitHub Issues and federation directives."""
     try:
         from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
-    except Exception:
+    except Exception as e:
+        logger.debug("Sankalpa types unavailable: %s", e)
         return
 
     from city.mission_router import authorize_mission
@@ -66,7 +67,8 @@ def _process_issue_missions(
 
     try:
         active = ctx.sankalpa.registry.get_active_missions()
-    except Exception:
+    except Exception as e:
+        logger.debug("Sankalpa missions unavailable: %s", e)
         return
 
     for mission in active:

@@ -149,6 +149,8 @@ class ProviderChamber:
                 call_kwargs = dict(kwargs)
                 call_kwargs["model"] = payload.model  # always cell's own model
                 call_kwargs.pop("max_retries", None)  # some providers don't accept this
+                # GoogleProvider requires 'prompt' positional arg
+                call_kwargs.setdefault("prompt", "")
 
                 response = payload.provider.invoke(**call_kwargs)
 
