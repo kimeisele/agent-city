@@ -224,9 +224,11 @@ def _compose_response(
                 cog_parts.append(f"approach: {cog_approach}")
             parts.append(f"\n> {' | '.join(cog_parts)}")
 
-    # Brain comprehension (LLM cognition, when available)
+    # Brain cognition — substantive response or structured metadata
     if brain_thought is not None:
-        parts.append(brain_thought.format_for_post())
+        brain_text = brain_thought.format_for_post()
+        if brain_text:
+            parts.append(brain_text)
 
     # 7D-2: Routing transparency — why this agent was chosen
     routing_score = gateway_result.get("routing_score")
