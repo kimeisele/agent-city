@@ -659,7 +659,17 @@ def _parse_json_thought(
     Returns None on parse failure (logged, never silent).
     """
     try:
-        data = json.loads(raw)
+        # Strip markdown code fences (Google Gemini wraps JSON in ```json ... ```)
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            # Remove opening fence (```json or ```)
+            first_newline = cleaned.find("\n")
+            if first_newline != -1:
+                cleaned = cleaned[first_newline + 1:]
+            # Remove closing fence
+            if cleaned.rstrip().endswith("```"):
+                cleaned = cleaned.rstrip()[:-3].rstrip()
+        data = json.loads(cleaned)
     except (json.JSONDecodeError, TypeError) as e:
         logger.warning("Brain JSON decode failed: %s (raw: %s)", e, raw[:200])
         return None
