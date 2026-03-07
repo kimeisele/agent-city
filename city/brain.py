@@ -151,6 +151,7 @@ class Thought:
     kind: ThoughtKind = ThoughtKind.COMPREHENSION    # Thought taxonomy
     action_hint: str = ""                            # Structured hint (see vocab below)
     evidence: tuple[str, ...] = ()                   # Supporting data (max 3 refs)
+    response: str = ""                               # Substantive prose reply (for posting)
 
     # action_hint vocabulary:
     #   "" — no action suggested
@@ -172,14 +173,20 @@ class Thought:
             d["action_hint"] = self.action_hint
         if self.evidence:
             d["evidence"] = list(self.evidence)
+        if self.response:
+            d["response"] = self.response
         return d
 
     def format_for_post(self) -> str:
-        """Format thought as structured text for discussion posting.
+        """Format thought for discussion posting.
 
-        This is the feedback loop entry point: posted thoughts become
-        discussion content that can be scanned → comprehended → reacted to.
+        If the Brain produced a substantive response, use that.
+        Otherwise fall back to structured metadata (legacy format).
         """
+        if self.response:
+            return self.response
+
+        # Legacy: structured metadata dump (used when response is empty)
         lines: list[str] = []
         if self.kind != ThoughtKind.COMPREHENSION:
             lines.append(f"**Kind**: {self.kind.value}")
@@ -568,8 +575,7 @@ def _parse_json_thought(
     normalized = _normalize_keys(data)
 
     # Also pass through canonical keys that _normalize_keys doesn't touch
-    # (action_hint, evidence from the raw data if present)
-    for key in ("action_hint", "evidence", "kind"):
+    for key in ("action_hint", "evidence", "kind", "response"):
         if key in data and key not in normalized:
             normalized[key] = data[key]
 
@@ -597,6 +603,9 @@ def _parse_json_thought(
         else:
             evidence = ()
 
+        # Substantive response (for discussion posting)
+        response = str(normalized.get("response", ""))[:1000]
+
         # Kind from JSON overrides caller default (for roundtrip fidelity)
         raw_kind = normalized.get("kind", kind.value if isinstance(kind, ThoughtKind) else kind)
         try:
@@ -613,6 +622,7 @@ def _parse_json_thought(
             kind=thought_kind,
             action_hint=action_hint,
             evidence=evidence,
+            response=response,
         )
     except (TypeError, ValueError) as e:
         logger.warning("Brain thought construction failed: %s", e)
