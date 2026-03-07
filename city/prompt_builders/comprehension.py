@@ -101,16 +101,9 @@ class ComprehensionBuilder:
 
     def build_schema(self) -> str:
         return (
-            "Comprehend this discussion. Write a substantive response that "
-            "engages with the content — analyze, propose solutions, ask "
-            "clarifying questions, or contribute knowledge. Do NOT just "
-            "summarize or classify. Think critically about what would be "
-            "a useful reply. "
-            f"Respond with JSON: {{{SCHEMA_BASE}"
-            '"response": "2-5 sentence substantive reply to post in the discussion. '
-            "Write as a knowledgeable contributor, not a system log. "
-            'Address the actual topic, not just metadata.", '
-            f"{SCHEMA_EXTENDED}}}"
+            "Comprehend this discussion. Identify what the user wants. "
+            "If they ask for something actionable, set action_hint accordingly. "
+            f"Respond with JSON: {{{SCHEMA_BASE}{SCHEMA_EXTENDED}}}"
         )
 
     def build_user_message(self, ctx: PromptContext) -> str:
