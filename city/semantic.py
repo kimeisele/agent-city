@@ -396,19 +396,71 @@ def element_reading(elements: list[str]) -> str:
 def translate_for_agent(text: str, spec: dict) -> str | None:
     """Translate text through an agent's semantic lens.
 
-    Same translation, but the agent's element determines which transition
-    relationships are highlighted — the agent SEES the flow through its
-    own elemental perspective.
+    Runs the full coordinate pipeline, then filters the output to
+    emphasize transitions and concepts relevant to the agent's element.
+    An agent with element "agni" (transformation) sees transformation
+    transitions highlighted. One with "vayu" (communication) sees
+    communication flows.
+
+    Returns None if resonance infrastructure is unavailable.
     """
-    base = translate(text)
-    if base is None:
+    try:
+        from vibe_core.mahamantra.substrate.encoding.maha_llm_kernel import resonate
+    except Exception:
         return None
 
+    try:
+        r = resonate(text, top_n=5)
+    except Exception:
+        return None
+
+    meanings = [w.meanings[0] for w in r.words if w.meanings and w.meanings[0]]
+    if not meanings:
+        return None
+
+    concepts = _extract_concepts(meanings)
+    if not concepts:
+        return None
+
+    # Agent's element context
     agent_element = spec.get("element", "prithvi")
     agent_domain = ELEMENT_DOMAIN.get(agent_element, "foundation")
-    agent_role = spec.get("role", "")
+    agent_idx = _ELEM_INT.get(agent_element, 4)
 
-    return f"{base} | Lens: {agent_domain} ({agent_role})"
+    # Full element walk
+    elements = list(r.element_walk[:8]) if r.element_walk else []
+
+    # Filter transitions: only those involving the agent's element
+    agent_transitions = []
+    for i in range(len(elements) - 1):
+        a, b = _ELEM_INT.get(elements[i], 4), _ELEM_INT.get(elements[i + 1], 4)
+        if a == agent_idx or b == agent_idx:
+            from_d = ELEMENT_DOMAIN.get(_INT_ELEM.get(a, "prithvi"), "foundation")
+            to_d = ELEMENT_DOMAIN.get(_INT_ELEM.get(b, "prithvi"), "foundation")
+            verb = _TRANSITION_VERB.get((a, b), "connects")
+            agent_transitions.append(f"{from_d} {verb} {to_d}")
+
+    # Compose: agent-relevant view
+    concept_phrase = ", ".join(concepts[:5])
+    parts = [f"{agent_domain}: {concept_phrase}"]
+
+    if agent_transitions:
+        parts.append(f"Flow: {' → '.join(agent_transitions[:3])}")
+    elif elements:
+        # Fallback: show dominant flow direction relative to agent
+        direction = _walk_direction(elements)
+        if direction != "steady":
+            parts.append(f"Direction: {direction}")
+
+    # Basin groups filtered to agent-relevant concepts
+    basin_groups = _basin_groups(meanings)
+    if basin_groups:
+        for group in basin_groups[:1]:
+            cleaned = [_clean_concept(c) for c in group[:4]]
+            if len(set(cleaned)) > 1:
+                parts.append(f"Connected: {' ↔ '.join(dict.fromkeys(cleaned))}")
+
+    return " | ".join(parts)
 
 
 # ── Signal-Aware Composition (Edge Layer) ────────────────────────────

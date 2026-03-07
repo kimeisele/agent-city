@@ -134,10 +134,11 @@ class AgentSpawner:
         return promoted
 
     def mark_citizens_active(self, active_set: set[str]) -> int:
-        """KARMA: mark all living citizens as active.
+        """KARMA: activate living citizens and populate the active set.
 
-        Populates the active_set which DHARMA's metabolize_all() uses
-        to feed energy (10 prana) to active agents.
+        Two things happen:
+        1. SQLite status transitions citizen → active (via pokedex.activate())
+        2. Populates active_set for DHARMA's metabolize_all() (10 prana feeding)
 
         Returns count of active citizens.
         """
@@ -146,6 +147,12 @@ class AgentSpawner:
             name = agent["name"]
             cell = self._pokedex.get_cell(name)
             if cell is not None and cell.is_alive:
+                # Actually transition status in SQLite (was missing before)
+                try:
+                    self._pokedex.activate(name)
+                    logger.info("Activated %s: citizen → active", name)
+                except (ValueError, KeyError):
+                    pass  # already active or invalid state — fine
                 active_set.add(name)
                 count += 1
         return count
