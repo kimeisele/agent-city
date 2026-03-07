@@ -250,6 +250,19 @@ class TestJsonParsing:
         thought = _parse_json_thought("not json at all {{{")
         assert thought is None
 
+    def test_parse_strips_markdown_fences(self):
+        """Google Gemini wraps JSON in ```json ... ``` — parser must strip them."""
+        raw = '```json\n{"comprehension": "fenced", "intent": "observe"}\n```'
+        thought = _parse_json_thought(raw)
+        assert thought is not None
+        assert thought.comprehension == "fenced"
+
+    def test_parse_strips_bare_fences(self):
+        raw = '```\n{"comprehension": "bare"}\n```'
+        thought = _parse_json_thought(raw)
+        assert thought is not None
+        assert thought.comprehension == "bare"
+
     def test_parse_missing_fields_defaults(self):
         raw = json.dumps({"comprehension": "partial"})
         thought = _parse_json_thought(raw)
