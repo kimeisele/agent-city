@@ -197,7 +197,10 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
 
     if all_specs:
         from city.mission_router import route_mission
-        routing = route_mission(mission, all_specs, ctx.active_agents, all_inventories)
+        from city.registry import SVC_ROUTER
+
+        router = ctx.registry.get(SVC_ROUTER) if ctx.registry else None
+        routing = route_mission(mission, all_specs, ctx.active_agents, all_inventories, router=router)
         if routing["agent_name"] is not None:
             agent_name = routing["agent_name"]
             # Call Cartridge process() for agent-specific cognition

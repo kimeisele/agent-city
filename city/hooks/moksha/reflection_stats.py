@@ -247,6 +247,8 @@ class BrainReflectionHook(BasePhaseHook):
         return 45
 
     def should_run(self, ctx: PhaseContext) -> bool:
+        if ctx.offline_mode:
+            return False
         return ctx.brain is not None and hasattr(ctx.brain, "reflect_on_cycle")
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:

@@ -1228,10 +1228,10 @@ def test_different_agents_produce_different_responses():
     assert "yoga of renunciation" in response_b
 
     # 8A: Semantic reading OR fallback element/protocol must appear
-    # When semantic.translate_for_agent() succeeds, output contains "Lens:"
-    # When it falls back, raw element/protocol appear instead.
-    assert ("Lens:" in response_a or "akasha" in response_a)
-    assert ("Lens:" in response_b or "prithvi" in response_b)
+    # translate_for_agent() output starts with the element's domain name.
+    # "akasha" → "awareness", "prithvi" → "foundation".
+    assert ("awareness" in response_a or "akasha" in response_a)
+    assert ("foundation" in response_b or "prithvi" in response_b)
 
 
 def test_minimal_spec_still_produces_response():
