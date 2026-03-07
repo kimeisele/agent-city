@@ -103,12 +103,14 @@ def _route_to_cartridges(
     all_inventories: dict[str, list[dict]] | None = None,
 ) -> None:
     """Route domain missions to best-fit agents via capability scoring + hard enforcement."""
-    from city.registry import SVC_CARTRIDGE_LOADER
+    from city.registry import SVC_CARTRIDGE_LOADER, SVC_ROUTER
     from city.mission_router import route_mission
 
     loader = ctx.registry.get(SVC_CARTRIDGE_LOADER)
     if loader is None or ctx.sankalpa is None:
         return
+
+    router = ctx.registry.get(SVC_ROUTER) if ctx.registry else None
 
     try:
         active = ctx.sankalpa.registry.get_active_missions()
@@ -127,7 +129,7 @@ def _route_to_cartridges(
         if mission.id.startswith(("issue_", "exec_")):
             continue
 
-        result = route_mission(mission, all_specs, ctx.active_agents, all_inventories)
+        result = route_mission(mission, all_specs, ctx.active_agents, all_inventories, router=router)
 
         if result["blocked"]:
             operations.append(f"route_blocked:{mission.id}:no_qualified_agent")
