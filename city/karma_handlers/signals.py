@@ -100,6 +100,8 @@ def _process_agent_signals(ctx: PhaseContext, operations: list[str]) -> None:
                         f":intent={signal_thought.intent}"
                         f":confidence={signal_thought.confidence:.2f}"
                     )
+                else:
+                    operations.append(f"brain_signal_noop:{agent_name}")
 
             # Reply (if under hop limit and cycle budget)
             if (
