@@ -26,6 +26,7 @@ from city.sankirtan import (
     ProviderChamber,
     ProviderPayload,
     _AdapterResponse,
+    _GoogleAdapter,
     _PRANA_CHEAP,
     _PRANA_FREE,
     _is_valid_key,
@@ -286,6 +287,37 @@ class TestBuildChamber:
         }):
             chamber = build_chamber()
             assert len(chamber) == 0
+
+
+# ── GoogleAdapter ────────────────────────────────────────────────────────
+
+
+class TestGoogleAdapter:
+    def test_adapter_builds_prompt_from_messages(self):
+        """GoogleAdapter MUST build prompt from messages for GoogleProvider compat."""
+        provider = FakeProvider()
+        adapter = _GoogleAdapter(provider)
+        adapter.invoke(
+            messages=[
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "Hello"},
+            ],
+            model="gemini-2.5-flash",
+        )
+        assert len(provider.calls) == 1
+        assert "prompt" in provider.calls[0]
+        assert "You are helpful." in provider.calls[0]["prompt"]
+        assert "Hello" in provider.calls[0]["prompt"]
+
+    def test_adapter_passes_messages_through(self):
+        """GoogleAdapter still passes messages for providers that support it."""
+        provider = FakeProvider()
+        adapter = _GoogleAdapter(provider)
+        adapter.invoke(
+            messages=[{"role": "user", "content": "hi"}],
+            model="gemini-2.5-flash",
+        )
+        assert "messages" in provider.calls[0]
 
 
 # ── _is_valid_key ────────────────────────────────────────────────────────

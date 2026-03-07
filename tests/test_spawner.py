@@ -132,6 +132,9 @@ class TestAgentSpawner(unittest.TestCase):
 
         self.assertEqual(count, 3)
         self.assertEqual(active_set, {"alice", "bob", "carol"})
+        # Verify pokedex.activate() was called for each citizen
+        activate_calls = [c[0][0] for c in pokedex.activate.call_args_list]
+        self.assertEqual(set(activate_calls), {"alice", "bob", "carol"})
 
     def test_dead_agents_not_marked_active(self):
         """Dead agents excluded from active_set."""
