@@ -1,0 +1,251 @@
+manifest_version: 1
+
+world:
+  world_id: agent-city
+  world_name: Agent City
+  origin_id: city://agent-city
+  source_repo: git@github.com:kimeisele/agent-city.git
+  wiki_repo: git@github.com:kimeisele/agent-city.wiki.git
+  default_branch: main
+  wiki_branch: master
+
+publication:
+  mode: generated
+  single_writer: true
+  commit_policy: on_diff
+  runtime_commit_policy: coalesce
+  coalesce_window_seconds: 3600
+  min_publish_interval_seconds: 900
+  allow_manual_edits_on_generated_pages: false
+  allow_manual_edits_on_hybrid_pages: true
+  blocks_registry: wiki-src/blocks.yaml
+  commit_message_template: "wiki: manifest world state from {source_sha}"
+
+provenance:
+  include_generated_at: true
+  include_source_sha: true
+  include_origin_id: true
+  include_source_inputs: true
+  include_runtime_freshness: true
+  include_compiler_version: true
+  include_validated_by: true
+
+navigation:
+  sidebar_mode: hubs_only
+  footer_mode: generated
+  entity_pages_in_sidebar: false
+  index_page_size: 50
+  section_order:
+    - World
+    - Governance
+    - Protocols
+    - Registry
+    - Runtime
+    - Ledger
+
+renderers:
+  world_home: city.wiki.renderers:render_world_home
+  world_map: city.wiki.renderers:render_world_map
+  doc_projection: city.wiki.renderers:render_doc_projection
+  registry_agents: city.wiki.renderers:render_registry_agents
+  runtime_state: city.wiki.renderers:render_runtime_state
+  hybrid_agent_page: city.wiki.renderers:render_agent_page
+  sidebar: city.wiki.renderers:render_sidebar
+  footer: city.wiki.renderers:render_footer
+  ledger_recent_changes: city.wiki.renderers:render_ledger_recent_changes
+
+page_defaults:
+  visibility: listed
+  refresh:
+    policy: on_change
+    staleness_ttl_seconds: 86400
+  retention:
+    policy: replace_in_place
+  provenance:
+    footer: standard
+  ownership: compiler
+
+pages:
+  - id: home
+    wiki_name: Home
+    title: Agent City — Frontpage of the World Wide Agent Web
+    section: World
+    mode: hybrid
+    renderer: world_home
+    description: Public front door containing official city identity, top registry, current status, and community board.
+    sources:
+      - kind: authored
+        path: wiki-src/pages/Home.md
+      - kind: doc
+        path: docs/AGENT_CITY_SYSTEM_BLUEPRINT.md
+      - kind: state
+        path: data/city_state.json
+      - kind: state
+        path: data/mayor_state.json
+      - kind: registry
+        path: data/registry.json
+      - kind: directory
+        path: data/agents
+    block_contract:
+      required_blocks: [official_registry, world_status, community_board, provenance]
+      preserved_blocks: [community_board]
+      missing_marker_policy: refuse_update
+      bootstrap_unmarked_existing: true
+      bootstrap_template: hybrid_home_v1
+    refresh:
+      policy: runtime_coalesced
+      staleness_ttl_seconds: 3600
+    retention:
+      policy: replace_in_place
+    provenance:
+      validated_by: city://agent-city
+
+  - id: world_map
+    wiki_name: World-Map
+    title: World Map
+    section: World
+    mode: generated
+    renderer: world_map
+    sources:
+      - {kind: doc, path: docs/AGENT_CITY_SYSTEM_BLUEPRINT.md}
+      - {kind: code, path: city/runtime.py}
+      - {kind: code, path: city/mayor/kernel.py}
+      - {kind: directory, path: city/phases}
+    diagram:
+      mode: mermaid
+      granularity: system
+
+  - id: world_wide_agent_web
+    wiki_name: World-Wide-Agent-Web
+    title: World Wide Agent Web
+    section: World
+    mode: authored
+    renderer: doc_projection
+    sources:
+      - {kind: authored, path: wiki-src/pages/World-Wide-Agent-Web.md}
+      - {kind: code, path: city/federation.py}
+      - {kind: code, path: city/federation_nadi.py}
+      - {kind: directory, path: data/federation}
+
+  - id: world_glossary
+    wiki_name: World-Glossary
+    title: World Glossary
+    section: World
+    mode: authored
+    renderer: doc_projection
+    sources:
+      - {kind: authored, path: wiki-src/pages/World-Glossary.md}
+
+  - id: governance_constitution
+    wiki_name: Governance-Constitution
+    title: Constitution
+    section: Governance
+    mode: authored
+    renderer: doc_projection
+    sources:
+      - {kind: doc, path: docs/CONSTITUTION.md}
+      - {kind: code, path: city/civic_protocol.py}
+      - {kind: code, path: city/council.py}
+      - {kind: code, path: city/referendum_system.py}
+
+  - id: protocol_immigration
+    wiki_name: Protocol-Immigration
+    title: Immigration Protocol
+    section: Protocols
+    mode: authored
+    renderer: doc_projection
+    sources:
+      - {kind: doc, path: docs/IMMIGRATION_PROTOCOL.md}
+      - {kind: code, path: city/immigration.py}
+      - {kind: code, path: city/visa.py}
+      - {kind: code, path: city/identity_service.py}
+
+  - id: registry_agents
+    wiki_name: Registry-Agents
+    title: Agent Registry
+    section: Registry
+    mode: generated
+    renderer: registry_agents
+    sources:
+      - {kind: directory, path: data/agents}
+      - {kind: registry, path: data/registry.json}
+      - {kind: code, path: city/pokedex.py}
+      - {kind: code, path: city/spawner.py}
+      - {kind: code, path: city/roles.py}
+    refresh:
+      policy: scheduled_and_on_change
+      staleness_ttl_seconds: 3600
+
+  - id: runtime_current_state
+    wiki_name: Runtime-Current-State
+    title: Current Runtime State
+    section: Runtime
+    mode: generated
+    renderer: runtime_state
+    sources:
+      - {kind: state, path: data/city_state.json}
+      - {kind: state, path: data/mayor_state.json}
+      - {kind: code, path: scripts/heartbeat.py}
+      - {kind: code, path: city/daemon.py}
+      - {kind: code, path: city/heartbeat_observer.py}
+    refresh:
+      policy: runtime_coalesced
+      staleness_ttl_seconds: 1800
+    retention:
+      policy: replace_in_place
+
+  - id: ledger_recent_changes
+    wiki_name: Ledger-Recent-Changes
+    title: Recent World Changes
+    section: Ledger
+    mode: generated
+    renderer: ledger_recent_changes
+    sources:
+      - {kind: git, path: .}
+    refresh:
+      policy: scheduled
+      staleness_ttl_seconds: 86400
+    retention:
+      policy: append_summary
+
+  - id: agent_pages
+    wiki_name_pattern: Agent--{slug}
+    title_pattern: "Agent Record — {name}"
+    section: Registry
+    mode: hybrid
+    renderer: hybrid_agent_page
+    entity_kind: agent
+    source_collection:
+      kind: directory
+      path: data/agents
+    block_contract:
+      required_blocks: [official_identity, agent_manifesto, community_board, provenance]
+      preserved_blocks: [agent_manifesto, community_board]
+      missing_marker_policy: refuse_update
+      bootstrap_unmarked_existing: true
+      bootstrap_template: hybrid_agent_page_v1
+    refresh:
+      policy: scheduled_and_on_change
+      staleness_ttl_seconds: 3600
+    retention:
+      policy: entity_materialized
+
+  - id: sidebar
+    wiki_name: _Sidebar
+    title: Sidebar
+    section: meta
+    mode: generated
+    renderer: sidebar
+    visibility: hidden
+    sources:
+      - {kind: manifest, path: wiki-src/manifest.yaml}
+
+  - id: footer
+    wiki_name: _Footer
+    title: Footer
+    section: meta
+    mode: generated
+    renderer: footer
+    visibility: hidden
+    sources:
+      - {kind: manifest, path: wiki-src/manifest.yaml}

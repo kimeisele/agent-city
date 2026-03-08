@@ -1,0 +1,75 @@
+name: Manifest World Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wiki-src/**'
+      - 'city/wiki/**'
+      - 'city/wiki_portal.py'
+      - 'docs/**'
+      - 'data/agents/**'
+      - 'data/registry.json'
+      - 'data/city_state.json'
+      - 'data/mayor_state.json'
+      - 'scripts/build_wiki.py'
+      - 'scripts/publish_wiki.py'
+      - '.github/workflows/manifest-world-wiki.yml'
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: manifest-world-wiki
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout agent-city
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Ruby for YAML fallback
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Validate world compiler
+        run: |
+          python -m py_compile \
+            city/wiki/__init__.py \
+            city/wiki/blocks.py \
+            city/wiki/compiler.py \
+            city/wiki/publisher.py \
+            city/wiki/renderers.py \
+            city/wiki/yamlio.py \
+            scripts/build_wiki.py \
+            scripts/publish_wiki.py \
+            tests/test_wiki_compiler.py \
+            tests/test_wiki_publisher.py \
+            tests/test_wiki_portal.py
+          python -m pytest -q tests/test_wiki_compiler.py tests/test_wiki_publisher.py tests/test_wiki_portal.py
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "agent-city-bot"
+          git config --global user.email "bot@agent-city"
+
+      - name: Publish manifested wiki
+        env:
+          WIKI_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git
+        run: |
+          python scripts/publish_wiki.py --wiki-url "$WIKI_URL" --push
