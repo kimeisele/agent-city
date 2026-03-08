@@ -50,6 +50,8 @@ renderers:
   federation_overview: city.wiki.renderers:render_federation_overview
   federation_recent_reports: city.wiki.renderers:render_federation_recent_reports
   mothership_repo_graph: city.wiki.renderers:render_mothership_repo_graph
+  mothership_governance_map: city.wiki.renderers:render_mothership_governance_map
+  mothership_agent_constellation: city.wiki.renderers:render_mothership_agent_constellation
   registry_agents: city.wiki.renderers:render_registry_agents
   registry_services: city.wiki.renderers:render_registry_services
   runtime_heartbeat_summary: city.wiki.renderers:render_runtime_heartbeat_summary
@@ -188,6 +190,26 @@ pages:
       - {kind: external, path: ../agent-internet/agent_internet/agent_web_repo_graph_capabilities.py}
       - {kind: external, path: ../steward-protocol/vibe_core/knowledge/graph.py}
       - {kind: external, path: ../steward-protocol/vibe_core/knowledge/schema.py}
+
+  - id: protocol_mothership_governance_map
+    wiki_name: Protocol-Mothership-Governance-Map
+    title: Mothership Governance Map
+    section: Protocols
+    mode: generated
+    renderer: mothership_governance_map
+    sources:
+      - {kind: external, path: ../agent-internet/agent_internet/agent_web_repo_graph.py}
+      - {kind: external, path: ../steward-protocol/vibe_core/knowledge/graph.py}
+
+  - id: protocol_mothership_agent_constellation
+    wiki_name: Protocol-Mothership-Agent-Constellation
+    title: Mothership Agent Constellation
+    section: Protocols
+    mode: generated
+    renderer: mothership_agent_constellation
+    sources:
+      - {kind: external, path: ../agent-internet/agent_internet/agent_web_repo_graph.py}
+      - {kind: external, path: ../steward-protocol/vibe_core/knowledge/graph.py}
 
   - id: registry_agents
     wiki_name: Registry-Agents

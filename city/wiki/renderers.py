@@ -8,7 +8,11 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
-from city.wiki.repo_graph_client import load_mothership_repo_graph_context, load_mothership_repo_graph_snapshot
+from city.wiki.repo_graph_client import (
+    load_mothership_repo_graph_context,
+    load_mothership_repo_graph_neighbors,
+    load_mothership_repo_graph_snapshot,
+)
 
 
 def render_world_home(page: dict, context: dict, entity: dict | None = None) -> dict:
@@ -245,6 +249,75 @@ def render_mothership_repo_graph(page: dict, context: dict, entity: dict | None 
         lines.append(concept["context"]["context"] or "No context returned.")
     else:
         lines.append(f"Repo-graph context unavailable: `{concept['error']}`")
+    lines.extend(["", _provenance(page, context)])
+    return "\n".join(lines)
+
+
+def render_mothership_governance_map(page: dict, context: dict, entity: dict | None = None) -> str:
+    mothership = load_mothership_repo_graph_snapshot(context["root"], domain="governance", limit=8)
+    concept = load_mothership_repo_graph_context(context["root"], concept="governance")
+    lines = [
+        "## Mothership Governance Map",
+        "Governance-facing nodes projected from the steward-protocol repo graph through the published agent-internet membrane.",
+        "",
+    ]
+    if not mothership["available"]:
+        lines.extend([f"- Status: `unavailable`", f"- Error: `{mothership['error']}`", "", _provenance(page, context)])
+        return "\n".join(lines)
+    snapshot = mothership["snapshot"]
+    lines.extend(["| Node | Type | Description |", "| :--- | :--- | :--- |"])
+    lines.extend(
+        f"| `{node['node_id']}` | `{node['type']}` | {node['description']} |"
+        for node in snapshot.get("nodes", [])
+    )
+    lines.extend(["", "## Governance Neighbor Echoes"])
+    for node in snapshot.get("nodes", [])[:3]:
+        neighbor_payload = load_mothership_repo_graph_neighbors(context["root"], node_id=node["node_id"], depth=1, limit=6)
+        lines.append(f"### `{node['node_id']}`")
+        if neighbor_payload["available"]:
+            neighbors = neighbor_payload["neighbors"].get("neighbors", [])
+            if neighbors:
+                lines.extend(f"- `{neighbor['node_id']}` — {neighbor['description']}" for neighbor in neighbors)
+            else:
+                lines.append("- No neighbors returned.")
+        else:
+            lines.append(f"- Neighbor lookup unavailable: `{neighbor_payload['error']}`")
+        lines.append("")
+    lines.append("## Governance Context Probe")
+    lines.append(concept["context"]["context"] if concept["available"] else f"Repo-graph context unavailable: `{concept['error']}`")
+    lines.extend(["", _provenance(page, context)])
+    return "\n".join(lines)
+
+
+def render_mothership_agent_constellation(page: dict, context: dict, entity: dict | None = None) -> str:
+    mothership = load_mothership_repo_graph_snapshot(context["root"], node_type="agent", limit=10)
+    lines = [
+        "## Mothership Agent Constellation",
+        "The highest-signal agent nodes currently exposed by the steward-protocol repo graph.",
+        "",
+    ]
+    if not mothership["available"]:
+        lines.extend([f"- Status: `unavailable`", f"- Error: `{mothership['error']}`", "", _provenance(page, context)])
+        return "\n".join(lines)
+    snapshot = mothership["snapshot"]
+    lines.extend(["| Agent Node | Domain | Critical | Varsha | Description |", "| :--- | :--- | :--- | :--- | :--- |"])
+    lines.extend(
+        f"| `{node['node_id']}` | `{node['domain']}` | {'yes' if node['properties'].get('critical') else 'no'} | `{node['properties'].get('varsha', 'unknown')}` | {node['description']} |"
+        for node in snapshot.get("nodes", [])
+    )
+    lines.extend(["", "## Constellation Links"])
+    for node in snapshot.get("nodes", [])[:4]:
+        neighbor_payload = load_mothership_repo_graph_neighbors(context["root"], node_id=node["node_id"], depth=1, limit=6)
+        lines.append(f"### `{node['node_id']}`")
+        if neighbor_payload["available"]:
+            edges = neighbor_payload["neighbors"].get("edges", [])[:6]
+            if edges:
+                lines.extend(f"- `{edge['source_id']}` -[{edge['relation']}]-> `{edge['target_id']}`" for edge in edges)
+            else:
+                lines.append("- No constellation edges returned.")
+        else:
+            lines.append(f"- Neighbor lookup unavailable: `{neighbor_payload['error']}`")
+        lines.append("")
     lines.extend(["", _provenance(page, context)])
     return "\n".join(lines)
 
