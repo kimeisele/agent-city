@@ -48,7 +48,10 @@ renderers:
   world_map: city.wiki.renderers:render_world_map
   doc_projection: city.wiki.renderers:render_doc_projection
   federation_overview: city.wiki.renderers:render_federation_overview
+  federation_recent_reports: city.wiki.renderers:render_federation_recent_reports
   registry_agents: city.wiki.renderers:render_registry_agents
+  registry_services: city.wiki.renderers:render_registry_services
+  runtime_heartbeat_summary: city.wiki.renderers:render_runtime_heartbeat_summary
   runtime_state: city.wiki.renderers:render_runtime_state
   runtime_active_bridges: city.wiki.renderers:render_runtime_active_bridges
   hybrid_agent_page: city.wiki.renderers:render_agent_page
@@ -189,6 +192,19 @@ pages:
       policy: scheduled_and_on_change
       staleness_ttl_seconds: 3600
 
+  - id: registry_services
+    wiki_name: Registry-Services
+    title: Service Registry
+    section: Registry
+    mode: generated
+    renderer: registry_services
+    sources:
+      - {kind: code, path: city/registry.py}
+      - {kind: code, path: city/runtime.py}
+    refresh:
+      policy: on_change
+      staleness_ttl_seconds: 86400
+
   - id: runtime_current_state
     wiki_name: Runtime-Current-State
     title: Current Runtime State
@@ -207,6 +223,21 @@ pages:
     retention:
       policy: replace_in_place
 
+  - id: runtime_heartbeat_summary
+    wiki_name: Runtime-Heartbeat-Summary
+    title: Heartbeat Summary
+    section: Runtime
+    mode: generated
+    renderer: runtime_heartbeat_summary
+    sources:
+      - {kind: state, path: data/city_state.json}
+      - {kind: state, path: data/mayor_state.json}
+      - {kind: code, path: city/heartbeat_observer.py}
+      - {kind: code, path: .github/workflows/agent-city-heartbeat.yml}
+    refresh:
+      policy: runtime_coalesced
+      staleness_ttl_seconds: 1800
+
   - id: runtime_active_bridges
     wiki_name: Runtime-Active-Bridges
     title: Active Bridges
@@ -217,6 +248,19 @@ pages:
       - {kind: code, path: city/federation.py}
       - {kind: code, path: city/federation_nadi.py}
       - {kind: directory, path: data/federation}
+    refresh:
+      policy: runtime_coalesced
+      staleness_ttl_seconds: 1800
+
+  - id: federation_recent_reports
+    wiki_name: Federation-Recent-Reports
+    title: Recent Federation Reports
+    section: Runtime
+    mode: generated
+    renderer: federation_recent_reports
+    sources:
+      - {kind: directory, path: data/federation/reports}
+      - {kind: code, path: city/federation.py}
     refresh:
       policy: runtime_coalesced
       staleness_ttl_seconds: 1800

@@ -16,8 +16,11 @@ def test_build_wiki_materializes_pages(tmp_path):
     assert "World-Map.md" in names
     assert "Protocol-Federation.md" in names
     assert "Registry-Agents.md" in names
+    assert "Registry-Services.md" in names
     assert "Runtime-Current-State.md" in names
+    assert "Runtime-Heartbeat-Summary.md" in names
     assert "Runtime-Active-Bridges.md" in names
+    assert "Federation-Recent-Reports.md" in names
     assert "_Sidebar.md" in names
     assert any(name.startswith("Agent--") for name in names)
 
@@ -32,8 +35,17 @@ def test_build_wiki_materializes_pages(tmp_path):
     federation = (tmp_path / "Protocol-Federation.md").read_text()
     assert "Federation Surface" in federation
 
+    services = (tmp_path / "Registry-Services.md").read_text()
+    assert "Total registered service types" in services
+
+    heartbeat = (tmp_path / "Runtime-Heartbeat-Summary.md").read_text()
+    assert "Heartbeat Summary" in heartbeat
+
     bridges = (tmp_path / "Runtime-Active-Bridges.md").read_text()
     assert "Active Bridges" in bridges
+
+    reports = (tmp_path / "Federation-Recent-Reports.md").read_text()
+    assert "Recent Federation Reports" in reports
 
 
 def test_merge_hybrid_content_refuses_missing_required_markers():

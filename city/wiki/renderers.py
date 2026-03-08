@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 from collections import Counter
 from datetime import UTC, datetime
@@ -98,6 +100,21 @@ def render_registry_agents(page: dict, context: dict, entity: dict | None = None
     return "\n".join(lines)
 
 
+def render_registry_services(page: dict, context: dict, entity: dict | None = None) -> str:
+    services = _service_names()
+    bridge_services = [service for service in services if "bridge" in service or "nadi" in service or "federation" in service]
+    lines = [
+        f"Total registered service types: **{len(services)}**",
+        "",
+        "## Bridge / Federation-Oriented Services",
+    ]
+    lines.extend(f"- `{service}`" for service in bridge_services)
+    lines.extend(["", "## Full Service Table", "| Service | Class |", "| :--- | :--- |"])
+    lines.extend(f"| `{service}` | `CityServiceRegistry` key |" for service in services)
+    lines.extend(["", _provenance(page, context)])
+    return "\n".join(lines)
+
+
 def render_runtime_state(page: dict, context: dict, entity: dict | None = None) -> str:
     city_state = _load_json(context["root"] / "data/city_state.json")
     mayor_state = _load_json(context["root"] / "data/mayor_state.json")
@@ -120,6 +137,25 @@ def render_runtime_state(page: dict, context: dict, entity: dict | None = None) 
         "",
         _provenance(page, context),
     ]
+    return "\n".join(lines)
+
+
+def render_runtime_heartbeat_summary(page: dict, context: dict, entity: dict | None = None) -> str:
+    snapshot = _heartbeat_snapshot(context["root"])
+    lines = [
+        "## Heartbeat Summary",
+        f"- Local heartbeat count: `{snapshot['local_heartbeat_count']}`",
+        f"- Seconds since local heartbeat: `{snapshot['seconds_since_local_heartbeat']}`",
+        f"- Observation mode: `{snapshot['mode']}`",
+        f"- Health: `{snapshot['health']}`",
+        f"- Summary: `{snapshot['summary']}`",
+    ]
+    if snapshot["anomalies"]:
+        lines.extend(["", "## Anomalies"])
+        lines.extend(f"- `{anomaly}`" for anomaly in snapshot["anomalies"])
+    if snapshot["observer_error"]:
+        lines.extend(["", "## Observer Notes", f"- `{snapshot['observer_error']}`"])
+    lines.extend(["", _provenance(page, context)])
     return "\n".join(lines)
 
 
@@ -149,6 +185,32 @@ def render_federation_overview(page: dict, context: dict, entity: dict | None = 
         "",
         _provenance(page, context),
     ]
+    return "\n".join(lines)
+
+
+def render_federation_recent_reports(page: dict, context: dict, entity: dict | None = None) -> str:
+    federation = _federation_summary(context["root"])
+    reports = federation["recent_reports"]
+    lines = [
+        "## Recent Federation Reports",
+        f"- Total archived reports: `{federation['reports_count']}`",
+        "",
+        "| Heartbeat | Population | Alive | Chain Valid | Missions | Contracts |",
+        "| ---: | ---: | ---: | :--- | ---: | :--- |",
+    ]
+    lines.extend(
+        f"| {report.get('heartbeat', 0)} | {report.get('population', 0)} | {report.get('alive', 0)} | {'yes' if report.get('chain_valid', False) else 'no'} | {len(report.get('mission_results', []))} | {report.get('contract_status', {}).get('passing', 0)}/{report.get('contract_status', {}).get('total', 0)} |"
+        for report in reports
+    )
+    latest = federation["latest_report"]
+    missions = latest.get("mission_results", []) if latest else []
+    if missions:
+        lines.extend(["", "## Latest Mission Echoes"])
+        lines.extend(
+            f"- `{mission.get('id', 'unknown')}` — {mission.get('name', 'Unnamed mission')} / owner `{mission.get('owner', 'unknown')}` / priority `{mission.get('priority', 'unknown')}`"
+            for mission in missions
+        )
+    lines.extend(["", _provenance(page, context)])
     return "\n".join(lines)
 
 
@@ -246,10 +308,73 @@ def _service_names() -> list[str]:
     return sorted(getattr(registry, name) for name in dir(registry) if name.startswith("SVC_"))
 
 
+def _heartbeat_snapshot(root: Path) -> dict:
+    mayor_state = _load_json(root / "data/mayor_state.json")
+    last_heartbeat = float(mayor_state.get("last_heartbeat", 0) or 0)
+    seconds_since = max(0, int(datetime.now(UTC).timestamp() - last_heartbeat)) if last_heartbeat else -1
+    snapshot = {
+        "mode": "local_fallback",
+        "health": "unknown",
+        "summary": "local runtime snapshot only",
+        "anomalies": [],
+        "observer_error": "",
+        "local_heartbeat_count": int(mayor_state.get("heartbeat_count", 0) or 0),
+        "seconds_since_local_heartbeat": seconds_since,
+    }
+    if last_heartbeat:
+        snapshot["health"] = "fresh" if seconds_since <= 3600 else "stale"
+        if seconds_since > 3600:
+            snapshot["anomalies"].append(f"local_heartbeat_stale:{seconds_since}s")
+    if not _should_run_live_observer():
+        return snapshot
+    try:
+        owner, repo = _github_origin_parts(root)
+        if not owner or not repo:
+            snapshot["observer_error"] = "origin repo unavailable"
+            return snapshot
+        from city.heartbeat_observer import HeartbeatObserver
+
+        diagnosis = HeartbeatObserver(_owner=owner, _repo=repo).observe()
+        snapshot.update(
+            {
+                "mode": "live_observer",
+                "health": "healthy" if diagnosis.healthy else "degraded",
+                "summary": diagnosis.summary(),
+                "anomalies": list(diagnosis.anomalies),
+                "observer_error": diagnosis.observer_error,
+            }
+        )
+        return snapshot
+    except Exception as exc:
+        snapshot["observer_error"] = str(exc)
+        return snapshot
+
+
+def _should_run_live_observer() -> bool:
+    return bool(os.environ.get("AGENT_CITY_WIKI_OBSERVE") or os.environ.get("GITHUB_ACTIONS")) and shutil.which("gh") is not None
+
+
+def _github_origin_parts(root: Path) -> tuple[str, str]:
+    try:
+        origin = subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=root, text=True).strip()
+    except Exception:
+        return "", ""
+    trimmed = origin[:-4] if origin.endswith(".git") else origin
+    if trimmed.startswith("git@github.com:"):
+        slug = trimmed.split(":", 1)[1]
+    elif "github.com/" in trimmed:
+        slug = trimmed.split("github.com/", 1)[1]
+    else:
+        return "", ""
+    parts = slug.split("/")
+    return (parts[0], parts[1]) if len(parts) >= 2 else ("", "")
+
+
 def _federation_summary(root: Path) -> dict:
     federation_dir = root / "data/federation"
     reports = sorted((federation_dir / "reports").glob("report_*.json")) if (federation_dir / "reports").exists() else []
-    latest_report = _load_json(reports[-1]) if reports else {}
+    recent_reports = [_load_json(path) for path in reports[-10:]]
+    latest_report = recent_reports[-1] if recent_reports else {}
     outbox = _load_json(federation_dir / "nadi_outbox.json")
     inbox = _load_json(federation_dir / "nadi_inbox.json")
     directives_dir = federation_dir / "directives"
@@ -257,6 +382,7 @@ def _federation_summary(root: Path) -> dict:
     done = list(directives_dir.glob("*.done")) + list(directives_dir.glob("*.done.json")) if directives_dir.exists() else []
     return {
         "reports_count": len(reports),
+        "recent_reports": recent_reports,
         "latest_report": latest_report,
         "latest_report_heartbeat": latest_report.get("heartbeat", "none") if latest_report else "none",
         "outbox_on_disk": len(outbox) if isinstance(outbox, list) else 0,
