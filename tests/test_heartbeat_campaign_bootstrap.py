@@ -64,6 +64,7 @@ def test_apply_campaign_manifest_replaces_runtime_campaigns(tmp_path: Path):
         {
             "id": "heartbeat-campaign",
             "title": "Heartbeat campaign",
+            "north_star": "Stay oriented.",
             "status": "active",
             "last_gap_summary": [],
             "last_evaluated_heartbeat": 0,

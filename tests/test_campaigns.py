@@ -125,3 +125,49 @@ def test_load_campaign_payload_accepts_single_object(tmp_path: Path):
             {"id": "north-star", "title": "North Star", "north_star": "Stay aligned."}
         ]
     }
+
+
+def test_campaign_prunes_stale_derived_mission_ids_before_waiting():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        from city.campaigns import CampaignRecord, CampaignRegistry, CampaignSignal
+        from city.hooks.dharma.governance import CampaignEvaluationHook
+
+        active_mission = MagicMock()
+        active_mission.id = "issue_42_10"
+
+        mock_registry = MagicMock()
+        mock_registry.get_active_missions.return_value = [active_mission]
+
+        mock_sankalpa = MagicMock()
+        mock_sankalpa.registry = mock_registry
+
+        mock_issues = MagicMock()
+        campaigns = CampaignRegistry(
+            [
+                CampaignRecord(
+                    id="system-focus",
+                    title="Keep system focus",
+                    north_star="Bound active work so heartbeat stays strategic.",
+                    success_signals=[
+                        CampaignSignal(
+                            kind="active_missions_at_most",
+                            target=0,
+                            description="too many active missions for focused execution",
+                        )
+                    ],
+                    derived_mission_ids=["issue_41_9", "issue_42_10"],
+                )
+            ]
+        )
+
+        ctx = _make_ctx(tmp, sankalpa=mock_sankalpa, issues=mock_issues, campaigns=campaigns)
+        operations: list[str] = []
+
+        CampaignEvaluationHook().execute(ctx, operations)
+
+        assert "campaign_wait:system-focus:active_mission" in operations
+        assert campaigns.get_campaign("system-focus").derived_mission_ids == ["issue_42_10"]
+        mock_issues.create_issue.assert_not_called()
+    finally:
+        shutil.rmtree(tmp)
