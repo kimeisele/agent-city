@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from city.wiki.publisher import publish_wiki
+from city.wiki.publisher import publish_wiki, write_publication_result
 
 
 def main() -> int:
@@ -17,6 +17,7 @@ def main() -> int:
     parser.add_argument("--wiki-path", help="Optional local checkout path for the wiki repo")
     parser.add_argument("--wiki-url", help="Optional override for the wiki remote URL")
     parser.add_argument("--push", action="store_true", help="Push committed changes to the wiki remote")
+    parser.add_argument("--result-path", help="Optional path to write the publication result as JSON")
     args = parser.parse_args()
     result = publish_wiki(
         root=ROOT,
@@ -24,6 +25,8 @@ def main() -> int:
         wiki_repo_url=args.wiki_url,
         push=args.push,
     )
+    if args.result_path:
+        write_publication_result((ROOT / args.result_path).resolve(), result)
     print(result)
     return 0
 

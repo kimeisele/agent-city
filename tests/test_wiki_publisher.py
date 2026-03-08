@@ -48,6 +48,8 @@ def test_publish_wiki_commits_without_push(tmp_path, monkeypatch):
 
     assert result["changed"] is True
     assert result["pushed"] is False
+    assert result["source_sha"] == "abc123"
+    assert result["wiki_repo_url"]
     assert ["git", "commit", "-m", "wiki: manifest world state from abc123"] in calls
 
 
@@ -70,4 +72,6 @@ def test_publish_wiki_skips_commit_when_clean(tmp_path, monkeypatch):
     result = publish_wiki(root=Path.cwd(), wiki_path=checkout, push=False)
 
     assert result["changed"] is False
+    assert result["source_sha"] == "abc123"
+    assert result["wiki_repo_url"]
     assert all(cmd[1] != "commit" for cmd in calls if len(cmd) > 1)
