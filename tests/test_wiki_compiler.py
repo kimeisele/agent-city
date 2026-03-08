@@ -16,6 +16,8 @@ def test_build_wiki_materializes_pages(tmp_path):
     assert "World-Map.md" in names
     assert "Protocol-Federation.md" in names
     assert "Protocol-Mothership-Repo-Graph.md" in names
+    assert "Protocol-Mothership-Governance-Map.md" in names
+    assert "Protocol-Mothership-Agent-Constellation.md" in names
     assert "Registry-Agents.md" in names
     assert "Registry-Services.md" in names
     assert "Runtime-Current-State.md" in names
@@ -39,6 +41,12 @@ def test_build_wiki_materializes_pages(tmp_path):
 
     mothership = (tmp_path / "Protocol-Mothership-Repo-Graph.md").read_text()
     assert "Mothership Repo Graph" in mothership
+
+    governance = (tmp_path / "Protocol-Mothership-Governance-Map.md").read_text()
+    assert "Mothership Governance Map" in governance
+
+    constellation = (tmp_path / "Protocol-Mothership-Agent-Constellation.md").read_text()
+    assert "Mothership Agent Constellation" in constellation
 
     services = (tmp_path / "Registry-Services.md").read_text()
     assert "Total registered service types" in services
