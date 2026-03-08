@@ -286,6 +286,7 @@ class TestComprehensionPromptPipeline:
                 {
                     "id": "internet-adaptation",
                     "title": "Internet adaptation",
+                    "north_star": "Continuously adapt to relevant new protocols and standards.",
                     "status": "active",
                     "last_gap_summary": ["keep execution bounded"],
                 },
@@ -295,6 +296,7 @@ class TestComprehensionPromptPipeline:
         text = "\n".join(lines)
         assert "Campaigns:" in text
         assert "Internet adaptation" in text
+        assert "Continuously adapt to relevant new protocols and standards." in text
         assert "keep execution bounded" in text
 
     def test_healthy_no_anomaly_lines(self):

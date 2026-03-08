@@ -85,6 +85,7 @@ class TestBuildPayload:
                 {
                     "id": "internet-adaptation",
                     "title": "Internet adaptation",
+                    "north_star": "Continuously adapt to relevant new protocols and standards.",
                     "status": "active",
                     "last_gap_summary": ["keep execution bounded"],
                 },
@@ -98,6 +99,7 @@ class TestBuildPayload:
         assert "5 heal attempts" in joined
         assert "120 synapses" in joined
         assert "Internet adaptation" in joined
+        assert "Continuously adapt to relevant new protocols and standards." in joined
         assert "keep execution bounded" in joined
 
     def test_reflection_payload_with_outcome_diff(self):
@@ -108,6 +110,7 @@ class TestBuildPayload:
                 {
                     "id": "internet-adaptation",
                     "title": "Internet adaptation",
+                    "north_star": "Continuously adapt to relevant new protocols and standards.",
                     "status": "active",
                     "last_gap_summary": ["keep execution bounded"],
                 },
@@ -131,6 +134,7 @@ class TestBuildPayload:
         assert "test_contract" in joined
         assert "Campaigns in play" in joined
         assert "Internet adaptation" in joined
+        assert "Continuously adapt to relevant new protocols and standards." in joined
 
     def test_comprehension_payload(self):
         lines = build_payload(

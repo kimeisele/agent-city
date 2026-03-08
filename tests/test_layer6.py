@@ -92,6 +92,7 @@ def test_outbound_builders_include_recent_actions(tmp_path):
         {
             "id": "internet-adaptation",
             "title": "Internet adaptation",
+            "north_star": "Continuously adapt to relevant new protocols and standards.",
             "status": "active",
             "last_gap_summary": ["keep execution bounded"],
             "last_evaluated_heartbeat": 40,
@@ -723,6 +724,7 @@ def test_bridge_post_format():
             {
                 "id": "internet-adaptation",
                 "title": "Internet adaptation",
+                "north_star": "Continuously adapt to relevant new protocols and standards.",
                 "status": "active",
                 "last_gap_summary": ["keep execution bounded"],
             }
@@ -745,6 +747,7 @@ def test_bridge_post_format():
     assert "Failing contracts: 1" in post["content"]
     assert "Campaigns:" in post["content"]
     assert "Internet adaptation (active)" in post["content"]
+    assert "Continuously adapt to relevant new protocols and standards." in post["content"]
     assert "keep execution bounded" in post["content"]
 
 

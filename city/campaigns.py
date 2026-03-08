@@ -106,6 +106,7 @@ class CampaignRegistry:
             {
                 "id": campaign.id,
                 "title": campaign.title,
+                "north_star": campaign.north_star,
                 "status": campaign.status.value,
                 "last_gap_summary": list(campaign.last_gap_summary[:3]),
                 "last_evaluated_heartbeat": campaign.last_evaluated_heartbeat,

@@ -137,6 +137,7 @@ class TestDigestCampaignStatus:
         cell = digest_campaign_status({
             "id": "internet-adaptation",
             "title": "Internet adaptation",
+            "north_star": "Continuously adapt to relevant new protocols and standards.",
             "status": "active",
             "last_gap_summary": ["keep execution bounded"],
             "last_evaluated_heartbeat": 42,
@@ -144,6 +145,7 @@ class TestDigestCampaignStatus:
         assert cell.kind == DigestKind.CAMPAIGN_STATUS
         assert cell.severity == Severity.INFO
         assert cell.key_metrics["gap_count"] == 1
+        assert "north_star=Continuously adapt to relevant new protocols and standards." in cell.summary
         assert "keep execution bounded" in cell.summary
 
     def test_campaign_without_gap_is_clean(self):

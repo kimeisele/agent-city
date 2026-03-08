@@ -61,6 +61,7 @@ def test_campaign_cli_apply_list_show(tmp_path: Path):
     summary = json.loads(list_result.stdout)
     assert summary[0]["id"] == "internet-adaptation"
     assert summary[0]["status"] == "active"
+    assert summary[0]["north_star"].startswith("Continuously adapt")
 
     show_result = subprocess.run(
         [
