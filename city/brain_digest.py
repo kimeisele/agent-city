@@ -297,6 +297,7 @@ def digest_campaign_status(campaign: dict) -> DigestCell:
 
     campaign_id = campaign.get("id", "?")
     title = campaign.get("title") or campaign_id
+    north_star = campaign.get("north_star", "")
     status = campaign.get("status", "unknown")
     gaps = tuple(campaign.get("last_gap_summary", [])[:3])
     severity = Severity.INFO if gaps else Severity.NONE
@@ -310,6 +311,8 @@ def digest_campaign_status(campaign: dict) -> DigestCell:
         metrics["last_evaluated_heartbeat"] = campaign["last_evaluated_heartbeat"]
 
     summary = f"{title}: {status}"
+    if north_star:
+        summary += f" | north_star={north_star}"
     if gaps:
         summary += f" | gaps={'; '.join(gaps)}"
 

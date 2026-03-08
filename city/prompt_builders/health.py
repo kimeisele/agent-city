@@ -60,10 +60,12 @@ class HealthCheckBuilder:
             summaries = []
             for campaign in snapshot.active_campaigns[:3]:
                 gaps = campaign.get("last_gap_summary", [])
+                north_star = campaign.get("north_star")
+                goal_text = f"; north_star={north_star}" if north_star else ""
                 gap_text = f"; gaps={', '.join(gaps[:2])}" if gaps else ""
                 summaries.append(
                     f"{campaign.get('title') or campaign.get('id', '?')}"
-                    f"({campaign.get('status', '?')}{gap_text})"
+                    f"({campaign.get('status', '?')}{goal_text}{gap_text})"
                 )
             lines.append(f"Campaigns: {' | '.join(summaries)}.")
 

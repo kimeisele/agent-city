@@ -410,6 +410,9 @@ class MoltbookBridge:
                 title = campaign.get("title") or campaign.get("id", "campaign")
                 status = campaign.get("status", "unknown")
                 parts.append(f"- 🎯 {title} ({status})")
+                north_star = campaign.get("north_star")
+                if north_star:
+                    parts.append(f"  north star: {north_star}")
                 gaps = campaign.get("last_gap_summary", [])
                 if gaps:
                     parts.append(f"  gaps: {', '.join(gaps[:2])}")
