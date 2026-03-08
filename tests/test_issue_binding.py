@@ -97,6 +97,18 @@ def test_resolve_issue_mismatch():
     assert 42 in mgr._bound_missions  # Not removed
 
 
+def test_issue_open_and_bound_helpers():
+    """Issue manager exposes read-only helpers for campaign dedupe."""
+    mgr = CityIssueManager()
+    mgr._issue_cells[42] = object()
+    mgr._bound_missions[42] = "issue_42_10"
+
+    assert mgr.is_issue_open(42) is True
+    assert mgr.is_issue_open(99) is False
+    assert mgr.get_bound_mission(42) == "issue_42_10"
+    assert mgr.get_bound_mission(99) is None
+
+
 if __name__ == "__main__":
     test_issue_directive_frozen()
     test_issue_directive_with_mission_id()

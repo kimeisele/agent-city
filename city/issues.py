@@ -525,6 +525,14 @@ class CityIssueManager:
             "age": cell.age,
         }
 
+    def is_issue_open(self, issue_number: int) -> bool:
+        """Return whether the issue is still tracked as open by the city."""
+        return issue_number in self._issue_cells
+
+    def get_bound_mission(self, issue_number: int) -> str | None:
+        """Return the currently bound mission id for an issue, if any."""
+        return self._bound_missions.get(issue_number)
+
     def stats(self) -> dict:
         """Issue manager statistics."""
         alive = sum(1 for c in self._issue_cells.values() if c.is_alive)

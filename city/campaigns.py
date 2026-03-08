@@ -48,6 +48,7 @@ class CampaignRecord:
     status: CampaignStatus = CampaignStatus.ACTIVE
     owner: str = "mayor"
     derived_mission_ids: list[str] = field(default_factory=list)
+    derived_issue_numbers: list[int] = field(default_factory=list)
     last_evaluated_heartbeat: int = 0
     last_compiled_heartbeat: int = 0
     last_gap_summary: list[str] = field(default_factory=list)
@@ -69,6 +70,7 @@ class CampaignRecord:
             status=CampaignStatus(data.get("status", CampaignStatus.ACTIVE.value)),
             owner=data.get("owner", "mayor"),
             derived_mission_ids=list(data.get("derived_mission_ids", [])),
+            derived_issue_numbers=[int(number) for number in data.get("derived_issue_numbers", [])],
             last_evaluated_heartbeat=int(data.get("last_evaluated_heartbeat", 0)),
             last_compiled_heartbeat=int(data.get("last_compiled_heartbeat", 0)),
             last_gap_summary=list(data.get("last_gap_summary", [])),
@@ -141,6 +143,11 @@ class CampaignRegistry:
             campaign.derived_mission_ids = [
                 mission_id for mission_id in campaign.derived_mission_ids if mission_id in active_ids
             ]
+            campaign.derived_issue_numbers = [
+                issue_number
+                for issue_number in campaign.derived_issue_numbers
+                if self._is_issue_open(ctx, issue_number)
+            ]
 
             if not gaps:
                 operations.append(f"campaign_ok:{campaign.id}")
@@ -151,12 +158,15 @@ class CampaignRegistry:
                 operations.append(f"campaign_wait:{campaign.id}:active_mission")
                 continue
 
-            compiled = self._compile_issue_mission(ctx, campaign, gaps)
+            compiled, issue_number = self._compile_issue_mission(ctx, campaign, gaps)
             if compiled is None:
                 operations.append(f"campaign_blocked:{campaign.id}:issue_compilation_failed")
                 continue
 
-            campaign.derived_mission_ids.append(compiled)
+            if compiled not in campaign.derived_mission_ids:
+                campaign.derived_mission_ids.append(compiled)
+            if issue_number is not None and issue_number not in campaign.derived_issue_numbers:
+                campaign.derived_issue_numbers.append(issue_number)
             campaign.last_compiled_heartbeat = ctx.heartbeat_count
             operations.append(f"campaign_compiled:{campaign.id}:{compiled}")
 
@@ -197,9 +207,34 @@ class CampaignRegistry:
         ctx: PhaseContext,
         campaign: CampaignRecord,
         gaps: list[str],
-    ) -> str | None:
+    ) -> tuple[str | None, int | None]:
         from city.issues import IssueType
         from city.missions import create_issue_mission
+
+        reusable_issue_number = self._find_reusable_issue_number(ctx, campaign)
+        if reusable_issue_number is not None:
+            mission_id = create_issue_mission(
+                ctx,
+                reusable_issue_number,
+                f"[Campaign] {campaign.title}",
+                "intent_needed",
+            )
+            if mission_id is None:
+                logger.warning(
+                    "Campaign %s failed to reuse issue #%s",
+                    campaign.id,
+                    reusable_issue_number,
+                )
+                return None, reusable_issue_number
+
+            ctx.issues.bind_mission(reusable_issue_number, mission_id)
+            logger.info(
+                "Campaign %s reused issue #%s via mission %s",
+                campaign.id,
+                reusable_issue_number,
+                mission_id,
+            )
+            return mission_id, reusable_issue_number
 
         title = f"[Campaign] {campaign.title}"
         body_lines = [
@@ -219,12 +254,28 @@ class CampaignRegistry:
         )
         if issue is None:
             logger.warning("Campaign %s failed to create issue", campaign.id)
-            return None
+            return None, None
 
         mission_id = create_issue_mission(ctx, issue["number"], issue["title"], "intent_needed")
         if mission_id is None:
             logger.warning("Campaign %s failed to create mission for issue #%s", campaign.id, issue["number"])
-            return None
+            return None, issue["number"]
 
         ctx.issues.bind_mission(issue["number"], mission_id)
-        return mission_id
+        return mission_id, issue["number"]
+
+    def _find_reusable_issue_number(self, ctx: PhaseContext, campaign: CampaignRecord) -> int | None:
+        for issue_number in reversed(campaign.derived_issue_numbers):
+            if self._is_issue_open(ctx, issue_number):
+                return issue_number
+        return None
+
+    def _is_issue_open(self, ctx: PhaseContext, issue_number: int) -> bool:
+        checker = getattr(ctx.issues, "is_issue_open", None)
+        if not callable(checker):
+            return False
+        try:
+            return bool(checker(issue_number))
+        except Exception as e:
+            logger.warning("Campaign issue-open check failed for #%s: %s", issue_number, e)
+            return False
