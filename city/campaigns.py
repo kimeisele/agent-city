@@ -75,8 +75,19 @@ class CampaignRegistry:
     def add_campaign(self, campaign: CampaignRecord) -> None:
         self._campaigns[campaign.id] = campaign
 
+    def get_campaign(self, campaign_id: str) -> CampaignRecord | None:
+        return self._campaigns.get(campaign_id)
+
     def list_campaigns(self) -> list[CampaignRecord]:
-        return list(self._campaigns.values())
+        return sorted(self._campaigns.values(), key=lambda campaign: campaign.id)
+
+    def apply_payload(self, payload: dict, *, replace: bool = False) -> list[CampaignRecord]:
+        campaigns = [CampaignRecord.from_dict(item) for item in payload.get("campaigns", [])]
+        if replace:
+            self._campaigns = {}
+        for campaign in campaigns:
+            self._campaigns[campaign.id] = campaign
+        return campaigns
 
     def summary(self, *, active_only: bool = False) -> list[dict]:
         campaigns = self.get_active_campaigns() if active_only else self.list_campaigns()

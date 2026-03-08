@@ -27,3 +27,16 @@ KARMA already knows how to execute `issue_*` missions. Reusing that path avoids 
 - `active_missions_at_most`
 
 This is intentionally small. The point is to create a stable strategic loop, not a giant speculative planner.
+
+### Bootstrap and inspection
+
+Campaigns can now be managed through `scripts/campaigns.py`:
+
+- `list` shows current campaign summaries
+- `show <campaign_id>` prints the full record
+- `apply --file campaign.json` upserts one or more campaigns from JSON
+
+Accepted JSON shape:
+
+- single campaign object with an `id`
+- or `{ "campaigns": [ ... ] }`
