@@ -49,6 +49,7 @@ renderers:
   doc_projection: city.wiki.renderers:render_doc_projection
   federation_overview: city.wiki.renderers:render_federation_overview
   federation_recent_reports: city.wiki.renderers:render_federation_recent_reports
+  mothership_repo_graph: city.wiki.renderers:render_mothership_repo_graph
   registry_agents: city.wiki.renderers:render_registry_agents
   registry_services: city.wiki.renderers:render_registry_services
   runtime_heartbeat_summary: city.wiki.renderers:render_runtime_heartbeat_summary
@@ -175,6 +176,18 @@ pages:
       - {kind: code, path: city/federation.py}
       - {kind: code, path: city/federation_nadi.py}
       - {kind: directory, path: data/federation}
+
+  - id: protocol_mothership_repo_graph
+    wiki_name: Protocol-Mothership-Repo-Graph
+    title: Mothership Repo Graph
+    section: Protocols
+    mode: generated
+    renderer: mothership_repo_graph
+    sources:
+      - {kind: external, path: ../agent-internet/agent_internet/agent_web_repo_graph.py}
+      - {kind: external, path: ../agent-internet/agent_internet/agent_web_repo_graph_capabilities.py}
+      - {kind: external, path: ../steward-protocol/vibe_core/knowledge/graph.py}
+      - {kind: external, path: ../steward-protocol/vibe_core/knowledge/schema.py}
 
   - id: registry_agents
     wiki_name: Registry-Agents

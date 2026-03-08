@@ -8,6 +8,8 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
+from city.wiki.repo_graph_client import load_mothership_repo_graph_context, load_mothership_repo_graph_snapshot
+
 
 def render_world_home(page: dict, context: dict, entity: dict | None = None) -> dict:
     agents = _load_agents(context["root"])
@@ -36,6 +38,7 @@ def render_world_map(page: dict, context: dict, entity: dict | None = None) -> s
     phases = _phase_names(context["root"])
     service_names = _service_names()
     federation = _federation_summary(context["root"])
+    mothership = load_mothership_repo_graph_snapshot(context["root"], limit=5)
     lines = [
         "A live projection of Agent City's main world structure.",
         "",
@@ -57,8 +60,21 @@ def render_world_map(page: dict, context: dict, entity: dict | None = None) -> s
         f"- Pending directives: `{federation['directives_pending']}`",
         f"- Nadi outbox messages on disk: `{federation['outbox_on_disk']}`",
         "",
-        "## Source Anchors",
+        "## Mothership Graph",
     ]
+    if mothership["available"]:
+        summary = mothership["snapshot"]["summary"]
+        lines.extend([
+            f"- Repo graph nodes: `{summary['node_count']}`",
+            f"- Repo graph edges: `{summary['edge_count']}`",
+            f"- Repo graph constraints: `{summary['constraint_count']}`",
+        ])
+    else:
+        lines.append(f"- Mothership repo graph unavailable: `{mothership['error']}`")
+    lines.extend([
+        "",
+        "## Source Anchors",
+    ])
     lines.extend(f"- `{path}`" for path in sources)
     lines.extend(["", _provenance(page, context)])
     return "\n".join(lines)
@@ -185,6 +201,51 @@ def render_federation_overview(page: dict, context: dict, entity: dict | None = 
         "",
         _provenance(page, context),
     ]
+    return "\n".join(lines)
+
+
+def render_mothership_repo_graph(page: dict, context: dict, entity: dict | None = None) -> str:
+    mothership = load_mothership_repo_graph_snapshot(context["root"], limit=8)
+    concept = load_mothership_repo_graph_context(context["root"], concept="governance")
+    lines = [
+        "## Mothership Repo Graph",
+        "This page consumes the published repo-graph surface from `agent-internet`, pointed at the sibling `steward-protocol` mothership repository.",
+        "",
+    ]
+    if not mothership["available"]:
+        lines.extend([
+            "- Status: `unavailable`",
+            f"- Repo root: `{mothership['repo_root']}`",
+            f"- Error: `{mothership['error']}`",
+            "",
+            _provenance(page, context),
+        ])
+        return "\n".join(lines)
+    snapshot = mothership["snapshot"]
+    summary = snapshot["summary"]
+    lines.extend([
+        f"- Source repo: `{snapshot['source']['repo_slug']}`",
+        f"- Nodes: `{summary['node_count']}`",
+        f"- Edges: `{summary['edge_count']}`",
+        f"- Constraints: `{summary['constraint_count']}`",
+        f"- Metrics: `{summary['metric_count']}`",
+        "",
+        "## Domain Breakdown",
+    ])
+    lines.extend(f"- `{domain}`: **{count}**" for domain, count in summary.get("domain_counts", {}).items())
+    lines.extend(["", "## Selected Nodes", "| Node | Type | Domain | Description |", "| :--- | :--- | :--- | :--- |"])
+    lines.extend(
+        f"| `{node['node_id']}` | `{node['type']}` | `{node['domain']}` | {node['description']} |"
+        for node in snapshot.get("nodes", [])
+    )
+    lines.extend(["", "## Relation Mix"])
+    lines.extend(f"- `{relation}`: **{count}**" for relation, count in summary.get("relation_counts", {}).items())
+    lines.extend(["", "## Governance Context Probe"])
+    if concept["available"]:
+        lines.append(concept["context"]["context"] or "No context returned.")
+    else:
+        lines.append(f"Repo-graph context unavailable: `{concept['error']}`")
+    lines.extend(["", _provenance(page, context)])
     return "\n".join(lines)
 
 

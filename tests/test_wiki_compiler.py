@@ -15,6 +15,7 @@ def test_build_wiki_materializes_pages(tmp_path):
     assert "Home.md" in names
     assert "World-Map.md" in names
     assert "Protocol-Federation.md" in names
+    assert "Protocol-Mothership-Repo-Graph.md" in names
     assert "Registry-Agents.md" in names
     assert "Registry-Services.md" in names
     assert "Runtime-Current-State.md" in names
@@ -31,9 +32,13 @@ def test_build_wiki_materializes_pages(tmp_path):
     world_map = (tmp_path / "World-Map.md").read_text()
     assert "Service Mesh" in world_map
     assert "Federation / Nadi" in world_map
+    assert "Mothership Graph" in world_map
 
     federation = (tmp_path / "Protocol-Federation.md").read_text()
     assert "Federation Surface" in federation
+
+    mothership = (tmp_path / "Protocol-Mothership-Repo-Graph.md").read_text()
+    assert "Mothership Repo Graph" in mothership
 
     services = (tmp_path / "Registry-Services.md").read_text()
     assert "Total registered service types" in services
