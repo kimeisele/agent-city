@@ -1,0 +1,28 @@
+{
+  "campaigns": [
+    {
+      "id": "internet-adaptation",
+      "title": "Internet adaptation",
+      "north_star": "Continuously adapt the city to relevant new protocols, tools, and standards while keeping execution bounded and the heartbeat healthy.",
+      "heartbeat_interval": 4,
+      "max_active_missions": 1,
+      "success_signals": [
+        {
+          "kind": "heartbeat_healthy",
+          "target": true,
+          "description": "heartbeat should remain healthy while adapting"
+        },
+        {
+          "kind": "chain_valid",
+          "target": true,
+          "description": "city chain should stay valid during adaptation"
+        },
+        {
+          "kind": "active_missions_at_most",
+          "target": 3,
+          "description": "keep active work bounded so strategy does not dissolve into thrash"
+        }
+      ]
+    }
+  ]
+}

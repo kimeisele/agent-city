@@ -111,3 +111,17 @@ def test_campaign_hook_compiles_issue_mission_from_gap():
         ]
     finally:
         shutil.rmtree(tmp)
+
+
+def test_load_campaign_payload_accepts_single_object(tmp_path: Path):
+    from city.campaigns import load_campaign_payload
+
+    payload_path = tmp_path / "campaign.json"
+    payload_path.write_text('{"id": "north-star", "title": "North Star", "north_star": "Stay aligned."}')
+
+    payload = load_campaign_payload(payload_path)
+    assert payload == {
+        "campaigns": [
+            {"id": "north-star", "title": "North Star", "north_star": "Stay aligned."}
+        ]
+    }

@@ -40,3 +40,6 @@ Accepted JSON shape:
 
 - single campaign object with an `id`
 - or `{ "campaigns": [ ... ] }`
+
+The heartbeat runner now also auto-applies `campaigns/default.json` when present.
+That makes the checked-in manifest the city's standing strategic orientation unless explicitly disabled.

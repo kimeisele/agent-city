@@ -22,6 +22,9 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 # Heartbeat file-lock path (Issue #17 S1b — prevents concurrent overlap)
 _LOCK_PATH = Path("data/.heartbeat.lock")
 
@@ -92,6 +95,22 @@ def main() -> None:
         action="store_true",
         help="Continuous daemon mode (adaptive frequency)",
     )
+    parser.add_argument(
+        "--campaign-file",
+        type=str,
+        default=_cfg.get("campaigns", {}).get("default_manifest", "campaigns/default.json"),
+        help="Campaign manifest applied before heartbeat cycles when present",
+    )
+    parser.add_argument(
+        "--no-campaign-bootstrap",
+        action="store_true",
+        help="Disable automatic campaign manifest application",
+    )
+    parser.add_argument(
+        "--campaign-merge",
+        action="store_true",
+        help="Merge campaign manifest into existing state instead of replacing campaign state",
+    )
     args = parser.parse_args()
 
     # Logging
@@ -112,6 +131,13 @@ def main() -> None:
     from city.runtime import build_city_runtime, build_daemon_service, persist_city_runtime
 
     runtime = build_city_runtime(args=args, config=_cfg, log=log)
+    applied_campaigns = _apply_campaign_manifest(
+        runtime,
+        manifest_path=Path(args.campaign_file),
+        replace=not args.campaign_merge,
+        log=log,
+        disabled=args.no_campaign_bootstrap,
+    )
 
     print(f"=== Agent City Heartbeat — {args.cycles} cycles ===")
     if args.offline:
@@ -161,6 +187,45 @@ def main() -> None:
             print(" — idle")
 
     print(f"\n=== {len(results)} heartbeats complete ===")
+
+
+def _apply_campaign_manifest(
+    runtime,
+    *,
+    manifest_path: Path,
+    replace: bool,
+    log: logging.Logger,
+    disabled: bool,
+) -> int:
+    if disabled:
+        log.info("Campaign bootstrap disabled")
+        return 0
+
+    from city.campaigns import load_campaign_payload
+    from city.registry import SVC_CAMPAIGNS
+
+    campaigns = runtime.registry.get(SVC_CAMPAIGNS)
+    if campaigns is None:
+        log.info("Campaign service unavailable; skipping manifest bootstrap")
+        return 0
+    if not manifest_path.exists():
+        log.info("No campaign manifest at %s; skipping bootstrap", manifest_path)
+        return 0
+
+    try:
+        payload = load_campaign_payload(manifest_path)
+    except ValueError as exc:
+        log.warning("Invalid campaign manifest %s: %s", manifest_path, exc)
+        return 0
+
+    applied = campaigns.apply_payload(payload, replace=replace)
+    log.info(
+        "Applied %d campaigns from %s (replace=%s)",
+        len(applied),
+        manifest_path,
+        replace,
+    )
+    return len(applied)
 
 
 if __name__ == "__main__":
