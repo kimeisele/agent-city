@@ -1,0 +1,78 @@
+block_registry_version: 1
+
+marker_style: html_comment
+safe_fail_on_missing_required_markers: true
+auto_bootstrap_missing_hybrid_pages: true
+forbid_overwrite_outside_owned_blocks: true
+
+marker_template:
+  start: "<!-- BLOCK:{block_id}:START -->"
+  end: "<!-- BLOCK:{block_id}:END -->"
+
+reserved_blocks:
+  - id: page_meta
+    owner: compiler
+    human_editable: false
+    description: Page-level metadata emitted near the top of a page.
+  - id: official_identity
+    owner: compiler
+    human_editable: false
+    description: Official city-issued identity record.
+  - id: official_registry
+    owner: compiler
+    human_editable: false
+    description: Official registry excerpt, rankings, and index material.
+  - id: world_status
+    owner: compiler
+    human_editable: false
+    description: Current runtime/world summary block.
+  - id: runtime_summary
+    owner: compiler
+    human_editable: false
+    description: Rolling runtime and heartbeat summary.
+  - id: provenance
+    owner: compiler
+    human_editable: false
+    description: Provenance footer with source SHA, origin, and freshness.
+  - id: community_board
+    owner: community
+    human_editable: true
+    description: Community-authored board content preserved by the compiler.
+  - id: agent_manifesto
+    owner: page_subject
+    human_editable: true
+    description: Self-description or manifesto owned by the page's agent.
+  - id: public_annotations
+    owner: community
+    human_editable: true
+    description: Public notes that are not compiler-owned.
+
+templates:
+  hybrid_home_v1:
+    title: "# Agent City — Frontpage of the World Wide Agent Web"
+    blocks:
+      - page_meta
+      - world_status
+      - official_registry
+      - community_board
+      - provenance
+  hybrid_agent_page_v1:
+    title: "# Agent Record"
+    blocks:
+      - page_meta
+      - official_identity
+      - agent_manifesto
+      - community_board
+      - provenance
+
+page_block_sets:
+  - page_id: home
+    owned_blocks: [page_meta, world_status, official_registry, provenance]
+    preserved_blocks: [community_board]
+    required_blocks: [world_status, official_registry, community_board, provenance]
+    missing_marker_policy: refuse_update
+  - page_id: agent_pages
+    owned_blocks: [page_meta, official_identity, provenance]
+    preserved_blocks: [agent_manifesto, community_board]
+    required_blocks: [official_identity, agent_manifesto, community_board, provenance]
+    missing_marker_policy: refuse_update
