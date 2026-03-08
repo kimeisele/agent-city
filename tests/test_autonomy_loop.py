@@ -196,6 +196,7 @@ def test_city_report_pr_results_default_empty():
         mission_results=[], directive_acks=[],
     )
     assert report.pr_results == []
+    assert report.active_campaigns == []
 
 
 def test_moltbook_bridge_formats_pr_results():

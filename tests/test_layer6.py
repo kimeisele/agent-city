@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from unittest.mock import MagicMock
 
 # Ensure imports work
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
@@ -55,6 +56,7 @@ def test_build_city_report():
         contract_status={"ruff_clean": "passing"},
         mission_results=[],
         directive_acks=["DIR-001"],
+        active_campaigns=[{"id": "internet-adaptation", "status": "active"}],
     )
     d = report.to_dict()
     assert d["heartbeat"] == 42
@@ -62,6 +64,7 @@ def test_build_city_report():
     assert d["elected_mayor"] == "Agent_Alpha"
     assert d["chain_valid"] is True
     assert "DIR-001" in d["directive_acks"]
+    assert d["active_campaigns"][0]["id"] == "internet-adaptation"
 
 
 def test_outbound_builders_include_recent_actions(tmp_path):
@@ -83,7 +86,17 @@ def test_outbound_builders_include_recent_actions(tmp_path):
         heartbeat_count=42,
         offline_mode=True,
         state_path=tmp_path / "mayor_state.json",
+        campaigns=MagicMock(),
     )
+    ctx.campaigns.summary.return_value = [
+        {
+            "id": "internet-adaptation",
+            "title": "Internet adaptation",
+            "status": "active",
+            "last_gap_summary": ["keep execution bounded"],
+            "last_evaluated_heartbeat": 40,
+        }
+    ]
     reflection = {
         "city_stats": {"total": 3, "active": 1, "citizen": 1},
         "chain_valid": True,
@@ -101,7 +114,9 @@ def test_outbound_builders_include_recent_actions(tmp_path):
         "brain_reflect",
         "pr_created:fix/42",
     ]
+    assert post_data["active_campaigns"][0]["id"] == "internet-adaptation"
     assert report.recent_actions == post_data["recent_actions"]
+    assert report.active_campaigns == post_data["active_campaigns"]
 
 
 def test_send_report_dry_run():
@@ -704,6 +719,14 @@ def test_bridge_post_format():
         "recent_actions": ["election:mayor=Agent_Alpha"],
         "contract_status": {"total": 3, "passing": 2, "failing": 1},
         "chain_valid": True,
+        "active_campaigns": [
+            {
+                "id": "internet-adaptation",
+                "title": "Internet adaptation",
+                "status": "active",
+                "last_gap_summary": ["keep execution bounded"],
+            }
+        ],
     }
     result = bridge.post_city_update(data)
     assert result is True
@@ -720,6 +743,9 @@ def test_bridge_post_format():
     assert "Agent_Alpha" in post["content"]
     assert "6 seats" in post["content"]
     assert "Failing contracts: 1" in post["content"]
+    assert "Campaigns:" in post["content"]
+    assert "Internet adaptation (active)" in post["content"]
+    assert "keep execution bounded" in post["content"]
 
 
 def test_bridge_persistence():

@@ -64,6 +64,7 @@ def _make_report(heartbeat: int = 1, population: int = 10) -> CityReport:
         mission_results=[{"name": "heal_lint", "status": "completed"}],
         directive_acks=["dir_001"],
         pr_results=[{"pr": 7, "status": "merged"}],
+        active_campaigns=[{"id": "internet-adaptation", "status": "active"}],
     )
 
 
@@ -112,7 +113,7 @@ class TestCityReport:
             "heartbeat", "timestamp", "population", "alive", "dead",
             "elected_mayor", "council_seats", "open_proposals",
             "chain_valid", "recent_actions", "contract_status",
-            "mission_results", "directive_acks", "pr_results",
+            "mission_results", "directive_acks", "pr_results", "active_campaigns",
         }
         assert expected_keys == set(d.keys())
 
@@ -480,6 +481,7 @@ class TestCrossRepoContract:
         assert "chain_valid" in d
         assert "mission_results" in d
         assert "pr_results" in d
+        assert "active_campaigns" in d
 
     def test_city_report_serializable(self):
         """CityReport can be JSON-serialized (for Nadi payload)."""

@@ -48,6 +48,7 @@ class CityReport:
     mission_results: list[dict]
     directive_acks: list[str]
     pr_results: list[dict] = field(default_factory=list)  # PRs from KARMA issue/exec missions
+    active_campaigns: list[dict] = field(default_factory=list)  # Strategic campaign summaries
 
     def to_dict(self) -> dict:
         return {
@@ -65,6 +66,7 @@ class CityReport:
             "mission_results": self.mission_results,
             "directive_acks": self.directive_acks,
             "pr_results": self.pr_results,
+            "active_campaigns": self.active_campaigns,
         }
 
 
