@@ -138,12 +138,15 @@ class CampaignRegistry:
             campaign.last_evaluated_heartbeat = ctx.heartbeat_count
             gaps = self._compute_gaps(ctx, campaign, active_missions)
             campaign.last_gap_summary = list(gaps)
+            campaign.derived_mission_ids = [
+                mission_id for mission_id in campaign.derived_mission_ids if mission_id in active_ids
+            ]
 
             if not gaps:
                 operations.append(f"campaign_ok:{campaign.id}")
                 continue
 
-            active_bound = active_ids.intersection(campaign.derived_mission_ids)
+            active_bound = set(campaign.derived_mission_ids)
             if len(active_bound) >= campaign.max_active_missions:
                 operations.append(f"campaign_wait:{campaign.id}:active_mission")
                 continue
