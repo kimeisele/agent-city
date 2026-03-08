@@ -13,14 +13,27 @@ def test_build_wiki_materializes_pages(tmp_path):
 
     names = {path.name for path in built}
     assert "Home.md" in names
+    assert "World-Map.md" in names
+    assert "Protocol-Federation.md" in names
     assert "Registry-Agents.md" in names
     assert "Runtime-Current-State.md" in names
+    assert "Runtime-Active-Bridges.md" in names
     assert "_Sidebar.md" in names
     assert any(name.startswith("Agent--") for name in names)
 
     home = (tmp_path / "Home.md").read_text()
     assert "BLOCK:community_board:START" in home
     assert "BLOCK:official_registry:START" in home
+
+    world_map = (tmp_path / "World-Map.md").read_text()
+    assert "Service Mesh" in world_map
+    assert "Federation / Nadi" in world_map
+
+    federation = (tmp_path / "Protocol-Federation.md").read_text()
+    assert "Federation Surface" in federation
+
+    bridges = (tmp_path / "Runtime-Active-Bridges.md").read_text()
+    assert "Active Bridges" in bridges
 
 
 def test_merge_hybrid_content_refuses_missing_required_markers():
