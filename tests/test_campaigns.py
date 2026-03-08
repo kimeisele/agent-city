@@ -72,6 +72,7 @@ def test_campaign_hook_compiles_issue_mission_from_gap():
         mock_sankalpa.registry = mock_registry
 
         mock_issues = MagicMock()
+        mock_issues.is_issue_open.return_value = False
         mock_issues.create_issue.return_value = {
             "number": 42,
             "title": "[Campaign] Keep system focus",
@@ -109,6 +110,7 @@ def test_campaign_hook_compiles_issue_mission_from_gap():
         assert campaigns.summary(active_only=True)[0]["last_gap_summary"] == [
             "too many active missions for focused execution"
         ]
+        assert campaigns.get_campaign("system-focus").derived_issue_numbers == [42]
     finally:
         shutil.rmtree(tmp)
 
@@ -143,6 +145,7 @@ def test_campaign_prunes_stale_derived_mission_ids_before_waiting():
         mock_sankalpa.registry = mock_registry
 
         mock_issues = MagicMock()
+        mock_issues.is_issue_open.side_effect = lambda issue_number: issue_number == 42
         campaigns = CampaignRegistry(
             [
                 CampaignRecord(
@@ -169,5 +172,59 @@ def test_campaign_prunes_stale_derived_mission_ids_before_waiting():
         assert "campaign_wait:system-focus:active_mission" in operations
         assert campaigns.get_campaign("system-focus").derived_mission_ids == ["issue_42_10"]
         mock_issues.create_issue.assert_not_called()
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_campaign_reuses_open_derived_issue_before_creating_new_one():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        from city.campaigns import CampaignRecord, CampaignRegistry, CampaignSignal
+        from city.hooks.dharma.governance import CampaignEvaluationHook
+
+        active_mission = MagicMock()
+        active_mission.id = "heal_existing_9"
+        active_mission.name = "Existing focus repair"
+
+        mock_registry = MagicMock()
+        mock_registry.get_active_missions.return_value = [active_mission]
+
+        mock_sankalpa = MagicMock()
+        mock_sankalpa.registry = mock_registry
+
+        mock_issues = MagicMock()
+        mock_issues.is_issue_open.side_effect = lambda issue_number: issue_number == 42
+
+        campaigns = CampaignRegistry(
+            [
+                CampaignRecord(
+                    id="system-focus",
+                    title="Keep system focus",
+                    north_star="Bound active work so heartbeat stays strategic.",
+                    success_signals=[
+                        CampaignSignal(
+                            kind="active_missions_at_most",
+                            target=0,
+                            description="too many active missions for focused execution",
+                        )
+                    ],
+                    derived_issue_numbers=[41, 42],
+                )
+            ]
+        )
+
+        ctx = _make_ctx(tmp, sankalpa=mock_sankalpa, issues=mock_issues, campaigns=campaigns)
+        operations: list[str] = []
+
+        CampaignEvaluationHook().execute(ctx, operations)
+
+        assert any(op.startswith("campaign_compiled:system-focus:issue_42_10") for op in operations)
+        mock_issues.create_issue.assert_not_called()
+        mock_issues.bind_mission.assert_called_once_with(42, "issue_42_10")
+        mock_sankalpa.registry.add_mission.assert_called_once()
+        campaign = campaigns.get_campaign("system-focus")
+        assert campaign is not None
+        assert campaign.derived_issue_numbers == [42]
+        assert campaign.derived_mission_ids == ["issue_42_10"]
     finally:
         shutil.rmtree(tmp)
