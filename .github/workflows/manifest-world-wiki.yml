@@ -42,6 +42,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install dev dependencies
+        run: python -m pip install -e .[dev]
+
       - name: Setup Ruby for YAML fallback
         uses: ruby/setup-ruby@v1
         with:
@@ -62,6 +65,7 @@ jobs:
             tests/test_wiki_publisher.py \
             tests/test_wiki_portal.py
           python -m pytest -q tests/test_wiki_compiler.py tests/test_wiki_publisher.py tests/test_wiki_portal.py
+          python scripts/build_wiki.py --output-dir .vibe/wiki-build-ci
 
       - name: Configure git identity
         run: |
@@ -72,4 +76,9 @@ jobs:
         env:
           WIKI_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git
         run: |
-          python scripts/publish_wiki.py --wiki-url "$WIKI_URL" --push
+          python scripts/publish_wiki.py --wiki-url "$WIKI_URL" --push --result-path .vibe/wiki-publish-result.json
+
+      - name: Summarize publication result
+        run: |
+          echo '## Manifest World Wiki Publish Result' >> "$GITHUB_STEP_SUMMARY"
+          cat .vibe/wiki-publish-result.json >> "$GITHUB_STEP_SUMMARY"
