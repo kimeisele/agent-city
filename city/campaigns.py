@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.CAMPAIGNS")
+
+
+def load_campaign_payload(path: Path) -> dict:
+    payload = json.loads(path.read_text())
+    if isinstance(payload, dict) and "campaigns" in payload:
+        return payload
+    if isinstance(payload, dict) and "id" in payload:
+        return {"campaigns": [payload]}
+    raise ValueError("campaign file must contain a campaign object or {\"campaigns\": [...]} payload")
 
 
 class CampaignStatus(str, Enum):

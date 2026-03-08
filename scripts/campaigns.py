@@ -88,12 +88,12 @@ def _build_runtime(*, db: str, offline: bool, cfg: dict):
 
 
 def _load_payload(path: Path) -> dict:
-    payload = json.loads(path.read_text())
-    if isinstance(payload, dict) and "campaigns" in payload:
-        return payload
-    if isinstance(payload, dict) and "id" in payload:
-        return {"campaigns": [payload]}
-    raise SystemExit("campaign file must contain a campaign object or {\"campaigns\": [...]} payload")
+    from city.campaigns import load_campaign_payload
+
+    try:
+        return load_campaign_payload(path)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":
