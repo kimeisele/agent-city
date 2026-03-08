@@ -402,6 +402,18 @@ class MoltbookBridge:
                 icon = "✅" if status == "completed" else "🔄" if status == "active" else "❌"
                 parts.append(f"- {icon} {m.get('name', 'unknown')} ({status})")
 
+        campaigns = data.get("active_campaigns", [])
+        if campaigns:
+            parts.append("")
+            parts.append("Campaigns:")
+            for campaign in campaigns[:3]:
+                title = campaign.get("title") or campaign.get("id", "campaign")
+                status = campaign.get("status", "unknown")
+                parts.append(f"- 🎯 {title} ({status})")
+                gaps = campaign.get("last_gap_summary", [])
+                if gaps:
+                    parts.append(f"  gaps: {', '.join(gaps[:2])}")
+
         # PR results from KARMA issue/exec missions
         prs = data.get("pr_results", [])
         if prs:

@@ -40,6 +40,7 @@ class FederationReportHook(BasePhaseHook):
         reflection = getattr(ctx, "_reflection", {})
         stats = reflection.get("city_stats", {})
         chain_valid = reflection.get("chain_valid", False)
+        active_campaigns = _collect_active_campaigns(ctx)
 
         # Layer 6: Federation Nadi — emit city state + flush outbox
         if ctx.federation_nadi is not None:
@@ -50,6 +51,7 @@ class FederationReportHook(BasePhaseHook):
                 "chain_valid": chain_valid,
                 "pr_results": reflection.get("pr_results", []),
                 "mission_results": reflection.get("mission_results_terminal", []),
+                "active_campaigns": active_campaigns,
             }
             ctx.federation_nadi.emit(
                 source="moksha",
@@ -336,6 +338,7 @@ def _build_post_data(
             logger.warning("MOKSHA: Failed to collect mission results for post: %s", e)
 
     directive_acks = ctx.federation.pending_acks if ctx.federation is not None else []
+    active_campaigns = _collect_active_campaigns(ctx)
 
     return {
         "heartbeat": ctx.heartbeat_count,
@@ -350,6 +353,7 @@ def _build_post_data(
         "mission_results": mission_results,
         "directive_acks": directive_acks,
         "pr_results": reflection.get("pr_results", []),
+        "active_campaigns": active_campaigns,
     }
 
 
@@ -384,6 +388,7 @@ def _build_city_report(
         }
 
     directive_acks = ctx.federation.pending_acks if ctx.federation is not None else []
+    active_campaigns = _collect_active_campaigns(ctx)
 
     # Collect mission results from sankalpa registry
     mission_results: list[dict] = []
@@ -420,7 +425,20 @@ def _build_city_report(
         mission_results=mission_results,
         directive_acks=directive_acks,
         pr_results=reflection.get("pr_results", []),
+        active_campaigns=active_campaigns,
     )
+
+
+def _collect_active_campaigns(ctx: PhaseContext) -> list[dict]:
+    """Return compact active campaign summaries for outward projections."""
+    campaigns = ctx.campaigns
+    if campaigns is None or not hasattr(campaigns, "summary"):
+        return []
+    try:
+        return [dict(item) for item in campaigns.summary(active_only=True)[:5]]
+    except Exception as e:
+        logger.warning("MOKSHA: Failed to collect campaign summaries: %s", e)
+        return []
 
 
 def _collect_recent_actions(
