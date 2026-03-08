@@ -49,6 +49,16 @@ class ReflectionBuilder:
                     f"Critical: "
                     f"{', '.join(snapshot.critical_findings[:3])}."
                 )
+            if snapshot.active_campaigns:
+                campaign_summaries = []
+                for campaign in snapshot.active_campaigns[:3]:
+                    gaps = campaign.get("last_gap_summary", [])
+                    gap_text = f"; gaps={', '.join(gaps[:2])}" if gaps else ""
+                    campaign_summaries.append(
+                        f"{campaign.get('title') or campaign.get('id', '?')}"
+                        f"({campaign.get('status', '?')}{gap_text})"
+                    )
+                lines.append(f"Campaigns in play: {' | '.join(campaign_summaries)}.")
 
         outcome_diff = ctx.outcome_diff
         if outcome_diff is not None:
@@ -115,6 +125,10 @@ class ReflectionBuilder:
             if reflection.get("mission_results_terminal"):
                 parts.append(
                     f"Missions completed: {len(reflection['mission_results_terminal'])}."
+                )
+            if ctx.snapshot is not None and ctx.snapshot.active_campaigns:
+                parts.append(
+                    f"Active campaigns: {len(ctx.snapshot.active_campaigns)}."
                 )
             events = reflection.get("events_since_last", 0)
             if events:

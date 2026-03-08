@@ -276,6 +276,27 @@ class TestComprehensionPromptPipeline:
         assert "2 test(s) failed" in text
         assert "test_bar" in text
 
+    def test_campaigns_in_prompt(self):
+        from city.brain_context import ContextSnapshot
+
+        snap = ContextSnapshot(
+            agent_count=62,
+            alive_count=50,
+            active_campaigns=(
+                {
+                    "id": "internet-adaptation",
+                    "title": "Internet adaptation",
+                    "status": "active",
+                    "last_gap_summary": ["keep execution bounded"],
+                },
+            ),
+        )
+        lines = self._build_prompt_lines(snap)
+        text = "\n".join(lines)
+        assert "Campaigns:" in text
+        assert "Internet adaptation" in text
+        assert "keep execution bounded" in text
+
     def test_healthy_no_anomaly_lines(self):
         from city.brain_context import ContextSnapshot
 

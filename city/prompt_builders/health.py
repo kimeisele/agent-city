@@ -56,6 +56,16 @@ class HealthCheckBuilder:
             mayor = snapshot.council_summary.get("mayor", "none")
             seats = snapshot.council_summary.get("seats_filled", 0)
             lines.append(f"Council: mayor={mayor}, {seats} seats filled.")
+        if snapshot.active_campaigns:
+            summaries = []
+            for campaign in snapshot.active_campaigns[:3]:
+                gaps = campaign.get("last_gap_summary", [])
+                gap_text = f"; gaps={', '.join(gaps[:2])}" if gaps else ""
+                summaries.append(
+                    f"{campaign.get('title') or campaign.get('id', '?')}"
+                    f"({campaign.get('status', '?')}{gap_text})"
+                )
+            lines.append(f"Campaigns: {' | '.join(summaries)}.")
 
         return lines
 

@@ -69,6 +69,16 @@ class ComprehensionBuilder:
                     for m in ctx.snapshot.active_missions[:5]
                 ]
                 lines.append(f"  Missions: {', '.join(mission_strs)}.")
+            if ctx.snapshot.active_campaigns:
+                campaign_strs = []
+                for campaign in ctx.snapshot.active_campaigns[:3]:
+                    gaps = campaign.get("last_gap_summary", [])
+                    suffix = f" gaps={'; '.join(gaps[:2])}" if gaps else ""
+                    campaign_strs.append(
+                        f"{campaign.get('title') or campaign.get('id', '?')}"
+                        f"({campaign.get('status', '?')}){suffix}"
+                    )
+                lines.append(f"  Campaigns: {' | '.join(campaign_strs)}.")
             if ctx.snapshot.failing_contracts:
                 lines.append(
                     f"  Failing contracts: {', '.join(ctx.snapshot.failing_contracts[:5])}."
