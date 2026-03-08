@@ -47,8 +47,10 @@ renderers:
   world_home: city.wiki.renderers:render_world_home
   world_map: city.wiki.renderers:render_world_map
   doc_projection: city.wiki.renderers:render_doc_projection
+  federation_overview: city.wiki.renderers:render_federation_overview
   registry_agents: city.wiki.renderers:render_registry_agents
   runtime_state: city.wiki.renderers:render_runtime_state
+  runtime_active_bridges: city.wiki.renderers:render_runtime_active_bridges
   hybrid_agent_page: city.wiki.renderers:render_agent_page
   sidebar: city.wiki.renderers:render_sidebar
   footer: city.wiki.renderers:render_footer
@@ -160,6 +162,17 @@ pages:
       - {kind: code, path: city/visa.py}
       - {kind: code, path: city/identity_service.py}
 
+  - id: protocol_federation
+    wiki_name: Protocol-Federation
+    title: Federation Protocol
+    section: Protocols
+    mode: generated
+    renderer: federation_overview
+    sources:
+      - {kind: code, path: city/federation.py}
+      - {kind: code, path: city/federation_nadi.py}
+      - {kind: directory, path: data/federation}
+
   - id: registry_agents
     wiki_name: Registry-Agents
     title: Agent Registry
@@ -193,6 +206,20 @@ pages:
       staleness_ttl_seconds: 1800
     retention:
       policy: replace_in_place
+
+  - id: runtime_active_bridges
+    wiki_name: Runtime-Active-Bridges
+    title: Active Bridges
+    section: Runtime
+    mode: generated
+    renderer: runtime_active_bridges
+    sources:
+      - {kind: code, path: city/federation.py}
+      - {kind: code, path: city/federation_nadi.py}
+      - {kind: directory, path: data/federation}
+    refresh:
+      policy: runtime_coalesced
+      staleness_ttl_seconds: 1800
 
   - id: ledger_recent_changes
     wiki_name: Ledger-Recent-Changes
