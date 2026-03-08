@@ -169,6 +169,7 @@ def default_definitions(
         SVC_AUDIT,
         SVC_CARTRIDGE_FACTORY,
         SVC_CARTRIDGE_LOADER,
+        SVC_CAMPAIGNS,
         SVC_CITY_BUILDER,
         SVC_CITY_NADI,
         SVC_CLAIMS,
@@ -223,6 +224,10 @@ def default_definitions(
                 ServiceDefinition(
                     name=SVC_SANKALPA,
                     factory=lambda ctx: _build_sankalpa(),
+                ),
+                ServiceDefinition(
+                    name=SVC_CAMPAIGNS,
+                    factory=lambda ctx: _build_campaigns(),
                 ),
                 ServiceDefinition(
                     name=SVC_REFLECTION,
@@ -428,6 +433,12 @@ def _build_sankalpa() -> object | None:
     from vibe_core.mahamantra.substrate.sankalpa.will import SankalpaOrchestrator
 
     return SankalpaOrchestrator()
+
+
+def _build_campaigns() -> object | None:
+    from city.campaigns import CampaignRegistry
+
+    return CampaignRegistry()
 
 
 def _build_reflection() -> object | None:

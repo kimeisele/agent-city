@@ -41,6 +41,7 @@ class ContextSnapshot:
     economy_stats: dict = None  # type: ignore[assignment]  # {total_prana, avg_prana, dormant, ...}
     discussion_activity: dict = None  # type: ignore[assignment]  # {unreplied, total_seen, ...}
     active_missions: tuple[dict, ...] = ()    # [{id, name, status, owner}]
+    active_campaigns: tuple[dict, ...] = ()   # [{id, title, status, last_gap_summary}]
     thread_stats: dict = None  # type: ignore[assignment]  # comment ledger stats
     # Schritt 8: Heartbeat observer self-diagnosis
     heartbeat_health: dict = None  # type: ignore[assignment]  # {healthy, anomalies, success_rate, ...}
@@ -122,6 +123,7 @@ def save_before_snapshot(snapshot: ContextSnapshot, state_dir: Path) -> None:
             "economy_stats": snapshot.economy_stats,
             "discussion_activity": snapshot.discussion_activity,
             "active_missions": list(snapshot.active_missions),
+            "active_campaigns": list(snapshot.active_campaigns),
             "thread_stats": snapshot.thread_stats,
             "heartbeat_health": snapshot.heartbeat_health,
         }
@@ -156,6 +158,7 @@ def load_before_snapshot(state_dir: Path) -> ContextSnapshot | None:
             economy_stats=data.get("economy_stats", {}),
             discussion_activity=data.get("discussion_activity", {}),
             active_missions=tuple(data.get("active_missions", [])),
+            active_campaigns=tuple(data.get("active_campaigns", [])),
             thread_stats=data.get("thread_stats", {}),
             heartbeat_health=data.get("heartbeat_health", {}),
         )
@@ -500,6 +503,15 @@ def build_context_snapshot(ctx: object) -> ContextSnapshot:
     except Exception:
         pass
 
+    active_campaigns_data: list[dict] = []
+    try:
+        campaigns = ctx.campaigns  # type: ignore[union-attr]
+        if campaigns is not None and hasattr(campaigns, "summary"):
+            for campaign in campaigns.summary(active_only=True)[:10]:
+                active_campaigns_data.append(campaign)
+    except Exception:
+        pass
+
     # 6C-4: Thread state (comment ledger stats)
     thread_stats: dict = {}
     try:
@@ -542,6 +554,7 @@ def build_context_snapshot(ctx: object) -> ContextSnapshot:
         economy_stats=economy_stats,
         discussion_activity=discussion_activity,
         active_missions=tuple(active_missions_data),
+        active_campaigns=tuple(active_campaigns_data),
         thread_stats=thread_stats,
         heartbeat_health=heartbeat_health,
     )

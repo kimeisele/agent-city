@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from city.registry import (
+    SVC_CAMPAIGNS,
     SVC_DISCUSSIONS,
     SVC_MOLTBOOK_ASSISTANT,
     CityServiceRegistry,
@@ -25,6 +26,7 @@ class RuntimeStatePaths:
     db_path: Path
     mayor_state_path: Path
     bridge_state_path: Path
+    campaigns_state_path: Path
     assistant_state_path: Path
     discussions_state_path: Path
     venu_state_path: Path
@@ -37,6 +39,7 @@ class RuntimeStatePaths:
             db_path=db_path,
             mayor_state_path=root / "mayor_state.json",
             bridge_state_path=root / "bridge_state.json",
+            campaigns_state_path=root / "campaigns_state.json",
             assistant_state_path=root / "assistant_state.json",
             discussions_state_path=root / "discussions_state.json",
             venu_state_path=root / "venu_state.bin",
@@ -140,6 +143,12 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     _wire_moltbook_client(runtime=runtime, log=log)
     _wire_moltbook_bridge(runtime=runtime, config=config, log=log)
     _restore_json_state(
+        runtime.registry.get(SVC_CAMPAIGNS),
+        state_paths.campaigns_state_path,
+        log,
+        label="Campaigns",
+    )
+    _restore_json_state(
         runtime.assistant,
         state_paths.assistant_state_path,
         log,
@@ -157,6 +166,12 @@ def persist_city_runtime(runtime: CityRuntime, log: logging.Logger) -> None:
         runtime.state_paths.bridge_state_path,
         log,
         label="Bridge",
+    )
+    _persist_json_state(
+        runtime.registry.get(SVC_CAMPAIGNS),
+        runtime.state_paths.campaigns_state_path,
+        log,
+        label="Campaigns",
     )
     _persist_json_state(
         runtime.assistant,

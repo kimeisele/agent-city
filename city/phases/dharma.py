@@ -29,6 +29,7 @@ def _build_registry():
         ZoneHealthHook,
     )
     from city.hooks.dharma.governance import (
+        CampaignEvaluationHook,
         CognitionConstraintsHook,
         ElectionHook,
         ProposalExpiryHook,
@@ -48,6 +49,7 @@ def _build_registry():
     registry.register(ElectionHook())                  # pri=20  elections
     registry.register(CognitionConstraintsHook())      # pri=25  constraints
     registry.register(ProposalExpiryHook())            # pri=30  expire
+    registry.register(CampaignEvaluationHook())        # pri=35  long-horizon strategy
     registry.register(ContractsHook())                 # pri=40  contracts
     registry.register(IssueLifecycleHook())            # pri=45  issues
     registry.register(MoltbookAssistantDharmaHook())   # pri=50  assistant

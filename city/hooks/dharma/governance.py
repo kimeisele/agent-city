@@ -139,6 +139,30 @@ class ProposalExpiryHook(BasePhaseHook):
             operations.append(f"proposals_expired:{expired}")
 
 
+class CampaignEvaluationHook(BasePhaseHook):
+    """Evaluate long-horizon campaigns and compile bounded work."""
+
+    @property
+    def name(self) -> str:
+        return "campaign_evaluation"
+
+    @property
+    def phase(self) -> str:
+        return DHARMA
+
+    @property
+    def priority(self) -> int:
+        return 35
+
+    def should_run(self, ctx: PhaseContext) -> bool:
+        return ctx.campaigns is not None and ctx.sankalpa is not None and ctx.issues is not None
+
+    def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
+        evaluate = getattr(ctx.campaigns, "evaluate", None)
+        if callable(evaluate):
+            operations.extend(evaluate(ctx))
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
