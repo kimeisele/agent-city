@@ -470,6 +470,15 @@ class CityIssueManager:
                     issue_number,
                 )
                 return bound
+
+        if issue_number in self._issue_cells:
+            self._bound_missions[issue_number] = mission_id
+            self._persist_issue(issue_number)
+            logger.info(
+                "Bound mission %s to issue #%d (direct)",
+                mission_id,
+                issue_number,
+            )
         return None
 
     def resolve_issue(self, issue_number: int, mission_id: str) -> bool:
