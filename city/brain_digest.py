@@ -53,6 +53,7 @@ class DigestKind(StrEnum):
     """What type of system artifact was digested."""
     AGENT_OUTPUT = "agent_output"
     MISSION_RESULT = "mission_result"
+    CAMPAIGN_STATUS = "campaign_status"
     THREAD_STATE = "thread_state"
     ECONOMY_SNAPSHOT = "economy_snapshot"
     WORKFLOW_EVENT = "workflow_event"
@@ -286,6 +287,45 @@ def digest_mission_result(
         key_metrics=metrics,
         summary=f"{mission_id}: {status} (owner={owner})",
         source_label=f"mission:{mission_id}",
+    )
+
+
+def digest_campaign_status(campaign: dict) -> DigestCell:
+    """Digest a strategic campaign summary for Brain orientation."""
+    text = str(campaign)
+    seed, position, content_hash, wc, lc, ratio = _base_digest(text)
+
+    campaign_id = campaign.get("id", "?")
+    title = campaign.get("title") or campaign_id
+    status = campaign.get("status", "unknown")
+    gaps = tuple(campaign.get("last_gap_summary", [])[:3])
+    severity = Severity.INFO if gaps else Severity.NONE
+    anomalies = tuple(f"campaign_gap:{campaign_id}:{gap}" for gap in gaps)
+
+    metrics: dict = {
+        "status": status,
+        "gap_count": len(gaps),
+    }
+    if "last_evaluated_heartbeat" in campaign:
+        metrics["last_evaluated_heartbeat"] = campaign["last_evaluated_heartbeat"]
+
+    summary = f"{title}: {status}"
+    if gaps:
+        summary += f" | gaps={'; '.join(gaps)}"
+
+    return DigestCell(
+        kind=DigestKind.CAMPAIGN_STATUS,
+        seed=seed,
+        position=position,
+        content_hash=content_hash,
+        word_count=wc,
+        line_count=lc,
+        compression_ratio=ratio,
+        severity=severity,
+        anomalies=anomalies,
+        key_metrics=metrics,
+        summary=summary,
+        source_label=f"campaign:{campaign_id}",
     )
 
 

@@ -81,6 +81,14 @@ class TestBuildPayload:
             failing_contracts=("ruff_clean",),
             immune_stats={"heals_attempted": 5, "breaker_tripped": False},
             learning_stats={"synapses": 120, "avg_weight": 0.65},
+            active_campaigns=(
+                {
+                    "id": "internet-adaptation",
+                    "title": "Internet adaptation",
+                    "status": "active",
+                    "last_gap_summary": ["keep execution bounded"],
+                },
+            ),
         )
         lines = build_payload("health_check", snapshot=snap)
         joined = "\n".join(lines)
@@ -89,9 +97,22 @@ class TestBuildPayload:
         assert "ruff_clean" in joined
         assert "5 heal attempts" in joined
         assert "120 synapses" in joined
+        assert "Internet adaptation" in joined
+        assert "keep execution bounded" in joined
 
     def test_reflection_payload_with_outcome_diff(self):
-        snap = ContextSnapshot(agent_count=51, alive_count=48)
+        snap = ContextSnapshot(
+            agent_count=51,
+            alive_count=48,
+            active_campaigns=(
+                {
+                    "id": "internet-adaptation",
+                    "title": "Internet adaptation",
+                    "status": "active",
+                    "last_gap_summary": ["keep execution bounded"],
+                },
+            ),
+        )
         outcome_diff = {
             "agent_delta": -2,
             "chain_changed": False,
@@ -108,6 +129,8 @@ class TestBuildPayload:
         assert "OUTCOME DIFF" in joined
         assert "Agent delta: -2" in joined
         assert "test_contract" in joined
+        assert "Campaigns in play" in joined
+        assert "Internet adaptation" in joined
 
     def test_comprehension_payload(self):
         lines = build_payload(

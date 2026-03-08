@@ -5,6 +5,7 @@ from city.brain_digest import (
     DigestKind,
     Severity,
     digest_agent_output,
+    digest_campaign_status,
     digest_economy,
     digest_mission_result,
     digest_text,
@@ -129,6 +130,31 @@ class TestDigestMissionResult:
         result = {"status": "timeout", "owner": "sys_pulse"}
         cell = digest_mission_result(result, mission_id="m3")
         assert cell.severity == Severity.WARNING
+
+
+class TestDigestCampaignStatus:
+    def test_campaign_with_gap_is_visible(self):
+        cell = digest_campaign_status({
+            "id": "internet-adaptation",
+            "title": "Internet adaptation",
+            "status": "active",
+            "last_gap_summary": ["keep execution bounded"],
+            "last_evaluated_heartbeat": 42,
+        })
+        assert cell.kind == DigestKind.CAMPAIGN_STATUS
+        assert cell.severity == Severity.INFO
+        assert cell.key_metrics["gap_count"] == 1
+        assert "keep execution bounded" in cell.summary
+
+    def test_campaign_without_gap_is_clean(self):
+        cell = digest_campaign_status({
+            "id": "mission-factory",
+            "title": "Mission factory",
+            "status": "active",
+            "last_gap_summary": [],
+        })
+        assert cell.severity == Severity.NONE
+        assert cell.key_metrics["gap_count"] == 0
 
 
 # ── Thread State Digest ──────────────────────────────────────────────

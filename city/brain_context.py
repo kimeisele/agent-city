@@ -257,6 +257,16 @@ def build_field_digest(ctx: object) -> str:
     except Exception:
         pass
 
+    # Campaign digests — keep strategic orientation visible to cognition
+    try:
+        from city.brain_digest import digest_campaign_status
+        campaigns = ctx.campaigns  # type: ignore[union-attr]
+        if campaigns is not None and hasattr(campaigns, "summary"):
+            for campaign in campaigns.summary(active_only=True)[:5]:
+                cells.append(digest_campaign_status(campaign))
+    except Exception:
+        pass
+
     # Schritt 2: Rejected BrainActions — Brain learns its commands were denied
     try:
         from city.brain_digest import DigestCell as _DC
