@@ -207,6 +207,12 @@ class ImmigrationService:
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_visas_agent ON visas(agent_name)"
         )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_visas_sponsor ON visas(sponsor_visa_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_visas_status ON visas(status)"
+        )
         cur.execute("""
             CREATE TABLE IF NOT EXISTS immigration_applications (
                 application_id       TEXT PRIMARY KEY,
@@ -228,6 +234,14 @@ class ImmigrationService:
                 remarks              TEXT NOT NULL DEFAULT '[]'
             )
         """)
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_apps_status "
+            "ON immigration_applications(status)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_apps_agent "
+            "ON immigration_applications(agent_name)"
+        )
         self._conn.commit()
 
     # ── Genesis ───────────────────────────────────────────────────────
@@ -345,10 +359,15 @@ class ImmigrationService:
         ).fetchone()
         return self._row_to_application(row) if row else None
 
-    def _row_to_application(self, row: "sqlite3.Row") -> ImmigrationApplication:
+    def _row_to_application(
+        self, row: "sqlite3.Row", *, visa_cache: dict | None = None,
+    ) -> ImmigrationApplication:
         issued_visa = None
         if row["issued_visa_id"]:
-            issued_visa = self._load_visa_by_id(row["issued_visa_id"])
+            if visa_cache is not None and row["issued_visa_id"] in visa_cache:
+                issued_visa = visa_cache[row["issued_visa_id"]]
+            else:
+                issued_visa = self._load_visa_by_id(row["issued_visa_id"])
 
         return ImmigrationApplication(
             application_id=row["application_id"],
@@ -630,15 +649,11 @@ class ImmigrationService:
         Returns the chain ordered from agent → sponsor → ... → city_genesis.
         Stops when sponsor_visa_id == MAHAMANTRA_VISA_ID (the transcendent root —
         not stored in the registry, but real and deterministic) or on cycle.
+
+        Uses indexed lookups per hop — O(depth × log n) instead of O(n) full scan.
         """
         chain: list[Visa] = []
         seen: set[str] = set()
-
-        # Load all visas indexed by visa_id for chain traversal
-        rows = self._conn.execute("SELECT * FROM visas").fetchall()
-        by_visa_id: dict[str, Visa] = {
-            r["visa_id"]: self._row_to_visa(r) for r in rows
-        }
 
         current = self._load_visa_by_agent(agent_name)
         while current is not None:
@@ -650,7 +665,7 @@ class ImmigrationService:
             if current.sponsor_visa_id == MAHAMANTRA_VISA_ID:
                 break  # Reached city_genesis — the Mahamantra is the source beyond
 
-            current = by_visa_id.get(current.sponsor_visa_id)
+            current = self._load_visa_by_id(current.sponsor_visa_id)
 
         return chain
 
@@ -676,7 +691,23 @@ class ImmigrationService:
             rows = self._conn.execute(
                 "SELECT * FROM immigration_applications"
             ).fetchall()
-        return [self._row_to_application(r) for r in rows]
+
+        # Batch-fetch all referenced visas in one query (avoid N+1)
+        visa_ids = [r["issued_visa_id"] for r in rows if r["issued_visa_id"]]
+        visa_cache: dict[str, Visa] = {}
+        if visa_ids:
+            placeholders = ",".join("?" * len(visa_ids))
+            visa_rows = self._conn.execute(
+                f"SELECT * FROM visas WHERE visa_id IN ({placeholders})",
+                visa_ids,
+            ).fetchall()
+            visa_cache = {
+                r["visa_id"]: self._row_to_visa(r) for r in visa_rows
+            }
+
+        return [
+            self._row_to_application(r, visa_cache=visa_cache) for r in rows
+        ]
 
     def accept_foreign_visa(
         self,

@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -389,7 +390,8 @@ class PeerCity:
 class DiplomacyLedger:
     """Manages diplomatic relationships with peer cities.
 
-    File-backed ledger stored in data/federation/diplomacy.json.
+    SQLite-backed ledger stored in data/federation/diplomacy.db.
+    Migrates automatically from legacy diplomacy.json if present.
     Integrates with FederationRelay (not a parallel structure).
     """
 
@@ -399,11 +401,82 @@ class DiplomacyLedger:
 
     def __post_init__(self) -> None:
         self._federation_dir.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(
+            str(self._federation_dir / "diplomacy.db")
+        )
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._init_schema()
+        self._migrate_json()
         self._load()
 
     @property
     def _ledger_path(self) -> Path:
+        """Legacy JSON path (used for migration detection only)."""
         return self._federation_dir / "diplomacy.json"
+
+    def _init_schema(self) -> None:
+        """Create SQLite tables and indexes."""
+        cur = self._conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS peers (
+                repo              TEXT PRIMARY KEY,
+                state             TEXT NOT NULL,
+                discovered_at     REAL NOT NULL,
+                last_report_at    REAL NOT NULL DEFAULT 0.0,
+                constitution_hash TEXT NOT NULL DEFAULT '',
+                population        INTEGER NOT NULL DEFAULT 0,
+                contracts_passing INTEGER NOT NULL DEFAULT 0,
+                heartbeat_count   INTEGER NOT NULL DEFAULT 0,
+                treaty_id         TEXT NOT NULL DEFAULT '',
+                remarks           TEXT NOT NULL DEFAULT ''
+            )
+        """)
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_peers_state ON peers(state)"
+        )
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS treaties (
+                treaty_id              TEXT PRIMARY KEY,
+                city_a                 TEXT NOT NULL,
+                city_b                 TEXT NOT NULL,
+                signed_at              REAL NOT NULL,
+                visa_reciprocity       TEXT NOT NULL DEFAULT '["temporary","worker"]',
+                prana_exchange_enabled  INTEGER NOT NULL DEFAULT 0,
+                prana_exchange_rate     REAL NOT NULL DEFAULT 1.0,
+                agent_migration_enabled INTEGER NOT NULL DEFAULT 0,
+                migration_visa_class   TEXT NOT NULL DEFAULT 'temporary',
+                wiki_propagation       INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        self._conn.commit()
+
+    def _migrate_json(self) -> None:
+        """One-time migration from legacy diplomacy.json → SQLite."""
+        json_path = self._ledger_path
+        if not json_path.exists():
+            return
+        # Only migrate if SQLite is empty
+        row = self._conn.execute("SELECT COUNT(*) AS n FROM peers").fetchone()
+        if row["n"] > 0:
+            # Already migrated — remove leftover JSON
+            json_path.unlink(missing_ok=True)
+            return
+        try:
+            data = json.loads(json_path.read_text())
+            for pd in data.get("peers", []):
+                peer = PeerCity.from_dict(pd)
+                self._save_peer(peer)
+            for td in data.get("treaties", []):
+                treaty = CityTreaty.from_dict(td)
+                self._save_treaty(treaty)
+            json_path.rename(json_path.with_suffix(".json.migrated"))
+            logger.info(
+                "Diplomacy: migrated %d peers, %d treaties from JSON to SQLite",
+                len(data.get("peers", [])), len(data.get("treaties", [])),
+            )
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning("Diplomacy: JSON migration failed: %s", e)
 
     # ── Peer Discovery & State Management ─────────────────────────────
 
@@ -429,7 +502,7 @@ class DiplomacyLedger:
             constitution_hash=report_payload.get("constitution_hash", ""),
         )
         self._peers[repo] = peer
-        self._save()
+        self._save_peer(peer)
         logger.info("Diplomacy: discovered peer city %s", repo)
         return peer
 
@@ -449,7 +522,7 @@ class DiplomacyLedger:
             remarks=old.remarks,
         )
         self._peers[repo] = updated
-        self._save()
+        self._save_peer(updated)
         return updated
 
     def transition(self, repo: str, new_state: DiplomaticState, remarks: str = "") -> PeerCity:
@@ -482,7 +555,7 @@ class DiplomacyLedger:
             remarks=remarks or old.remarks,
         )
         self._peers[repo] = updated
-        self._save()
+        self._save_peer(updated)
         logger.info(
             "Diplomacy: %s transitioned %s → %s",
             repo, old.state.value, new_state.value,
@@ -519,7 +592,9 @@ class DiplomacyLedger:
             self._peers[peer_repo] = updated
 
         self._treaties[treaty.treaty_id] = treaty
-        self._save()
+        if peer_repo in self._peers:
+            self._save_peer(self._peers[peer_repo])
+        self._save_treaty(treaty)
         logger.info(
             "Diplomacy: treaty %s signed between %s and %s",
             treaty.treaty_id, treaty.city_a, treaty.city_b,
@@ -572,26 +647,73 @@ class DiplomacyLedger:
     # ── Persistence ───────────────────────────────────────────────────
 
     def _load(self) -> None:
-        """Load ledger from disk."""
-        if not self._ledger_path.exists():
-            return
+        """Load all peers and treaties from SQLite into in-memory cache."""
         try:
-            data = json.loads(self._ledger_path.read_text())
-            for pd in data.get("peers", []):
-                peer = PeerCity.from_dict(pd)
+            for row in self._conn.execute("SELECT * FROM peers"):
+                peer = PeerCity(
+                    repo=row["repo"],
+                    state=DiplomaticState(row["state"]),
+                    discovered_at=row["discovered_at"],
+                    last_report_at=row["last_report_at"],
+                    constitution_hash=row["constitution_hash"],
+                    population=row["population"],
+                    contracts_passing=bool(row["contracts_passing"]),
+                    heartbeat_count=row["heartbeat_count"],
+                    treaty_id=row["treaty_id"],
+                    remarks=row["remarks"],
+                )
                 self._peers[peer.repo] = peer
-            for td in data.get("treaties", []):
-                treaty = CityTreaty.from_dict(td)
+            for row in self._conn.execute("SELECT * FROM treaties"):
+                treaty = CityTreaty(
+                    treaty_id=row["treaty_id"],
+                    city_a=row["city_a"],
+                    city_b=row["city_b"],
+                    signed_at=row["signed_at"],
+                    visa_reciprocity=tuple(
+                        json.loads(row["visa_reciprocity"])
+                    ),
+                    prana_exchange_enabled=bool(row["prana_exchange_enabled"]),
+                    prana_exchange_rate=row["prana_exchange_rate"],
+                    agent_migration_enabled=bool(
+                        row["agent_migration_enabled"]
+                    ),
+                    migration_visa_class=row["migration_visa_class"],
+                    wiki_propagation=bool(row["wiki_propagation"]),
+                )
                 self._treaties[treaty.treaty_id] = treaty
-        except (json.JSONDecodeError, KeyError) as e:
+        except (sqlite3.Error, KeyError) as e:
             logger.warning("Diplomacy: failed to load ledger: %s", e)
 
-    def _save(self) -> None:
-        """Save ledger to disk (atomic write)."""
-        data = {
-            "peers": [p.to_dict() for p in self._peers.values()],
-            "treaties": [t.to_dict() for t in self._treaties.values()],
-        }
-        temp = self._ledger_path.with_suffix(".tmp")
-        temp.write_text(json.dumps(data, indent=2))
-        temp.replace(self._ledger_path)
+    def _save_peer(self, peer: PeerCity) -> None:
+        """Persist a single peer to SQLite (INSERT OR REPLACE)."""
+        self._conn.execute(
+            """INSERT OR REPLACE INTO peers
+               (repo, state, discovered_at, last_report_at, constitution_hash,
+                population, contracts_passing, heartbeat_count, treaty_id, remarks)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                peer.repo, peer.state.value, peer.discovered_at,
+                peer.last_report_at, peer.constitution_hash,
+                peer.population, int(peer.contracts_passing),
+                peer.heartbeat_count, peer.treaty_id, peer.remarks,
+            ),
+        )
+        self._conn.commit()
+
+    def _save_treaty(self, treaty: CityTreaty) -> None:
+        """Persist a single treaty to SQLite (INSERT OR REPLACE)."""
+        self._conn.execute(
+            """INSERT OR REPLACE INTO treaties
+               (treaty_id, city_a, city_b, signed_at, visa_reciprocity,
+                prana_exchange_enabled, prana_exchange_rate,
+                agent_migration_enabled, migration_visa_class, wiki_propagation)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                treaty.treaty_id, treaty.city_a, treaty.city_b,
+                treaty.signed_at, json.dumps(list(treaty.visa_reciprocity)),
+                int(treaty.prana_exchange_enabled), treaty.prana_exchange_rate,
+                int(treaty.agent_migration_enabled),
+                treaty.migration_visa_class, int(treaty.wiki_propagation),
+            ),
+        )
+        self._conn.commit()

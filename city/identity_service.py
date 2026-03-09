@@ -12,11 +12,18 @@ Wired into council votes and PR attestation.
 from __future__ import annotations
 
 import logging
+import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from city.identity import AgentIdentity, generate_identity, verify_ownership
 
 logger = logging.getLogger("AGENT_CITY.IDENTITY_SERVICE")
+
+# Cache limits
+_PASSPORT_CACHE_MAX = 10_000
+_PASSPORT_CACHE_TTL = 300.0  # 5 minutes
+_IDENTITIES_MAX = 50_000
 
 
 @dataclass
@@ -24,9 +31,15 @@ class IdentityService:
     """Manages agent identities and cryptographic verification.
 
     Caches identities per agent. Provides sign/verify for governance.
+    LRU cache with TTL for passport verification (avoids repeated crypto).
     """
 
-    _identities: dict[str, AgentIdentity] = field(default_factory=dict)
+    _identities: OrderedDict[str, AgentIdentity] = field(
+        default_factory=OrderedDict
+    )
+    _passport_cache: OrderedDict[str, tuple[bool, float]] = field(
+        default_factory=OrderedDict
+    )
 
     def get_or_create(self, jiva: object) -> AgentIdentity:
         """Get cached identity or generate a new one for a Jiva."""
@@ -39,6 +52,11 @@ class IdentityService:
                 name,
                 identity.fingerprint,
             )
+            # Evict oldest if over limit
+            while len(self._identities) > _IDENTITIES_MAX:
+                self._identities.popitem(last=False)
+        else:
+            self._identities.move_to_end(name)
         return self._identities[name]
 
     def verify_agent(self, agent_name: str, payload: bytes, signature_b64: str) -> bool:
@@ -50,6 +68,7 @@ class IdentityService:
         if identity is None:
             logger.warning("verify_agent: unknown agent %s", agent_name)
             return False
+        self._identities.move_to_end(agent_name)
         return identity.verify(payload, signature_b64)
 
     def sign_as_agent(self, agent_name: str, payload: bytes) -> str | None:
@@ -58,6 +77,7 @@ class IdentityService:
         if identity is None:
             logger.warning("sign_as_agent: unknown agent %s", agent_name)
             return None
+        self._identities.move_to_end(agent_name)
         return identity.sign(payload)
 
     def get_passport(self, agent_name: str, jiva: object) -> dict | None:
@@ -78,6 +98,32 @@ class IdentityService:
     def verify_passport(self, passport: dict, payload: bytes, signature_b64: str) -> bool:
         """Verify a passport signature (stateless — uses public key from passport)."""
         return verify_ownership(passport, payload, signature_b64)
+
+    # ── Cross-City Passport Verification (cached) ─────────────────────
+
+    def _cache_key(self, prefix: str, passport: dict) -> str:
+        """Build a cache key from passport fingerprint + signature prefix."""
+        fp = passport.get("fingerprint", "")
+        sig = passport.get("passport_signature", "")[:32]
+        return f"{prefix}:{fp}:{sig}"
+
+    def _cache_get(self, key: str) -> bool | None:
+        """Get cached result, or None on miss/expiry."""
+        if key not in self._passport_cache:
+            return None
+        result, ts = self._passport_cache[key]
+        if time.time() - ts > _PASSPORT_CACHE_TTL:
+            del self._passport_cache[key]
+            return None
+        self._passport_cache.move_to_end(key)
+        return result
+
+    def _cache_put(self, key: str, result: bool) -> None:
+        """Store result with current timestamp. Evict oldest if over limit."""
+        self._passport_cache[key] = (result, time.time())
+        self._passport_cache.move_to_end(key)
+        while len(self._passport_cache) > _PASSPORT_CACHE_MAX:
+            self._passport_cache.popitem(last=False)
 
     def verify_foreign_passport(self, passport: dict) -> bool:
         """Verify a passport from a foreign city (cross-city verification).
@@ -101,11 +147,18 @@ class IdentityService:
             )
             return False
 
-        return verify_ownership(
+        cache_key = self._cache_key("basic", passport)
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        result = verify_ownership(
             passport,
             passport["passport_data"].encode(),
             passport["passport_signature"],
         )
+        self._cache_put(cache_key, result)
+        return result
 
     def verify_foreign_passport_deep(self, passport: dict) -> bool:
         """Deep verification: re-derive identity from name and verify match.
@@ -113,7 +166,20 @@ class IdentityService:
         This is the strongest verification — it confirms that the passport's
         public key matches the deterministic derivation from the agent name.
         Prevents forged passports with valid signatures but wrong keys.
+
+        Results are cached with TTL to avoid repeated ~11ms crypto derivation.
         """
+        cache_key = self._cache_key("deep", passport)
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        result = self._verify_foreign_passport_deep_uncached(passport)
+        self._cache_put(cache_key, result)
+        return result
+
+    def _verify_foreign_passport_deep_uncached(self, passport: dict) -> bool:
+        """Deep verification without cache — always does full crypto."""
         if not self.verify_foreign_passport(passport):
             return False
 
@@ -139,4 +205,5 @@ class IdentityService:
         return {
             "known_agents": len(self._identities),
             "agent_names": list(self._identities.keys()),
+            "passport_cache_size": len(self._passport_cache),
         }
