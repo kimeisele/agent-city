@@ -30,6 +30,10 @@ def test_publish_wiki_commits_without_push(tmp_path, monkeypatch):
 
     monkeypatch.setattr("city.wiki.publisher.ensure_wiki_checkout", lambda **kwargs: checkout)
     monkeypatch.setattr(
+        "city.wiki.publisher.load_yaml",
+        lambda path: {"world": {"wiki_repo": "git@example:wiki.git"}, "publication": {"commit_message_template": "wiki: manifest world state from {source_sha}"}},
+    )
+    monkeypatch.setattr(
         "city.wiki.publisher.build_wiki",
         lambda root, output_dir: [(output_dir / "Home.md").write_text("# Home\n") or (output_dir / "Home.md")],
     )
@@ -59,6 +63,10 @@ def test_publish_wiki_skips_commit_when_clean(tmp_path, monkeypatch):
     calls = []
 
     monkeypatch.setattr("city.wiki.publisher.ensure_wiki_checkout", lambda **kwargs: checkout)
+    monkeypatch.setattr(
+        "city.wiki.publisher.load_yaml",
+        lambda path: {"world": {"wiki_repo": "git@example:wiki.git"}, "publication": {"commit_message_template": "wiki: manifest world state from {source_sha}"}},
+    )
     monkeypatch.setattr("city.wiki.publisher.build_wiki", lambda root, output_dir: [])
 
     def fake_run(cmd, cwd, check, capture_output, text):
