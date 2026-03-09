@@ -41,12 +41,13 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Python
+        id: setup-python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dev dependencies
-        run: python -m pip install -e .[dev]
+        run: ${{ steps.setup-python.outputs.python-path }} -m pip install -e .[dev]
 
       - name: Setup Ruby for YAML fallback
         uses: ruby/setup-ruby@v1
@@ -55,7 +56,8 @@ jobs:
 
       - name: Validate world compiler
         run: |
-          python -m py_compile \
+          PYTHON="${{ steps.setup-python.outputs.python-path }}"
+          "$PYTHON" -m py_compile \
             city/wiki/__init__.py \
             city/wiki/blocks.py \
             city/wiki/compiler.py \
@@ -67,8 +69,8 @@ jobs:
             tests/test_wiki_compiler.py \
             tests/test_wiki_publisher.py \
             tests/test_wiki_portal.py
-          python -m pytest -q tests/test_wiki_compiler.py tests/test_wiki_publisher.py tests/test_wiki_portal.py
-          python scripts/build_wiki.py --output-dir .vibe/wiki-build-ci
+          "$PYTHON" -m pytest -q tests/test_wiki_compiler.py tests/test_wiki_publisher.py tests/test_wiki_portal.py
+          "$PYTHON" scripts/build_wiki.py --output-dir .vibe/wiki-build-ci
 
       - name: Configure git identity
         run: |
@@ -79,7 +81,7 @@ jobs:
         env:
           WIKI_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git
         run: |
-          python scripts/publish_wiki.py --wiki-url "$WIKI_URL" --push --result-path .vibe/wiki-publish-result.json
+          "${{ steps.setup-python.outputs.python-path }}" scripts/publish_wiki.py --wiki-url "$WIKI_URL" --push --result-path .vibe/wiki-publish-result.json
 
       - name: Summarize publication result
         run: |
