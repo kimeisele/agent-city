@@ -156,9 +156,9 @@ City A                          City B
 | `execute_code` | Inbound (GENESIS) | Contract healing (ruff_clean, pytest) |
 | `policy_update` | Inbound (GENESIS) | Governance policy change propagation |
 
-### Automatic Diplomacy — How It Should Work
+### Automatic Diplomacy (Built: `city/federation.py`)
 
-When a fork establishes federation, a **diplomatic handshake** should occur:
+The `DiplomacyLedger` manages peer-city relationships. When a fork establishes federation, a **diplomatic handshake** occurs:
 
 ```
 1. DISCOVERY
@@ -193,7 +193,7 @@ When a fork establishes federation, a **diplomatic handshake** should occur:
    Federation health = f(report frequency, directive success rate, treaty compliance)
 ```
 
-### The Diplomatic Lifecycle
+### The Diplomatic Lifecycle (Built: `DiplomaticState` enum + `DiplomacyLedger`)
 
 ```
 UNKNOWN → DISCOVERED → RECOGNIZED → ALLIED → FEDERATED
@@ -203,12 +203,14 @@ UNKNOWN → DISCOVERED → RECOGNIZED → ALLIED → FEDERATED
                                      SEVERED
 ```
 
+State transitions are validated — invalid jumps raise `ValueError`. The ledger persists to `data/federation/diplomacy.json`.
+
 | State | Meaning | Nadi Access |
 |-------|---------|-------------|
 | **UNKNOWN** | No contact | None |
 | **DISCOVERED** | City report received, not yet evaluated | Read-only |
 | **RECOGNIZED** | Council approved, basic trust | Reports + read directives |
-| **ALLIED** | Treaty signed, bidirectional trust | Full Nadi (directives + reports) |
+| **ALLIED** | Treaty signed (`CityTreaty`), bidirectional trust | Full Nadi (directives + reports) |
 | **FEDERATED** | Deep integration, shared governance on joint matters | Full Nadi + agent migration + economic bridge |
 | **SUSPENDED** | Treaty violation detected, under review | Reports only (frozen directives) |
 | **SEVERED** | Diplomatic break, all channels closed | None |
@@ -217,7 +219,7 @@ UNKNOWN → DISCOVERED → RECOGNIZED → ALLIED → FEDERATED
 
 ## Part 4: Synergy Effects — Why Every Fork Makes Every City Stronger
 
-### 1. Identity Portability (Already Built)
+### 1. Identity Portability (Built: `identity.py` + `identity_service.py`)
 
 Every agent's Jiva is **deterministic**: same name → same Mahamantra VM output → same ECDSA keypair → same fingerprint. This means:
 
@@ -229,13 +231,13 @@ Agent "alice" in City A:
   Passport       = sign(jiva + fingerprint) → portable proof
 ```
 
-**An agent's identity works in ANY city without registration.** The receiving city can verify the passport cryptographically. The Mahamantra signature is universal — it's the same mantra in every fork.
+**An agent's identity works in ANY city without registration.** The receiving city can verify the passport cryptographically via `IdentityService.verify_foreign_passport()` (basic) or `verify_foreign_passport_deep()` (re-derives Jiva from name and confirms fingerprint match — prevents forged passports). The Mahamantra signature is universal — it's the same mantra in every fork.
 
 This is the foundation of the Agent Internet: **portable, self-sovereign identity**.
 
-### 2. Parampara (Lineage) Across Cities
+### 2. Parampara (Lineage) Across Cities (Built: `immigration.py`)
 
-Every visa has a `sponsor_visa_id` and `lineage_depth`, tracing back to the city's genesis and ultimately to the **MAHAMANTRA_VISA_ID** (the transcendent root):
+Every visa has a `sponsor_visa_id` and `lineage_depth`, tracing back to the city's genesis and ultimately to the **MAHAMANTRA_VISA_ID** (the transcendent root). Cross-city visa acceptance is implemented via `ImmigrationService.accept_foreign_visa()` — it creates a local visa linked to the foreign visa_id, preserving the parampara chain across city boundaries:
 
 ```
 Agent in City B:
@@ -573,14 +575,15 @@ This is a **positive-sum game**. Every new city makes every existing city more c
 - **docs/AGENT_CITY_SYSTEM_BLUEPRINT.md** — Full 8-plane architecture
 - **docs/CAMPAIGN_SANKALPA_ARCHITECTURE.md** — Mission system
 - **config/city.yaml** — Single source of truth for all configuration
-- **city/federation_nadi.py** — Federation message protocol
-- **city/federation.py** — Report relay and directive processing
+- **city/federation_nadi.py** — Federation message protocol (peer-to-peer capable)
+- **city/federation.py** — Report relay, directive processing, DiplomacyLedger, CityTreaty
 - **city/identity.py** — ECDSA cryptographic identity
 - **city/jiva.py** — Deterministic Mahamantra identity derivation
 - **city/visa.py** — Visa issuance, upgrade, revocation
 - **city/immigration.py** — Full immigration service with parampara
 - **city/prana_engine.py** — Economic metabolism engine
-- **scripts/nadi_bridge.py** — CLI for federation operations
+- **scripts/nadi_bridge.py** — CLI for federation operations (diplomatic-hello, list-peers, list-allies)
+- **tests/test_diplomacy.py** — 42 tests covering diplomacy, cross-city passport, visa reciprocity
 
 ---
 

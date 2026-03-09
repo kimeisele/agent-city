@@ -110,13 +110,19 @@ class FederationNadi:
         operation: str,
         payload: dict,
         *,
+        target: str = "steward-protocol",
         priority: int = RAJAS,
         correlation_id: str = "",
     ) -> bool:
-        """Queue a message for the outbox (written on flush)."""
+        """Queue a message for the outbox (written on flush).
+
+        Args:
+            target: Destination. "steward-protocol" (default/mothership) or a
+                    peer city repo identifier (e.g., "user/agent-city-fork").
+        """
         msg = FederationMessage(
             source=source,
-            target="steward-protocol",
+            target=target,
             operation=operation,
             payload=payload,
             priority=priority,

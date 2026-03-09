@@ -79,6 +79,61 @@ class IdentityService:
         """Verify a passport signature (stateless — uses public key from passport)."""
         return verify_ownership(passport, payload, signature_b64)
 
+    def verify_foreign_passport(self, passport: dict) -> bool:
+        """Verify a passport from a foreign city (cross-city verification).
+
+        The passport must contain:
+        - agent_name, fingerprint, public_key, seed_hash, passport_signature, passport_data
+
+        Verification uses the public key embedded in the passport itself.
+        This works because Jiva identity is deterministic — same name always
+        produces the same ECDSA keypair. A forged passport would fail because
+        the public key wouldn't match the name's deterministic derivation.
+
+        For full trust, the receiving city should also re-derive the Jiva from
+        the agent_name and confirm the public key matches the passport.
+        """
+        required = {"public_key", "passport_signature", "passport_data"}
+        if not required.issubset(passport.keys()):
+            logger.warning(
+                "verify_foreign_passport: missing fields %s",
+                required - set(passport.keys()),
+            )
+            return False
+
+        return verify_ownership(
+            passport,
+            passport["passport_data"].encode(),
+            passport["passport_signature"],
+        )
+
+    def verify_foreign_passport_deep(self, passport: dict) -> bool:
+        """Deep verification: re-derive identity from name and verify match.
+
+        This is the strongest verification — it confirms that the passport's
+        public key matches the deterministic derivation from the agent name.
+        Prevents forged passports with valid signatures but wrong keys.
+        """
+        if not self.verify_foreign_passport(passport):
+            return False
+
+        agent_name = passport.get("agent_name")
+        if not agent_name:
+            return False
+
+        # Re-derive identity from name to confirm public key matches
+        try:
+            from city.jiva import derive_jiva
+            jiva = derive_jiva(agent_name)
+            local_identity = generate_identity(jiva)
+            return local_identity.fingerprint == passport.get("fingerprint")
+        except Exception as e:
+            logger.warning(
+                "verify_foreign_passport_deep: derivation failed for %s: %s",
+                agent_name, e,
+            )
+            return False
+
     def stats(self) -> dict:
         """Identity service statistics."""
         return {

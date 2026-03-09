@@ -678,6 +678,79 @@ class ImmigrationService:
             ).fetchall()
         return [self._row_to_application(r) for r in rows]
 
+    def accept_foreign_visa(
+        self,
+        foreign_visa: dict,
+        source_city: str,
+        treaty_visa_class: str = "temporary",
+        sponsor: str = "federation",
+    ) -> Optional[Visa]:
+        """Accept a visa from a foreign city and issue a local equivalent.
+
+        Cross-city visa reciprocity: when a treaty allows it, an agent with a valid
+        visa in City A can receive a corresponding visa in City B. The parampara chain
+        records the cross-city origin via sponsor and remarks.
+
+        Args:
+            foreign_visa: Visa.to_dict() from the foreign city
+            source_city: The foreign city's repo identifier
+            treaty_visa_class: Max visa class allowed by treaty (from CityTreaty.visa_reciprocity)
+            sponsor: Sponsor name for the new visa (default: "federation")
+
+        Returns:
+            New local Visa, or None if the foreign visa is invalid/expired.
+        """
+        try:
+            fv = Visa.from_dict(foreign_visa)
+        except (KeyError, ValueError) as e:
+            logger.warning("accept_foreign_visa: invalid foreign visa: %s", e)
+            return None
+
+        if fv.status != VisaStatus.ACTIVE:
+            logger.warning(
+                "accept_foreign_visa: foreign visa for %s is %s, not active",
+                fv.agent_name, fv.status.value,
+            )
+            return None
+
+        # Map to local visa class, capped by treaty
+        class_hierarchy = [
+            VisaClass.TEMPORARY, VisaClass.WORKER,
+            VisaClass.RESIDENT, VisaClass.CITIZEN,
+        ]
+        try:
+            treaty_max = VisaClass(treaty_visa_class)
+        except ValueError:
+            treaty_max = VisaClass.TEMPORARY
+
+        foreign_class = fv.visa_class
+        treaty_idx = (
+            class_hierarchy.index(treaty_max)
+            if treaty_max in class_hierarchy else 0
+        )
+        foreign_idx = (
+            class_hierarchy.index(foreign_class)
+            if foreign_class in class_hierarchy else 0
+        )
+        local_class = class_hierarchy[min(treaty_idx, foreign_idx)]
+
+        # Issue local visa with cross-city lineage
+        local_visa = issue_visa(
+            agent_name=fv.agent_name,
+            visa_class=local_class,
+            sponsor=sponsor,
+            sponsor_visa_id=fv.visa_id,  # Cross-city parampara link
+            lineage_depth=fv.lineage_depth + 1,
+            remarks=f"Federation reciprocity from {source_city} (foreign visa: {fv.visa_id})",
+        )
+
+        self._save_visa(local_visa)
+        logger.info(
+            "accept_foreign_visa: issued %s visa for %s (from %s, depth=%d)",
+            local_class.value, fv.agent_name, source_city, local_visa.lineage_depth,
+        )
+        return local_visa
+
     def stats(self) -> dict:
         """Immigration service statistics."""
         cur = self._conn.cursor()
