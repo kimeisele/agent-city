@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -89,7 +90,7 @@ class FederationNadi:
 
     _federation_dir: Path = field(default=Path("data/federation"))
     _outbox: list[FederationMessage] = field(default_factory=list)
-    _processed_ids: set[str] = field(default_factory=set)
+    _processed_ids: OrderedDict[str, None] = field(default_factory=OrderedDict)
 
     def __post_init__(self) -> None:
         self._federation_dir.mkdir(parents=True, exist_ok=True)
@@ -110,13 +111,19 @@ class FederationNadi:
         operation: str,
         payload: dict,
         *,
+        target: str = "steward-protocol",
         priority: int = RAJAS,
         correlation_id: str = "",
     ) -> bool:
-        """Queue a message for the outbox (written on flush)."""
+        """Queue a message for the outbox (written on flush).
+
+        Args:
+            target: Destination. "steward-protocol" (default/mothership) or a
+                    peer city repo identifier (e.g., "user/agent-city-fork").
+        """
         msg = FederationMessage(
             source=source,
-            target="steward-protocol",
+            target=target,
             operation=operation,
             payload=payload,
             priority=priority,
@@ -171,17 +178,17 @@ class FederationNadi:
             msg_id = f"{msg.source}:{msg.timestamp}"
             if msg_id in self._processed_ids:
                 continue
-            self._processed_ids.add(msg_id)
+            self._processed_ids[msg_id] = None  # OrderedDict as ordered set
             messages.append(msg)
 
         # Sort by priority (highest first)
         messages.sort(key=lambda m: -m.priority)
 
-        # Cap processed_ids to prevent unbounded growth
+        # Cap processed_ids — evict oldest first (FIFO, not random)
         if len(self._processed_ids) > 5000:
             excess = len(self._processed_ids) - 2500
             for _ in range(excess):
-                self._processed_ids.pop()
+                self._processed_ids.popitem(last=False)  # oldest first
 
         if messages:
             logger.info("FederationNadi: received %d new messages from inbox", len(messages))

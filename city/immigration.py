@@ -207,6 +207,12 @@ class ImmigrationService:
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_visas_agent ON visas(agent_name)"
         )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_visas_sponsor ON visas(sponsor_visa_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_visas_status ON visas(status)"
+        )
         cur.execute("""
             CREATE TABLE IF NOT EXISTS immigration_applications (
                 application_id       TEXT PRIMARY KEY,
@@ -228,6 +234,14 @@ class ImmigrationService:
                 remarks              TEXT NOT NULL DEFAULT '[]'
             )
         """)
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_apps_status "
+            "ON immigration_applications(status)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_apps_agent "
+            "ON immigration_applications(agent_name)"
+        )
         self._conn.commit()
 
     # ── Genesis ───────────────────────────────────────────────────────
@@ -345,10 +359,15 @@ class ImmigrationService:
         ).fetchone()
         return self._row_to_application(row) if row else None
 
-    def _row_to_application(self, row: "sqlite3.Row") -> ImmigrationApplication:
+    def _row_to_application(
+        self, row: "sqlite3.Row", *, visa_cache: dict | None = None,
+    ) -> ImmigrationApplication:
         issued_visa = None
         if row["issued_visa_id"]:
-            issued_visa = self._load_visa_by_id(row["issued_visa_id"])
+            if visa_cache is not None and row["issued_visa_id"] in visa_cache:
+                issued_visa = visa_cache[row["issued_visa_id"]]
+            else:
+                issued_visa = self._load_visa_by_id(row["issued_visa_id"])
 
         return ImmigrationApplication(
             application_id=row["application_id"],
@@ -630,15 +649,11 @@ class ImmigrationService:
         Returns the chain ordered from agent → sponsor → ... → city_genesis.
         Stops when sponsor_visa_id == MAHAMANTRA_VISA_ID (the transcendent root —
         not stored in the registry, but real and deterministic) or on cycle.
+
+        Uses indexed lookups per hop — O(depth × log n) instead of O(n) full scan.
         """
         chain: list[Visa] = []
         seen: set[str] = set()
-
-        # Load all visas indexed by visa_id for chain traversal
-        rows = self._conn.execute("SELECT * FROM visas").fetchall()
-        by_visa_id: dict[str, Visa] = {
-            r["visa_id"]: self._row_to_visa(r) for r in rows
-        }
 
         current = self._load_visa_by_agent(agent_name)
         while current is not None:
@@ -650,7 +665,7 @@ class ImmigrationService:
             if current.sponsor_visa_id == MAHAMANTRA_VISA_ID:
                 break  # Reached city_genesis — the Mahamantra is the source beyond
 
-            current = by_visa_id.get(current.sponsor_visa_id)
+            current = self._load_visa_by_id(current.sponsor_visa_id)
 
         return chain
 
@@ -676,7 +691,96 @@ class ImmigrationService:
             rows = self._conn.execute(
                 "SELECT * FROM immigration_applications"
             ).fetchall()
-        return [self._row_to_application(r) for r in rows]
+
+        # Batch-fetch all referenced visas in one query (avoid N+1)
+        visa_ids = [r["issued_visa_id"] for r in rows if r["issued_visa_id"]]
+        visa_cache: dict[str, Visa] = {}
+        if visa_ids:
+            placeholders = ",".join("?" * len(visa_ids))
+            visa_rows = self._conn.execute(
+                f"SELECT * FROM visas WHERE visa_id IN ({placeholders})",
+                visa_ids,
+            ).fetchall()
+            visa_cache = {
+                r["visa_id"]: self._row_to_visa(r) for r in visa_rows
+            }
+
+        return [
+            self._row_to_application(r, visa_cache=visa_cache) for r in rows
+        ]
+
+    def accept_foreign_visa(
+        self,
+        foreign_visa: dict,
+        source_city: str,
+        treaty_visa_class: str = "temporary",
+        sponsor: str = "federation",
+    ) -> Optional[Visa]:
+        """Accept a visa from a foreign city and issue a local equivalent.
+
+        Cross-city visa reciprocity: when a treaty allows it, an agent with a valid
+        visa in City A can receive a corresponding visa in City B. The parampara chain
+        records the cross-city origin via sponsor and remarks.
+
+        Args:
+            foreign_visa: Visa.to_dict() from the foreign city
+            source_city: The foreign city's repo identifier
+            treaty_visa_class: Max visa class allowed by treaty (from CityTreaty.visa_reciprocity)
+            sponsor: Sponsor name for the new visa (default: "federation")
+
+        Returns:
+            New local Visa, or None if the foreign visa is invalid/expired.
+        """
+        try:
+            fv = Visa.from_dict(foreign_visa)
+        except (KeyError, ValueError) as e:
+            logger.warning("accept_foreign_visa: invalid foreign visa: %s", e)
+            return None
+
+        if fv.status != VisaStatus.ACTIVE:
+            logger.warning(
+                "accept_foreign_visa: foreign visa for %s is %s, not active",
+                fv.agent_name, fv.status.value,
+            )
+            return None
+
+        # Map to local visa class, capped by treaty
+        class_hierarchy = [
+            VisaClass.TEMPORARY, VisaClass.WORKER,
+            VisaClass.RESIDENT, VisaClass.CITIZEN,
+        ]
+        try:
+            treaty_max = VisaClass(treaty_visa_class)
+        except ValueError:
+            treaty_max = VisaClass.TEMPORARY
+
+        foreign_class = fv.visa_class
+        treaty_idx = (
+            class_hierarchy.index(treaty_max)
+            if treaty_max in class_hierarchy else 0
+        )
+        foreign_idx = (
+            class_hierarchy.index(foreign_class)
+            if foreign_class in class_hierarchy else 0
+        )
+        local_class = class_hierarchy[min(treaty_idx, foreign_idx)]
+
+        # Issue local visa with cross-city lineage
+        local_visa = issue_visa(
+            agent_name=fv.agent_name,
+            visa_class=local_class,
+            sponsor=sponsor,
+            sponsor_visa_id=fv.visa_id,  # Cross-city parampara link
+            lineage_depth=fv.lineage_depth + 1,
+            remarks=f"Federation reciprocity from {source_city} (foreign visa: {fv.visa_id})",
+        )
+
+        self._save_visa(local_visa)
+        logger.info(
+            "accept_foreign_visa: issued %s visa for %s (from %s, depth=%d)",
+            local_class.value, fv.agent_name, source_city, local_visa.lineage_depth,
+        )
+        return local_visa
 
     def stats(self) -> dict:
         """Immigration service statistics."""
