@@ -48,7 +48,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dev dependencies
-        run: ${{ steps.setup-python.outputs.python-path }} -m pip install -e .[dev]
+        run: ${{ steps.setup-python.outputs.python-path }} -m pip install -e .[dev] PyYAML pydantic
 
       - name: Setup Ruby for YAML fallback
         uses: ruby/setup-ruby@v1
