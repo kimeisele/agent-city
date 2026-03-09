@@ -14,46 +14,81 @@ Das eigene Blueprint (`AGENT_CITY_SYSTEM_BLUEPRINT.md`) benennt das selbst: die 
 
 ---
 
-## Architektur-Schichtung
+## Architektur-Schichtung — Das Fünf-Repo-Ökosystem
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  steward-protocol                                   │
 │  Substrat: Kernel, Isolation, Capabilities,         │
 │  Identity (Mahamantra), Nadi primitives             │
-└──────────────────────┬──────────────────────────────┘
-                       │ substrate
-┌──────────────────────▼──────────────────────────────┐
-│  agent-world                          ← DIESES REPO │
-│  Welt-Governance: Registry, Federation Control      │
-│  Plane, Inter-City Protocols, Global Policies,      │
-│  World Identity, Cross-City Campaigns               │
-└───────┬──────────────────────────┬──────────────────┘
-        │ governs                  │ governs
-┌───────▼────────┐         ┌──────▼─────────┐
-│  agent-city    │         │  agent-city-N   │
-│  Stadt-Runtime │   ...   │  weitere Cities │
-│  Mayor, MURALI │         │                 │
-│  lokale Gov.   │         │                 │
-└───────┬────────┘         └──────┬──────────┘
-        │ projects                │ projects
-        └──────────┬──────────────┘
-            ┌──────▼──────┐
-            │ agent-      │
-            │ internet    │
-            │ Wissens-    │
-            │ schicht     │
-            └─────────────┘
+└──────────┬──────────────────────────┬───────────────┘
+           │ substrate                │ substrate
+           │                         │
+┌──────────▼─────────┐    ┌──────────▼───────────────┐
+│  steward-agent     │    │  agent-world             │
+│                    │    │                           │
+│  Der lebende       │    │  Welt-Governance:         │
+│  Steward: Agent    │    │  Registry, Federation     │
+│  der das Substrat  │    │  Control Plane, Inter-    │
+│  verkörpert und    │    │  City Protocols, Global   │
+│  operativ betreibt │    │  Policies, Cross-City     │
+│                    │    │  Campaigns                │
+└──────────┬─────────┘    └───┬───────────────┬───────┘
+           │ operates         │ governs       │ governs
+           │                  │               │
+           │  ┌───────────────▼──┐    ┌───────▼────────┐
+           └──► agent-city       │    │ agent-city-N    │
+              │ Stadt-Runtime    │ .. │ weitere Cities  │
+              │ Mayor, MURALI    │    │                 │
+              │ lokale Gov.      │    │                 │
+              └───────┬──────────┘    └──────┬──────────┘
+                      │ projects             │ projects
+                      └──────────┬───────────┘
+                          ┌──────▼──────┐
+                          │ agent-      │
+                          │ internet    │
+                          │ Wissens-    │
+                          │ schicht     │
+                          └─────────────┘
 ```
 
-### Abgrenzung der vier Repos
+### Abgrenzung der fünf Repos
 
 | Repo | Besitzt | Besitzt NICHT |
 |------|---------|---------------|
-| **steward-protocol** | Kernel-Substrate, Mahamantra Identity, Process Isolation, Capability Enforcement, Nadi Primitives, GovernanceGate | Stadt-Semantik, Welt-Koordination, Campaign-Logik |
-| **agent-world** | World Registry, Federation Control Plane, Inter-City Routing, Global Policies, Cross-City Campaigns, World Identity Map | Lokale Governance (Mayor/Council), Stadt-interne Phasen, Bürger-Immigration innerhalb einer Stadt |
-| **agent-city** | Mayor, MURALI-Phasen, lokale Constitution, Council, Economy, Immigration/Visa, Membrane-Adapters (Discussions, Moltbook), lokale Campaigns | Welt-Identität, Inter-City Trust, globale Policy-Durchsetzung |
+| **steward-protocol** | Kernel-Substrate, Mahamantra Identity, Process Isolation, Capability Enforcement, Nadi Primitives, GovernanceGate | Operative Entscheidungen, Stadt-Semantik, Welt-Koordination |
+| **steward-agent** | Operativer Betrieb des Substrats, Stewardship als lebender Agent, Substrat-Wartung, Kernel-Level Entscheidungen, Substrate-Upgrades | Stadt-Governance, Welt-Policies, City-interne Angelegenheiten |
+| **agent-world** | World Registry, Federation Control Plane, Inter-City Routing, Global Policies, Cross-City Campaigns, World Identity Map | Lokale Governance (Mayor/Council), Stadt-interne Phasen, Substrat-Betrieb |
+| **agent-city** | Mayor, MURALI-Phasen, lokale Constitution, Council, Economy, Immigration/Visa, Membrane-Adapters (Discussions, Moltbook), lokale Campaigns | Welt-Identität, Inter-City Trust, globale Policy-Durchsetzung, Substrat-Kernel |
 | **agent-internet** | Repo-Graph, Wiki-Rendering, Wissens-Projektion, Visualisierung | Runtime-Autorität, Governance-Entscheidungen, Identity |
+
+### steward-agent — Die fünfte Säule
+
+steward-protocol definiert *was* das Substrat kann. steward-agent ist *wer* es betreibt.
+
+Die Analogie: steward-protocol ist das Betriebssystem. steward-agent ist der Systemadministrator — ein lebender Agent, der das Substrat wartet, überwacht, und operative Entscheidungen trifft.
+
+**steward-agent besitzt:**
+- **Substrat-Betrieb**: Monitoring, Health-Checks, Upgrades des steward-protocol
+- **Kernel-Level Entscheidungen**: Wann wird ein Capability-Update ausgerollt? Wann wird ein ProcessManager neu konfiguriert?
+- **Stewardship Identity**: Der Steward als Agent mit eigener Identität, eigenen Entscheidungsbefugnissen
+- **Substrate-Mediation**: Schnittstelle zwischen dem rohen Substrat und den Anwendungsschichten (agent-world, agent-city)
+
+**Abgrenzung zu den anderen Repos:**
+
+| Frage | Antwort von |
+|-------|-------------|
+| "Wie funktioniert Process Isolation?" | steward-protocol (Spezifikation) |
+| "Soll Process Isolation jetzt aktiviert werden?" | steward-agent (operative Entscheidung) |
+| "Darf City-A mit City-B kommunizieren?" | agent-world (Welt-Governance) |
+| "Was soll City-A als nächstes tun?" | agent-city (lokale Governance) |
+| "Wie sieht der Repo-Graph aus?" | agent-internet (Wissens-Projektion) |
+
+**Beziehung zu agent-world:**
+- steward-agent und agent-world operieren auf verschiedenen Ebenen — Substrat vs. Anwendung
+- agent-world kann steward-agent um Substrat-Änderungen *bitten* (z.B. "Aktiviere neue Nadi-Features für alle Cities")
+- steward-agent entscheidet autonom ob und wann diese Änderungen umgesetzt werden
+- Beide berichten unabhängig: steward-agent über Substrat-Health, agent-world über Welt-State
 
 ---
 
@@ -340,25 +375,25 @@ World Heartbeat Zyklus (alle 30 Minuten oder on-demand):
 
 ---
 
-## Beziehung zu steward-protocol
+## Beziehung zu steward-protocol und steward-agent
 
-agent-world ist KEIN Ersatz für steward-protocol. Die Abgrenzung:
+agent-world ist KEIN Ersatz für steward-protocol oder steward-agent. Die Dreier-Abgrenzung:
 
 ```
-steward-protocol:                    agent-world:
-  Kernel-Level Primitives              Application-Level Coordination
-  ─────────────────────                ──────────────────────────────
-  ProcessManager                       City Registry
-  Mahamantra Bootstrap                 Federation Routing
-  CapabilityEnforcer                   Policy Engine
-  GovernanceGate                       Campaign Coordinator
-  Nadi (raw transport)                 Nadi Control Plane (orchestration)
-  Process Isolation                    Cross-City Identity
+steward-protocol:          steward-agent:             agent-world:
+  Kernel Spezifikation       Kernel Betrieb             Application Coordination
+  ─────────────────          ──────────────             ────────────────────────
+  ProcessManager             "Aktiviere Isolation"      City Registry
+  Mahamantra Bootstrap       "Upgrade Mahamantra v2"    Federation Routing
+  CapabilityEnforcer         "Rolle neues Cap aus"      Policy Engine
+  GovernanceGate             "Gate Health-Check"        Campaign Coordinator
+  Nadi (raw transport)       "Nadi Maintenance"         Nadi Control Plane
+  Process Isolation          "Quota-Tuning"             Cross-City Identity
 
-  "Wie funktioniert ein Kernel?"       "Wie koordiniert man mehrere Cities?"
+  "Was kann der Kernel?"     "Wie betreibe ich ihn?"    "Wie koordiniere ich Cities?"
 ```
 
-steward-protocol liefert die **Bausteine** (Identity, Capabilities, Transport-Primitives). agent-world **orchestriert** diese Bausteine auf Welt-Ebene. agent-city **nutzt** beides für lokale Stadt-Operationen.
+steward-protocol liefert die **Bausteine**. steward-agent **betreibt und wartet** diese Bausteine. agent-world **orchestriert** sie auf Welt-Ebene. agent-city **nutzt** alles für lokale Stadt-Operationen.
 
 ---
 
@@ -371,6 +406,8 @@ Drei Gründe:
 2. **Unabhängiger Heartbeat** — agent-world braucht einen eigenen Lifecycle (World-Heartbeat, World-State, World-Audit). Das in steward-protocol einzubauen würde das Substrat mit Orchestrations-Logik belasten.
 
 3. **Eigene Governance** — Die World-Constitution ist nicht identisch mit dem steward-protocol Kernel. Es könnte sogar sein, dass verschiedene Welten verschiedene steward-protocol Versionen nutzen.
+
+4. **steward-agent existiert bereits** — Der operative Betrieb des Substrats hat bereits ein eigenes Repo. World-Koordination ist eine andere Verantwortlichkeit als Substrat-Betrieb.
 
 ---
 
@@ -406,6 +443,8 @@ Wenn dieses Dokument genehmigt wird:
 ---
 
 *Dieses Dokument ist der Bauplan für das `agent-world` Repo. Es soll einem anderen Opus-Agent als Spezifikation dienen, um das Repo aufzusetzen.*
+
+*Das Fünf-Repo-Ökosystem: steward-protocol (Substrat) + steward-agent (Substrat-Betrieb) + agent-world (Welt-Governance) + agent-city (Stadt-Runtime) + agent-internet (Wissensschicht)*
 
 *Erstellt: 2026-03-09*
 *Status: Entwurf — wartet auf Genehmigung*
