@@ -7,8 +7,17 @@ from pathlib import Path
 from city.wiki.compiler import build_wiki
 from city.wiki.yamlio import load_yaml
 
+WIKI_GENERATED_INVENTORY = ".wiki-generated-inventory.json"
 
-def publish_wiki(*, root: Path, wiki_path: Path | None = None, wiki_repo_url: str | None = None, push: bool = False) -> dict:
+
+def publish_wiki(
+    *,
+    root: Path,
+    wiki_path: Path | None = None,
+    wiki_repo_url: str | None = None,
+    push: bool = False,
+    prune_generated: bool = False,
+) -> dict:
     manifest = load_yaml(root / "wiki-src/manifest.yaml")
     effective_wiki_repo_url = wiki_repo_url or str(manifest["world"]["wiki_repo"])
     checkout = ensure_wiki_checkout(
@@ -16,7 +25,11 @@ def publish_wiki(*, root: Path, wiki_path: Path | None = None, wiki_repo_url: st
         wiki_repo_url=effective_wiki_repo_url,
         wiki_path=wiki_path,
     )
+    _ensure_local_git_identity(checkout)
     built = build_wiki(root=root, output_dir=checkout)
+    generated_paths = sorted(_normalize_relative_paths(checkout, built))
+    pruned = _prune_generated_paths(checkout, keep_paths=generated_paths) if prune_generated else []
+    _write_generated_inventory(checkout, generated_paths)
     _git_run(["add", "."], cwd=checkout)
     status = _git_output(["status", "--porcelain"], cwd=checkout)
     source_sha = _git_output(["rev-parse", "HEAD"], cwd=root).strip() or "unknown"
@@ -25,6 +38,10 @@ def publish_wiki(*, root: Path, wiki_path: Path | None = None, wiki_repo_url: st
         return {
             "changed": False,
             "built": len(built),
+            "generated_inventory": str(checkout / WIKI_GENERATED_INVENTORY),
+            "prune_generated": prune_generated,
+            "pruned": len(pruned),
+            "pruned_paths": pruned,
             "wiki_path": str(checkout),
             "wiki_repo_url": effective_wiki_repo_url,
             "pushed": False,
@@ -37,6 +54,10 @@ def publish_wiki(*, root: Path, wiki_path: Path | None = None, wiki_repo_url: st
     return {
         "changed": True,
         "built": len(built),
+        "generated_inventory": str(checkout / WIKI_GENERATED_INVENTORY),
+        "prune_generated": prune_generated,
+        "pruned": len(pruned),
+        "pruned_paths": pruned,
         "wiki_path": str(checkout),
         "wiki_repo_url": effective_wiki_repo_url,
         "pushed": push,
@@ -57,7 +78,11 @@ def ensure_wiki_checkout(*, workspace: Path, wiki_repo_url: str, wiki_path: Path
         checkout.parent.mkdir(parents=True, exist_ok=True)
         _git_run(["clone", wiki_repo_url, str(checkout)], cwd=workspace)
         return checkout
-    _git_run(["pull", "--rebase"], cwd=checkout)
+    _git_run(["fetch", "origin", "--prune"], cwd=checkout)
+    current_branch = _git_output(["branch", "--show-current"], cwd=checkout).strip()
+    remote_branches = _git_output(["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"], cwd=checkout).splitlines()
+    if current_branch and f"origin/{current_branch}" in remote_branches:
+        _git_run(["pull", "--rebase", "origin", current_branch], cwd=checkout)
     return checkout
 
 
@@ -68,3 +93,62 @@ def _git_run(args: list[str], *, cwd: Path) -> None:
 def _git_output(args: list[str], *, cwd: Path) -> str:
     completed = subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True)
     return completed.stdout
+
+
+def _ensure_local_git_identity(checkout: Path) -> None:
+    for key, value in (("user.name", "agent-city-bot"), ("user.email", "bot@agent-city")):
+        current = subprocess.run(["git", "config", key], cwd=str(checkout), check=False, capture_output=True, text=True)
+        if getattr(current, "returncode", 0) != 0 or not getattr(current, "stdout", "").strip():
+            _git_run(["config", key, value], cwd=checkout)
+
+
+def _normalize_relative_paths(root: Path, built: list[Path]) -> list[str]:
+    return [_normalize_relative_path(Path(path).resolve().relative_to(root.resolve()).as_posix()) for path in built]
+
+
+def _normalize_relative_path(path: str) -> str:
+    relative = Path(path)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"unsafe wiki relative path: {path}")
+    return relative.as_posix()
+
+
+def _read_generated_inventory(root: Path) -> list[str]:
+    path = root / WIKI_GENERATED_INVENTORY
+    if not path.exists():
+        return []
+    payload = json.loads(path.read_text())
+    return [_normalize_relative_path(str(item)) for item in payload.get("files", [])]
+
+
+def _write_generated_inventory(root: Path, files: list[str]) -> Path:
+    path = root / WIKI_GENERATED_INVENTORY
+    payload = {
+        "kind": "generated_wiki_inventory",
+        "version": 1,
+        "files": sorted({_normalize_relative_path(path) for path in files}),
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return path
+
+
+def _prune_generated_paths(root: Path, *, keep_paths: list[str]) -> list[str]:
+    keep = {_normalize_relative_path(path) for path in keep_paths}
+    stale = [path for path in _read_generated_inventory(root) if path not in keep]
+    removed: list[str] = []
+    for relative_path in stale:
+        target = root / relative_path
+        if target.exists():
+            target.unlink()
+            _prune_empty_parent_dirs(target.parent, stop=root)
+            removed.append(relative_path)
+    return removed
+
+
+def _prune_empty_parent_dirs(path: Path, *, stop: Path) -> None:
+    current = path
+    while current != stop and current.exists():
+        if any(current.iterdir()):
+            return
+        current.rmdir()
+        current = current.parent

@@ -16,6 +16,7 @@ on:
       - 'scripts/publish_wiki.py'
       - 'tests/test_wiki_compiler.py'
       - 'tests/test_wiki_publisher.py'
+      - 'tests/test_wiki_repo_graph_client.py'
       - 'tests/test_wiki_portal.py'
       - '.github/workflows/manifest-world-wiki.yml'
   schedule:
@@ -62,18 +63,20 @@ jobs:
             city/wiki/blocks.py \
             city/wiki/compiler.py \
             city/wiki/publisher.py \
+            city/wiki/repo_graph_client.py \
             city/wiki/renderers.py \
             city/wiki/yamlio.py \
             scripts/build_wiki.py \
             scripts/publish_wiki.py \
             tests/test_wiki_compiler.py \
             tests/test_wiki_publisher.py \
+            tests/test_wiki_repo_graph_client.py \
             tests/test_wiki_portal.py
 
       - name: Validate world compiler tests
         run: |
           PYTHON="${{ steps.setup-python.outputs.python-path }}"
-          "$PYTHON" -m pytest -q tests/test_wiki_compiler.py tests/test_wiki_publisher.py tests/test_wiki_portal.py
+          "$PYTHON" -m pytest -q tests/test_wiki_compiler.py tests/test_wiki_publisher.py tests/test_wiki_repo_graph_client.py tests/test_wiki_portal.py
 
       - name: Build manifested wiki
         run: |
@@ -89,7 +92,7 @@ jobs:
         env:
           WIKI_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git
         run: |
-          "${{ steps.setup-python.outputs.python-path }}" scripts/publish_wiki.py --wiki-url "$WIKI_URL" --push --result-path .vibe/wiki-publish-result.json
+          "${{ steps.setup-python.outputs.python-path }}" scripts/publish_wiki.py --wiki-url "$WIKI_URL" --prune-generated --push --result-path .vibe/wiki-publish-result.json
 
       - name: Summarize publication result
         run: |
