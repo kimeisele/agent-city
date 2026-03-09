@@ -25,7 +25,7 @@ reserved_blocks:
   - id: world_status
     owner: compiler
     human_editable: false
-    description: Current runtime/world summary block.
+    description: Current runtime/city summary block.
   - id: runtime_summary
     owner: compiler
     human_editable: false
@@ -49,7 +49,7 @@ reserved_blocks:
 
 templates:
   hybrid_home_v1:
-    title: "# Agent City — Frontpage of the World Wide Agent Web"
+    title: "# Agent City — Public Front Door"
     blocks:
       - page_meta
       - world_status

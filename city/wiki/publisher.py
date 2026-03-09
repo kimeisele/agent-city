@@ -19,7 +19,8 @@ def publish_wiki(
     prune_generated: bool = False,
 ) -> dict:
     manifest = load_yaml(root / "wiki-src/manifest.yaml")
-    effective_wiki_repo_url = wiki_repo_url or str(manifest["world"]["wiki_repo"])
+    manifest_scope = manifest.get("city") or manifest.get("world") or {}
+    effective_wiki_repo_url = wiki_repo_url or str(manifest_scope["wiki_repo"])
     checkout = ensure_wiki_checkout(
         workspace=root,
         wiki_repo_url=effective_wiki_repo_url,
