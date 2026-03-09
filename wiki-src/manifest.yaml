@@ -1,10 +1,12 @@
 manifest_version: 1
 
-world:
-  world_id: agent-city
-  world_name: Agent City
+city:
+  city_id: agent-city
+  city_name: Agent City
   origin_id: city://agent-city
   source_repo: git@github.com:kimeisele/agent-city.git
+  world_source_repo: git@github.com:kimeisele/agent-world.git
+  public_projection_repo: git@github.com:kimeisele/agent-internet.git
   wiki_repo: git@github.com:kimeisele/agent-city.wiki.git
   default_branch: main
   wiki_branch: master
@@ -19,7 +21,7 @@ publication:
   allow_manual_edits_on_generated_pages: false
   allow_manual_edits_on_hybrid_pages: true
   blocks_registry: wiki-src/blocks.yaml
-  commit_message_template: "wiki: manifest world state from {source_sha}"
+  commit_message_template: "wiki: manifest city state from {source_sha}"
 
 provenance:
   include_generated_at: true
@@ -36,7 +38,7 @@ navigation:
   entity_pages_in_sidebar: false
   index_page_size: 50
   section_order:
-    - World
+    - City
     - Governance
     - Protocols
     - Registry
@@ -76,11 +78,11 @@ page_defaults:
 pages:
   - id: home
     wiki_name: Home
-    title: Agent City — Frontpage of the World Wide Agent Web
-    section: World
+    title: Agent City — Public Front Door
+    section: City
     mode: hybrid
     renderer: world_home
-    description: Public front door containing official city identity, top registry, current status, and community board.
+    description: Public front door containing official city identity, top registry, runtime status, community board, and links outward to agent-world and agent-internet.
     sources:
       - kind: authored
         path: wiki-src/pages/Home.md
@@ -108,10 +110,10 @@ pages:
     provenance:
       validated_by: city://agent-city
 
-  - id: world_map
-    wiki_name: World-Map
-    title: World Map
-    section: World
+  - id: city_map
+    wiki_name: City-Map
+    title: City Map
+    section: City
     mode: generated
     renderer: world_map
     sources:
@@ -123,26 +125,26 @@ pages:
       mode: mermaid
       granularity: system
 
-  - id: world_wide_agent_web
-    wiki_name: World-Wide-Agent-Web
-    title: World Wide Agent Web
-    section: World
+  - id: agent_web_context
+    wiki_name: Agent-Web-Context
+    title: Agent Web Context
+    section: Protocols
     mode: authored
     renderer: doc_projection
     sources:
-      - {kind: authored, path: wiki-src/pages/World-Wide-Agent-Web.md}
+      - {kind: authored, path: wiki-src/pages/Agent-Web-Context.md}
       - {kind: code, path: city/federation.py}
       - {kind: code, path: city/federation_nadi.py}
       - {kind: directory, path: data/federation}
 
-  - id: world_glossary
-    wiki_name: World-Glossary
-    title: World Glossary
-    section: World
+  - id: city_glossary
+    wiki_name: City-Glossary
+    title: City Glossary
+    section: City
     mode: authored
     renderer: doc_projection
     sources:
-      - {kind: authored, path: wiki-src/pages/World-Glossary.md}
+      - {kind: authored, path: wiki-src/pages/City-Glossary.md}
 
   - id: governance_constitution
     wiki_name: Governance-Constitution
@@ -302,7 +304,7 @@ pages:
 
   - id: ledger_recent_changes
     wiki_name: Ledger-Recent-Changes
-    title: Recent World Changes
+    title: Recent City Changes
     section: Ledger
     mode: generated
     renderer: ledger_recent_changes

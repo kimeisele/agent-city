@@ -13,7 +13,9 @@ def test_build_wiki_materializes_pages(tmp_path):
 
     names = {path.name for path in built}
     assert "Home.md" in names
-    assert "World-Map.md" in names
+    assert "City-Map.md" in names
+    assert "Agent-Web-Context.md" in names
+    assert "City-Glossary.md" in names
     assert "Protocol-Federation.md" in names
     assert "Protocol-Mothership-Repo-Graph.md" in names
     assert "Protocol-Mothership-Governance-Map.md" in names
@@ -34,10 +36,18 @@ def test_build_wiki_materializes_pages(tmp_path):
     assert "BLOCK:community_board:START" in home
     assert "BLOCK:official_registry:START" in home
 
-    world_map = (tmp_path / "World-Map.md").read_text()
-    assert "Service Mesh" in world_map
-    assert "Federation / Nadi" in world_map
-    assert "Mothership Graph" in world_map
+    city_map = (tmp_path / "City-Map.md").read_text()
+    assert "Service Mesh" in city_map
+    assert "Federation / Nadi" in city_map
+    assert "Mothership Graph" in city_map
+
+    agent_web = (tmp_path / "Agent-Web-Context.md").read_text()
+    assert "wider agent world" in agent_web
+    assert "`agent-world`" in agent_web
+    assert "`agent-internet`" in agent_web
+
+    glossary = (tmp_path / "City-Glossary.md").read_text()
+    assert "local runtime and governance domain" in glossary
 
     federation = (tmp_path / "Protocol-Federation.md").read_text()
     assert "Federation Surface" in federation
@@ -91,7 +101,7 @@ def test_merge_hybrid_content_refuses_missing_required_markers():
 def test_build_wiki_preserves_hybrid_community_block(tmp_path):
     home = tmp_path / "Home.md"
     home.write_text(
-        "# Agent City — Frontpage of the World Wide Agent Web\n\n"
+        "# Agent City — Public Front Door\n\n"
         "<!-- BLOCK:page_meta:START -->\nold\n<!-- BLOCK:page_meta:END -->\n\n"
         "<!-- BLOCK:world_status:START -->\nold\n<!-- BLOCK:world_status:END -->\n\n"
         "<!-- BLOCK:official_registry:START -->\nold\n<!-- BLOCK:official_registry:END -->\n\n"
@@ -103,7 +113,7 @@ def test_build_wiki_preserves_hybrid_community_block(tmp_path):
 
     updated = home.read_text()
     assert "KEEP ME" in updated
-    assert "Generated world home" in updated
+    assert "Generated city home" in updated
 
 
 def test_merge_hybrid_content_bootstraps_unmarked_existing_into_preserved_block():
@@ -124,12 +134,12 @@ def test_merge_hybrid_content_bootstraps_unmarked_existing_into_preserved_block(
     }
 
     updated = merge_hybrid_content(
-        existing="# Legacy Home\n\nWelcome old world",
+        existing="# Legacy Home\n\nWelcome old city",
         page=page,
         blocks_config=blocks,
         rendered_blocks={"official_registry": "fresh registry"},
     )
 
     assert "fresh registry" in updated
-    assert "Welcome old world" in updated
+    assert "Welcome old city" in updated
     assert "BLOCK:community_board:START" in updated
