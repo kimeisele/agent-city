@@ -36,7 +36,7 @@ def test_load_mothership_repo_graph_snapshot_clones_federation_cache_when_siblin
     repo_graph_client._repo_graph_module.cache_clear()
     repo_graph_client._cached_repo_checkout.cache_clear()
     repo_graph_client._city_config.cache_clear()
-    monkeypatch.setattr(repo_graph_client, "load_yaml", lambda path: {"federation": {"mothership_repo": "test-owner/steward-protocol"}})
+    monkeypatch.setattr(repo_graph_client, "_city_config", lambda workspace_root: {"federation": {"mothership_repo": "test-owner/steward-protocol"}})
     monkeypatch.setattr(repo_graph_client.subprocess, "run", fake_run)
     monkeypatch.setattr(repo_graph_client, "import_module", lambda name: module)
 
