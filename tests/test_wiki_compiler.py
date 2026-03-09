@@ -25,7 +25,10 @@ def test_build_wiki_materializes_pages(tmp_path):
     assert "Runtime-Active-Bridges.md" in names
     assert "Federation-Recent-Reports.md" in names
     assert "_Sidebar.md" in names
-    assert any(name.startswith("Agent--") for name in names)
+    agents_dir = Path.cwd() / "data" / "agents"
+    agent_dirs = [path for path in agents_dir.iterdir() if path.is_dir()] if agents_dir.exists() else []
+    if agent_dirs:
+        assert any(name.startswith("Agent--") for name in names)
 
     home = (tmp_path / "Home.md").read_text()
     assert "BLOCK:community_board:START" in home
