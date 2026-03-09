@@ -18,6 +18,7 @@ def load_mothership_repo_graph_snapshot(
     query: str | None = None,
     limit: int = 8,
 ) -> dict:
+    repo_root = workspace_root.parent / "steward-protocol"
     try:
         repo_root = _mothership_repo_root(workspace_root)
         module = _repo_graph_module(workspace_root)
@@ -34,6 +35,7 @@ def load_mothership_repo_graph_snapshot(
 
 
 def load_mothership_repo_graph_context(workspace_root: Path, *, concept: str) -> dict:
+    repo_root = workspace_root.parent / "steward-protocol"
     try:
         repo_root = _mothership_repo_root(workspace_root)
         module = _repo_graph_module(workspace_root)
@@ -51,6 +53,7 @@ def load_mothership_repo_graph_neighbors(
     depth: int = 1,
     limit: int = 8,
 ) -> dict:
+    repo_root = workspace_root.parent / "steward-protocol"
     try:
         repo_root = _mothership_repo_root(workspace_root)
         module = _repo_graph_module(workspace_root)

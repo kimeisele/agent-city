@@ -8,11 +8,10 @@ from city.wiki import repo_graph_client
 
 def test_load_mothership_repo_graph_snapshot_clones_federation_cache_when_siblings_missing(tmp_path, monkeypatch):
     workspace = tmp_path / "agent-city"
-    (workspace / "config").mkdir(parents=True)
-    (workspace / "config" / "city.yaml").write_text("federation:\n  mothership_repo: test-owner/steward-protocol\n")
+    workspace.mkdir(parents=True)
     calls: list[tuple[list[str], str]] = []
 
-    def fake_run(cmd, cwd, check, capture_output, text):
+    def fake_run(cmd, cwd, check=None, capture_output=None, text=None, **kwargs):
         calls.append((cmd, cwd))
         if cmd[:2] == ["git", "clone"]:
             Path(cmd[-1]).mkdir(parents=True, exist_ok=True)
@@ -37,6 +36,7 @@ def test_load_mothership_repo_graph_snapshot_clones_federation_cache_when_siblin
     repo_graph_client._repo_graph_module.cache_clear()
     repo_graph_client._cached_repo_checkout.cache_clear()
     repo_graph_client._city_config.cache_clear()
+    monkeypatch.setattr(repo_graph_client, "load_yaml", lambda path: {"federation": {"mothership_repo": "test-owner/steward-protocol"}})
     monkeypatch.setattr(repo_graph_client.subprocess, "run", fake_run)
     monkeypatch.setattr(repo_graph_client, "import_module", lambda name: module)
 
