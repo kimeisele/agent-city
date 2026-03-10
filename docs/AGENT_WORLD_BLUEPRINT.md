@@ -12,6 +12,17 @@ Agent City hat heute drei Architektur-Probleme, die nicht innerhalb einer einzel
 
 Das eigene Blueprint (`AGENT_CITY_SYSTEM_BLUEPRINT.md`) benennt das selbst: die Federation Plane ist "present but pre-kernel" und zielt auf "city-to-city protocols with trust, identity, replay-safety, delivery semantics" — das ist Welt-Governance, nicht Stadt-Governance.
 
+## Aktueller verifizierter Split (2026-03)
+
+Ein Teil dieses Dokuments ist bewusst **Blueprint / Zielbild**. Der aktuell verifizierte, bereits implementierte Split ist enger und sauberer:
+
+- `steward-protocol` bleibt Substrat und exportiert eigene source-authority Bundles für Protokoll-/Steward-Dokumente
+- `agent-world` ist die Quelle für Welt-Dokumente und exportiert world authority bundles (`canonical_surface`, `public_summary_registry`, `source_surface_registry`, `surface_metadata`)
+- `agent-internet` rendert daraus die öffentliche Membran: Wiki, Navigation, Manifest, Graph/Search-Projektion
+- `agent-city` bleibt lokale Runtime und ist weder Welt-Autorität noch Public-Membran-Renderer
+
+Wichtig: Die öffentliche Welt-/Steward-Darstellung soll **nicht** mehr durch lokale Page-Definitionen in `agent-internet` erfunden werden, sondern aus exportierter Metadaten-/Bundle-Struktur der Source-Repos ableitbar sein.
+
 ---
 
 ## Architektur-Schichtung
