@@ -70,14 +70,24 @@ class HeartbeatObserverHook(BasePhaseHook):
         # Schritt 9: Brain-alive check — detect NoOp provider EARLY
         brain = ctx.brain
         if brain is not None and not getattr(brain, "is_available", True):
-            diag.anomalies.append(
-                "brain_offline: NoOp provider — no LLM API key detected. "
-                "All agent cognition is suppressed."
-            )
-            logger.critical(
-                "OBSERVER CRITICAL: Brain is brain-dead (NoOp provider). "
-                "Set OPENROUTER_API_KEY or OPENAI_API_KEY in GitHub Secrets."
-            )
+            # 9B: Attempt recovery — API key may have appeared since last init
+            recovered = False
+            if hasattr(brain, "retry_provider"):
+                logger.info("OBSERVER: Brain offline — attempting retry_provider()")
+                recovered = brain.retry_provider()
+
+            if recovered:
+                logger.info("OBSERVER: Brain recovered after retry_provider()")
+                operations.append("observer:brain_recovered")
+            else:
+                diag.anomalies.append(
+                    "brain_offline: NoOp provider — no LLM API key detected. "
+                    "All agent cognition is suppressed."
+                )
+                logger.critical(
+                    "OBSERVER CRITICAL: Brain is brain-dead (NoOp provider). "
+                    "Set OPENROUTER_API_KEY or OPENAI_API_KEY in GitHub Secrets."
+                )
 
         # Store on ctx for downstream hooks
         ctx._heartbeat_diagnosis = diag  # type: ignore[attr-defined]

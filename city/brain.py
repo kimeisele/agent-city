@@ -320,6 +320,25 @@ class CityBrain:
         """
         return self._ensure_provider()
 
+    def retry_provider(self) -> bool:
+        """Reset cached availability and re-attempt provider initialization.
+
+        Called by the heartbeat observer when the brain is offline to check
+        whether API keys have become available since the last attempt
+        (e.g. secret rotation, transient env issue resolved).
+
+        Returns True if the brain is now available.
+        """
+        self._available = None
+        self._provider = None
+        self._chamber = None
+        result = self._ensure_provider()
+        if result:
+            logger.info("Brain: provider recovered after retry")
+        else:
+            logger.info("Brain: retry_provider — still offline")
+        return result
+
     def _ensure_provider(self) -> bool:
         """Lazy init. Tries ProviderChamber first, falls back to single provider.
 
