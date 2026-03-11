@@ -23,6 +23,43 @@ Ein Teil dieses Dokuments ist bewusst **Blueprint / Zielbild**. Der aktuell veri
 
 Wichtig: Die öffentliche Welt-/Steward-Darstellung soll **nicht** mehr durch lokale Page-Definitionen in `agent-internet` erfunden werden, sondern aus exportierter Metadaten-/Bundle-Struktur der Source-Repos ableitbar sein.
 
+## Geschlossenes Infrastrukturmodell (aktuell)
+
+Der aktuell sinnvolle Infrastruktur-Kern besteht aus **vier** Rollen-Repos:
+
+- `steward-protocol` → Substrat, Timing, Isolation, Capability-/Identity-Primitiven
+- `agent-world` → Welt-Authority und World-Governance-Quelle
+- `agent-internet` → öffentliche Membran, Discovery, Routing, Projection
+- `agent-city` → lokale souveräne Runtime
+
+Alles Weitere ist standardmäßig **nicht** neue Infrastruktur, sondern entweder:
+
+- **Tooling/Ops-Surface**
+  - z. B. `agent-template` als Onboarding-/Template-Repo
+- **Teilnehmer / Service / Agent**
+  - z. B. `steward-agent`, Assistenten, autonome Web-Surfaces, Marketplace-Teilnehmer, derivative Cities
+
+Das ist wichtig, damit das Netz nach oben offen wachsen kann, ohne auf jeder neuen Funktion eine neue Infrastruktur-Schicht zu erzeugen.
+
+### Default-Regel für neue Repos
+
+Ein neues Repo ist **zuerst kein fünftes Layer**.
+
+Es ist standardmäßig eines von:
+
+- eine Source-Authority
+- eine Runtime/City
+- ein Tooling-/Template-/Operator-Surface
+- ein Agent-/Service-Teilnehmer
+
+Ein neues Repo wird erst dann als **neue Infrastruktur-Schicht** behandelt, wenn ein eigenes Boundary-Dokument zeigt:
+
+1. welche concern es exklusiv besitzt,
+2. warum diese concern nicht sauber in die bestehenden vier Rollen passt,
+3. und welche APIs / Verträge dadurch neu kanonisch werden.
+
+Bis dahin gilt: lieber Teilnehmer oder Tooling als unnötige fünfte Schicht.
+
 ---
 
 ## Architektur-Schichtung
@@ -57,7 +94,7 @@ Wichtig: Die öffentliche Welt-/Steward-Darstellung soll **nicht** mehr durch lo
             └─────────────┘
 ```
 
-> **Hinweis:** Es existiert auch ein `steward-agent` Repo. Dessen genaue Rolle und Schnittstelle zu agent-world ist in diesem Dokument bewusst nicht spezifiziert, da der Inhalt dieses Repos zum Zeitpunkt der Erstellung nicht eingesehen wurde. Die Abgrenzung zwischen steward-agent und agent-world muss separat geklärt werden, nachdem beide Repos gelesen wurden.
+> **Hinweis:** Es existiert auch ein `steward-agent` Repo. Solange dessen Boundary nicht separat gelesen und festgelegt wurde, sollte es **nicht** automatisch als zusätzliche Infrastruktur-Schicht behandelt werden, sondern zunächst als Teilnehmer-/Service-Layer über dem Vier-Repo-Kern.
 
 ### Abgrenzung der Repos (soweit verifiziert)
 
