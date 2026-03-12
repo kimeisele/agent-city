@@ -12,33 +12,5 @@
     "correlation_id": "",
     "timestamp": 1773345255.4056342,
     "ttl_s": 900.0
-  },
-  {
-    "source": "steward",
-    "target": "*",
-    "operation": "heartbeat",
-    "payload": {
-      "agent_id": "steward",
-      "health": 0.9393294494544437,
-      "timestamp": 1773345274.0975401
-    },
-    "priority": 1,
-    "correlation_id": "",
-    "timestamp": 1773345274.097546,
-    "ttl_s": 900.0
-  },
-  {
-    "source": "steward",
-    "target": "*",
-    "operation": "heartbeat",
-    "payload": {
-      "agent_id": "steward",
-      "health": 0.9393294494544437,
-      "timestamp": 1773345282.424771
-    },
-    "priority": 1,
-    "correlation_id": "",
-    "timestamp": 1773345282.424774,
-    "ttl_s": 900.0
   }
 ]
