@@ -16,6 +16,8 @@ keywords = ["ai", "agents", "federation", "autonomous", "city"]
 
 dependencies = [
     "ecdsa>=0.18",
+    "PyGithub>=2.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
