@@ -1,0 +1,12 @@
+{
+  "kind": "agent_federation_descriptor",
+  "version": 1,
+  "repo_id": "agent-city",
+  "display_name": "Agent City",
+  "authority_feed_manifest_url": "https://raw.githubusercontent.com/kimeisele/agent-city/authority-feed/latest-authority-manifest.json",
+  "projection_intents": [
+    "public_authority_page"
+  ],
+  "status": "active",
+  "owner_boundary": "agent_city_surface"
+}
