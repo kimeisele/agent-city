@@ -1,0 +1,26 @@
+{
+  "identity": {
+    "city_id": "agent-city",
+    "slug": "agent-city",
+    "repo": "kimeisele/agent-city",
+    "public_key": ""
+  },
+  "endpoint": {
+    "city_id": "agent-city",
+    "transport": "filesystem",
+    "location": "data/federation"
+  },
+  "capabilities": [
+    "multi_agent_runtime",
+    "city_governance",
+    "federation_relay",
+    "wiki_publishing",
+    "heartbeat_observer"
+  ],
+  "nadi": {
+    "outbox": "data/federation/nadi_outbox.json",
+    "inbox": "data/federation/nadi_inbox.json",
+    "reports": "data/federation/reports/",
+    "directives": "data/federation/directives/"
+  }
+}

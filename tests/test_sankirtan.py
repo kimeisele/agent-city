@@ -25,7 +25,6 @@ from vibe_core.mahamantra.substrate.cell_system.cell import MahaCellUnified
 from steward.provider import (
     ProviderChamber,
     ProviderPayload,
-    _AdapterResponse,
     GoogleAdapter,
     _PRANA_CHEAP,
     _PRANA_FREE,
