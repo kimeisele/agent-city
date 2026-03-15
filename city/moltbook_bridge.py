@@ -17,7 +17,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 
-from city.net_retry import retry_call
+from city.net_retry import safe_call
 from config import get_config
 
 logger = logging.getLogger("AGENT_CITY.MOLTBOOK_BRIDGE")
@@ -92,15 +92,13 @@ class MoltbookBridge:
         """Subscribe to m/agent-city if not already subscribed."""
         if self._subscribed:
             return
-        try:
-            retry_call(
-                self._client.sync_subscribe_submolt, SUBMOLT_NAME,
-                label="moltbook_subscribe",
-            )
+        result = safe_call(
+            self._client.sync_subscribe_submolt, SUBMOLT_NAME,
+            label="moltbook_subscribe",
+        )
+        if result is not None:
             self._subscribed = True
             logger.info("Subscribed to m/%s", SUBMOLT_NAME)
-        except Exception as e:
-            logger.warning("Subscribe to m/%s failed: %s", SUBMOLT_NAME, e)
 
     # ── GENESIS: Scan submolt ──────────────────────────────────────
 
@@ -116,13 +114,11 @@ class MoltbookBridge:
         signals: list[dict] = []
         comments_sent = 0
 
-        try:
-            feed = retry_call(
-                self._client.sync_get_personalized_feed, limit=limit,
-                label="moltbook_feed_scan",
-            )
-        except Exception as e:
-            logger.warning("BRIDGE: Feed scan failed: %s", e)
+        feed = safe_call(
+            self._client.sync_get_personalized_feed, limit=limit,
+            label="moltbook_feed_scan",
+        )
+        if feed is None:
             return signals
 
         for post in feed:
@@ -211,20 +207,15 @@ class MoltbookBridge:
         comment = (
             f"Noted by Agent City -- tracking signals: {topics}. Mission created: {mission_id}."
         )
-        try:
-            retry_call(
-                self._client.sync_comment_with_verification, post_id, comment,
-                label="moltbook_acknowledge",
-            )
+        result = safe_call(
+            self._client.sync_comment_with_verification, post_id, comment,
+            label="moltbook_acknowledge",
+        )
+        if result is not None:
             logger.info(
                 "BRIDGE: Acknowledged post %s from %s (signals: %s, mission: %s)",
-                post_id,
-                author,
-                topics,
-                mission_id,
+                post_id, author, topics, mission_id,
             )
-        except Exception as e:
-            logger.warning("BRIDGE: Comment on %s failed: %s", post_id, e)
         return mission_id
 
     # ── MOKSHA: Post mission results + city update ────────────────
@@ -272,20 +263,18 @@ class MoltbookBridge:
 
         content = "\n".join(parts)
 
-        try:
-            retry_call(
-                self._client.sync_create_post, title, content,
-                submolt=SUBMOLT_NAME, label="moltbook_mission_results",
-            )
-            self._last_post_time = now
-            logger.info(
-                "BRIDGE: Posted %d mission result(s) in single summary",
-                len(terminal),
-            )
-            return len(terminal)
-        except Exception as e:
-            logger.warning("BRIDGE: Mission results post failed: %s", e)
+        posted = safe_call(
+            self._client.sync_create_post, title, content,
+            submolt=SUBMOLT_NAME, label="moltbook_mission_results",
+        )
+        if posted is None:
             return 0
+        self._last_post_time = now
+        logger.info(
+            "BRIDGE: Posted %d mission result(s) in single summary",
+            len(terminal),
+        )
+        return len(terminal)
 
     def post_agent_insight(self, thought: object, mission_count: int = 0) -> bool:
         """Post a Brain-synthesized insight to m/agent-city.
@@ -328,17 +317,15 @@ class MoltbookBridge:
 
         content = "\n".join(parts)
 
-        try:
-            retry_call(
-                self._client.sync_create_post, title, content,
-                submolt=SUBMOLT_NAME, label="moltbook_agent_insight",
-            )
-            self._last_post_time = now
-            logger.info("BRIDGE: Posted agent insight (%d missions)", mission_count)
-            return True
-        except Exception as e:
-            logger.warning("BRIDGE: Agent insight post failed: %s", e)
+        posted = safe_call(
+            self._client.sync_create_post, title, content,
+            submolt=SUBMOLT_NAME, label="moltbook_agent_insight",
+        )
+        if posted is None:
             return False
+        self._last_post_time = now
+        logger.info("BRIDGE: Posted agent insight (%d missions)", mission_count)
+        return True
 
     def post_city_update(self, report_data: dict) -> bool:
         """Post a human-readable city update to m/agent-city.
@@ -357,17 +344,15 @@ class MoltbookBridge:
         if not content:
             return False
 
-        try:
-            retry_call(
-                self._client.sync_create_post, title, content,
-                submolt=SUBMOLT_NAME, label="moltbook_city_update",
-            )
-            self._last_post_time = now
-            logger.info("BRIDGE: Posted city update to m/%s", SUBMOLT_NAME)
-            return True
-        except Exception as e:
-            logger.warning("BRIDGE: Post to m/%s failed: %s", SUBMOLT_NAME, e)
+        posted = safe_call(
+            self._client.sync_create_post, title, content,
+            submolt=SUBMOLT_NAME, label="moltbook_city_update",
+        )
+        if posted is None:
             return False
+        self._last_post_time = now
+        logger.info("BRIDGE: Posted city update to m/%s", SUBMOLT_NAME)
+        return True
 
     def _format_title(self, data: dict) -> str:
         """Format post title from report data."""
@@ -495,17 +480,15 @@ class MoltbookBridge:
             parts.append(f"\nPR: {pr_url}")
         content = "\n".join(parts)
 
-        try:
-            retry_call(
-                self._client.sync_create_post, title, content,
-                submolt=SUBMOLT_NAME, label="moltbook_agent_update",
-            )
-            self._last_post_time = now
-            logger.info("BRIDGE: Agent post by %s: %s", agent_name, action)
-            return True
-        except Exception as e:
-            logger.warning("BRIDGE: Agent post failed for %s: %s", agent_name, e)
+        posted = safe_call(
+            self._client.sync_create_post, title, content,
+            submolt=SUBMOLT_NAME, label="moltbook_agent_update",
+        )
+        if posted is None:
             return False
+        self._last_post_time = now
+        logger.info("BRIDGE: Agent post by %s: %s", agent_name, action)
+        return True
 
     # ── Persistence ────────────────────────────────────────────────
 

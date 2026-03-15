@@ -301,6 +301,64 @@ class WikiSyncHook(BasePhaseHook):
         reflection["wiki_synced"] = wiki_synced
 
 
+class StewardHealthEmitHook(BasePhaseHook):
+    """Emit city health snapshot for steward observation via InternetNadi.
+
+    The steward agent reads these snapshots to detect anomalies:
+    brain dead, API failures, suspicious patterns, degraded performance.
+    It can respond via federation_nadi directives.
+    """
+
+    @property
+    def name(self) -> str:
+        return "steward_health_emit"
+
+    @property
+    def phase(self) -> str:
+        return MOKSHA
+
+    @property
+    def priority(self) -> int:
+        return 78  # after wiki sync, last outbound hook
+
+    def should_run(self, ctx: PhaseContext) -> bool:
+        from city.registry import SVC_AGENT_INTERNET
+        return ctx.registry.get(SVC_AGENT_INTERNET) is not None and not ctx.offline_mode
+
+    def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
+        from city.registry import SVC_AGENT_INTERNET
+        internet_nadi = ctx.registry.get(SVC_AGENT_INTERNET)
+
+        reflection = getattr(ctx, "_reflection", {})
+        stats = reflection.get("city_stats", {})
+
+        snapshot = {
+            "heartbeat": ctx.heartbeat_count,
+            "timestamp": time.time(),
+            "population": stats.get("total", 0),
+            "alive": stats.get("active", 0) + stats.get("citizen", 0),
+            "chain_valid": reflection.get("chain_valid", False),
+            "brain_available": reflection.get("brain_available", False),
+            "gh_rate": reflection.get("gh_rate_stats", {}),
+            "operations_log": list(operations),
+            "governance_stats": reflection.get("governance_stats", {}),
+        }
+
+        # Heartbeat observer diagnosis (if available)
+        hb_diag = getattr(ctx, "_heartbeat_diagnosis", None)
+        if hb_diag is not None:
+            snapshot["heartbeat_observer"] = {
+                "healthy": hb_diag.healthy,
+                "success_rate": hb_diag.success_rate,
+                "anomalies": hb_diag.anomalies[:5],
+            }
+
+        internet_nadi.emit_health_snapshot(snapshot)
+        flushed = internet_nadi.flush()
+        if flushed:
+            operations.append(f"steward_health_emit:{flushed}")
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 

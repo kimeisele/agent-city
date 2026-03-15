@@ -15,12 +15,17 @@
     "city_governance",
     "federation_relay",
     "wiki_publishing",
-    "heartbeat_observer"
+    "heartbeat_observer",
+    "internet_membrane"
   ],
   "nadi": {
     "outbox": "data/federation/nadi_outbox.json",
     "inbox": "data/federation/nadi_inbox.json",
     "reports": "data/federation/reports/",
     "directives": "data/federation/directives/"
+  },
+  "internet_nadi": {
+    "outbox": "data/internet/nadi_outbox.json",
+    "inbox": "data/internet/nadi_inbox.json"
   }
 }
