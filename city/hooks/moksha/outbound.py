@@ -100,11 +100,19 @@ class MoltbookOutboundHook(BasePhaseHook):
             )
             reflection["mission_insight_posted"] = insight_posted
 
-        # Smart Heartbeat: skip city update when GovernanceLayer says no report needed
+        # Evaluate governance ONCE — result stored on reflection for downstream hooks
         from city.governance_layer import get_governance_layer
 
         governance = get_governance_layer()
         actions = governance.evaluate_governance_actions(ctx)
+        reflection["_governance_actions"] = actions
+        reflection["governance_stats"] = governance.get_governance_stats()
+        reflection["governance_actions"] = {
+            "triggered_rules": len(actions.triggered_rules),
+            "deliberations": len(actions.deliberation_results),
+            "referendums": len(actions.finalized_referendums),
+        }
+
         if actions.should_post_city_report:
             post_data = _build_post_data(ctx, reflection, operations)
             posted = ctx.moltbook_bridge.post_city_update(post_data)
@@ -205,15 +213,17 @@ class DiscussionsOutboundHook(BasePhaseHook):
             }
 
         if not ctx.offline_mode:
-            # Governance Layer: evaluate all governance rules deterministically
-            from city.governance_layer import get_governance_layer
-            
-            governance = get_governance_layer()
-            actions = governance.evaluate_governance_actions(ctx)
-            
-            # Execute governance actions
+            # Reuse governance result from MoltbookOutboundHook (pri=65)
+            actions = reflection.get("_governance_actions")
+            if actions is None:
+                # Fallback: evaluate if Moltbook hook didn't run
+                from city.governance_layer import get_governance_layer
+
+                governance = get_governance_layer()
+                actions = governance.evaluate_governance_actions(ctx)
+
             posted_any = False
-            
+
             if actions.should_post_city_report:
                 report_posted = ctx.discussions.post_city_report(
                     ctx.heartbeat_count,
@@ -222,11 +232,10 @@ class DiscussionsOutboundHook(BasePhaseHook):
                 reflection["discussions_report_posted"] = report_posted
                 posted_any = True
                 operations.append("disc_outbound:city_report")
-            
+
             if actions.should_post_health_diagnostic:
-                # Health diagnostic already posted by SystemHealthHook if issues found
                 operations.append("disc_outbound:health_diagnostic")
-            
+
             # Mission results cross-post (independent of governance rules)
             mission_results = reflection.get("mission_results_terminal", [])
             if mission_results:
@@ -243,15 +252,7 @@ class DiscussionsOutboundHook(BasePhaseHook):
             if pulsed:
                 posted_any = True
                 operations.append("disc_outbound:pulse")
-            
-            # Store governance stats in reflection
-            reflection["governance_stats"] = governance.get_governance_stats()
-            reflection["governance_actions"] = {
-                "triggered_rules": len(actions.triggered_rules),
-                "deliberations": len(actions.deliberation_results),
-                "referendums": len(actions.finalized_referendums),
-            }
-            
+
             if not posted_any:
                 operations.append("disc_outbound:skipped:no_governance_actions")
         else:
