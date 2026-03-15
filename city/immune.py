@@ -442,6 +442,7 @@ class CityImmune:
             "heals_succeeded": self._heals_succeeded,
             "heals_rolled_back": self._heals_rolled_back,
             "circuit_breaker": self._breaker.stats(),
+            "pathogen_index": _PATHOGEN_INDEX.stats(),
         }
 
         if self._heals_attempted > 0:
