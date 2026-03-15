@@ -41,6 +41,7 @@ def _build_registry():
     from city.hooks.moksha.outbound import (
         DiscussionsOutboundHook,
         FederationReportHook,
+        GovernanceEvalHook,
         MoltbookOutboundHook,
         WikiSyncHook,
     )
@@ -57,6 +58,7 @@ def _build_registry():
     registry.register(BrainReflectionHook())       # pri=45  brain
     registry.register(ThreadDecayHook())           # pri=50  thread lifecycle
     registry.register(DormantRevivalHook())        # pri=55  revival
+    registry.register(GovernanceEvalHook())        # pri=58  governance (once, shared)
     registry.register(FederationReportHook())      # pri=60  federation
     registry.register(MoltbookOutboundHook())      # pri=65  moltbook
     registry.register(SystemHealthHook())          # pri=68  12E: proactive diagnostics

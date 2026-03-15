@@ -21,6 +21,39 @@ if TYPE_CHECKING:
 logger = logging.getLogger("AGENT_CITY.HOOKS.MOKSHA.OUTBOUND")
 
 
+class GovernanceEvalHook(BasePhaseHook):
+    """Evaluate governance rules once — result shared via reflection for all outbound hooks."""
+
+    @property
+    def name(self) -> str:
+        return "governance_eval"
+
+    @property
+    def phase(self) -> str:
+        return MOKSHA
+
+    @property
+    def priority(self) -> int:
+        return 58  # before all outbound hooks (federation=60, moltbook=65, discussions=70)
+
+    def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
+        from city.governance_layer import get_governance_layer
+
+        governance = get_governance_layer()
+        actions = governance.evaluate_governance_actions(ctx)
+        reflection = getattr(ctx, "_reflection", {})
+        reflection["_governance_actions"] = actions
+        reflection["governance_stats"] = governance.get_governance_stats()
+        reflection["governance_actions"] = {
+            "triggered_rules": len(actions.triggered_rules),
+            "deliberations": len(actions.deliberation_results),
+            "referendums": len(actions.finalized_referendums),
+        }
+        operations.append(
+            f"governance_eval:rules={len(actions.triggered_rules)}"
+        )
+
+
 class FederationReportHook(BasePhaseHook):
     """Federation Nadi emit + legacy federation report."""
 
@@ -100,20 +133,9 @@ class MoltbookOutboundHook(BasePhaseHook):
             )
             reflection["mission_insight_posted"] = insight_posted
 
-        # Evaluate governance ONCE — result stored on reflection for downstream hooks
-        from city.governance_layer import get_governance_layer
-
-        governance = get_governance_layer()
-        actions = governance.evaluate_governance_actions(ctx)
-        reflection["_governance_actions"] = actions
-        reflection["governance_stats"] = governance.get_governance_stats()
-        reflection["governance_actions"] = {
-            "triggered_rules": len(actions.triggered_rules),
-            "deliberations": len(actions.deliberation_results),
-            "referendums": len(actions.finalized_referendums),
-        }
-
-        if actions.should_post_city_report:
+        # Read governance result (evaluated by GovernanceEvalHook at pri=58)
+        actions = reflection.get("_governance_actions")
+        if actions is not None and actions.should_post_city_report:
             post_data = _build_post_data(ctx, reflection, operations)
             posted = ctx.moltbook_bridge.post_city_update(post_data)
             reflection["moltbook_update_posted"] = posted
@@ -213,18 +235,11 @@ class DiscussionsOutboundHook(BasePhaseHook):
             }
 
         if not ctx.offline_mode:
-            # Reuse governance result from MoltbookOutboundHook (pri=65)
+            # Read governance result (evaluated by GovernanceEvalHook at pri=58)
             actions = reflection.get("_governance_actions")
-            if actions is None:
-                # Fallback: evaluate if Moltbook hook didn't run
-                from city.governance_layer import get_governance_layer
-
-                governance = get_governance_layer()
-                actions = governance.evaluate_governance_actions(ctx)
-
             posted_any = False
 
-            if actions.should_post_city_report:
+            if actions is not None and actions.should_post_city_report:
                 report_posted = ctx.discussions.post_city_report(
                     ctx.heartbeat_count,
                     reflection,
@@ -233,7 +248,7 @@ class DiscussionsOutboundHook(BasePhaseHook):
                 posted_any = True
                 operations.append("disc_outbound:city_report")
 
-            if actions.should_post_health_diagnostic:
+            if actions is not None and actions.should_post_health_diagnostic:
                 operations.append("disc_outbound:health_diagnostic")
 
             # Mission results cross-post (independent of governance rules)
