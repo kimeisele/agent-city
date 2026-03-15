@@ -17,6 +17,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 
+from city.net_retry import retry_call
 from config import get_config
 
 logger = logging.getLogger("AGENT_CITY.MOLTBOOK_BRIDGE")
@@ -92,7 +93,10 @@ class MoltbookBridge:
         if self._subscribed:
             return
         try:
-            self._client.sync_subscribe_submolt(SUBMOLT_NAME)
+            retry_call(
+                self._client.sync_subscribe_submolt, SUBMOLT_NAME,
+                label="moltbook_subscribe",
+            )
             self._subscribed = True
             logger.info("Subscribed to m/%s", SUBMOLT_NAME)
         except Exception as e:
@@ -113,7 +117,10 @@ class MoltbookBridge:
         comments_sent = 0
 
         try:
-            feed = self._client.sync_get_personalized_feed(limit=limit)
+            feed = retry_call(
+                self._client.sync_get_personalized_feed, limit=limit,
+                label="moltbook_feed_scan",
+            )
         except Exception as e:
             logger.warning("BRIDGE: Feed scan failed: %s", e)
             return signals
@@ -205,7 +212,10 @@ class MoltbookBridge:
             f"Noted by Agent City -- tracking signals: {topics}. Mission created: {mission_id}."
         )
         try:
-            self._client.sync_comment_with_verification(post_id, comment)
+            retry_call(
+                self._client.sync_comment_with_verification, post_id, comment,
+                label="moltbook_acknowledge",
+            )
             logger.info(
                 "BRIDGE: Acknowledged post %s from %s (signals: %s, mission: %s)",
                 post_id,
@@ -263,7 +273,10 @@ class MoltbookBridge:
         content = "\n".join(parts)
 
         try:
-            self._client.sync_create_post(title, content, submolt=SUBMOLT_NAME)
+            retry_call(
+                self._client.sync_create_post, title, content,
+                submolt=SUBMOLT_NAME, label="moltbook_mission_results",
+            )
             self._last_post_time = now
             logger.info(
                 "BRIDGE: Posted %d mission result(s) in single summary",
@@ -316,7 +329,10 @@ class MoltbookBridge:
         content = "\n".join(parts)
 
         try:
-            self._client.sync_create_post(title, content, submolt=SUBMOLT_NAME)
+            retry_call(
+                self._client.sync_create_post, title, content,
+                submolt=SUBMOLT_NAME, label="moltbook_agent_insight",
+            )
             self._last_post_time = now
             logger.info("BRIDGE: Posted agent insight (%d missions)", mission_count)
             return True
@@ -342,7 +358,10 @@ class MoltbookBridge:
             return False
 
         try:
-            self._client.sync_create_post(title, content, submolt=SUBMOLT_NAME)
+            retry_call(
+                self._client.sync_create_post, title, content,
+                submolt=SUBMOLT_NAME, label="moltbook_city_update",
+            )
             self._last_post_time = now
             logger.info("BRIDGE: Posted city update to m/%s", SUBMOLT_NAME)
             return True
@@ -477,7 +496,10 @@ class MoltbookBridge:
         content = "\n".join(parts)
 
         try:
-            self._client.sync_create_post(title, content, submolt=SUBMOLT_NAME)
+            retry_call(
+                self._client.sync_create_post, title, content,
+                submolt=SUBMOLT_NAME, label="moltbook_agent_update",
+            )
             self._last_post_time = now
             logger.info("BRIDGE: Agent post by %s: %s", agent_name, action)
             return True
