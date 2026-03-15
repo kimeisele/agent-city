@@ -79,6 +79,12 @@ jobs:
             > "data/federation/directives/${DIRECTIVE_ID}.json"
           echo "Received directive: ${DIRECTIVE_ID}"
 
+      - name: Sync steward health into federation
+        run: |
+          mkdir -p data/federation
+          HEALTH="steward-protocol/.steward/federation_health.json"
+          [ -f "$HEALTH" ] && cp "$HEALTH" data/federation/steward_health.json || true
+
       - name: Run heartbeat
         env:
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
