@@ -41,6 +41,7 @@ class CivicCondition(str, Enum):
     BRAIN_OFFLINE = "brain_offline"
     AGENT_COUNT_BELOW = "agent_count_below"
     THREADS_UNANSWERED_ABOVE = "threads_unanswered_above"
+    FEDERATION_DEGRADED = "federation_degraded"
 
     # Governance conditions
     PROPOSAL_PENDING_ABOVE = "proposal_pending_above"
@@ -149,6 +150,9 @@ class CivicRule:
                 hours = self.condition_params.get("hours", 24)
                 return context.hours_since_last_post > hours
 
+            case CivicCondition.FEDERATION_DEGRADED:
+                return _is_federation_degraded(context.federation_health)
+
             case _:
                 logger.warning("Unknown civic condition: %s", self.condition)
                 return False
@@ -239,6 +243,21 @@ class CivicEngine:
         return False
 
 
+# ── Federation Health Helper ─────────────────────────────────────────────
+
+
+def _is_federation_degraded(health: dict) -> bool:
+    """True when steward health data is absent or stale (>1h)."""
+    if not health:
+        return True
+    import time
+
+    ts = health.get("timestamp", 0)
+    if ts and (time.time() - ts) > 3600:
+        return True
+    return False
+
+
 # ── Default Rule Set ─────────────────────────────────────────────────────
 
 
@@ -254,7 +273,7 @@ def create_default_rules() -> list[CivicRule]:
             constraints=CivicConstraint(cooldown_heartbeats=20, require_quorum=False),
             priority=90,
         ),
-        
+
         CivicRule(
             name="economy_warning",
             condition=CivicCondition.AVG_PRANA_BELOW,
@@ -263,7 +282,7 @@ def create_default_rules() -> list[CivicRule]:
             constraints=CivicConstraint(cooldown_heartbeats=40),
             priority=80,
         ),
-        
+
         # System health rules
         CivicRule(
             name="brain_offline_alert",
@@ -272,7 +291,7 @@ def create_default_rules() -> list[CivicRule]:
             constraints=CivicConstraint(cooldown_heartbeats=5),
             priority=95,
         ),
-        
+
         CivicRule(
             name="dormant_spike_alert",
             condition=CivicCondition.DORMANT_ABOVE,
@@ -281,7 +300,16 @@ def create_default_rules() -> list[CivicRule]:
             constraints=CivicConstraint(cooldown_heartbeats=30),
             priority=85,
         ),
-        
+
+        # Federation health
+        CivicRule(
+            name="federation_degraded_alert",
+            condition=CivicCondition.FEDERATION_DEGRADED,
+            action=CivicAction.POST_HEALTH_DIAGNOSTIC,
+            constraints=CivicConstraint(cooldown_heartbeats=40),
+            priority=75,
+        ),
+
         # Regular reporting
         CivicRule(
             name="regular_city_report",
@@ -291,7 +319,7 @@ def create_default_rules() -> list[CivicRule]:
             constraints=CivicConstraint(cooldown_heartbeats=35),
             priority=30,
         ),
-        
+
         # Governance rules
         CivicRule(
             name="trigger_election",
@@ -301,7 +329,7 @@ def create_default_rules() -> list[CivicRule]:
             constraints=CivicConstraint(cooldown_heartbeats=100, require_quorum=True),
             priority=70,
         ),
-        
+
         CivicRule(
             name="unanswered_threads_alert",
             condition=CivicCondition.THREADS_UNANSWERED_ABOVE,

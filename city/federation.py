@@ -208,12 +208,14 @@ class FederationRelay:
         try:
             data = json.loads(self._health_path.read_text())
             if isinstance(data, dict):
+                prev_hb = self._last_health.get("heartbeat")
+                new_hb = data.get("heartbeat")
                 self._last_health = data
-                logger.info(
-                    "Federation: read health (steward heartbeat=%s, repos=%d)",
-                    data.get("heartbeat", "?"),
-                    len(data.get("repos", {})),
-                )
+                if new_hb != prev_hb:
+                    logger.info(
+                        "Federation: health updated (steward hb %s→%s, repos=%d)",
+                        prev_hb, new_hb, len(data.get("repos", {})),
+                    )
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Federation: failed to read health: %s", e)
 
