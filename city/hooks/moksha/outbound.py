@@ -173,12 +173,12 @@ class MoltbookOutboundHook(BasePhaseHook):
                     from city.brain_cell import BRAIN_CALL_COST
                     from city.pokedex import SYSTEM_TREASURY
                     if ctx.pokedex is not None:
-                        ctx.pokedex._bank.transfer(
-                            SYSTEM_TREASURY, "BURN", BRAIN_CALL_COST,
-                            "moksha_insight", "service",
+                        ctx.pokedex.debit_prana(
+                            SYSTEM_TREASURY, BRAIN_CALL_COST,
+                            reason="moksha_insight",
                         )
                 except Exception:
-                    pass  # cost recording is best-effort
+                    logger.debug("Insight cost recording failed (best-effort)")
 
                 posted = ctx.moltbook_bridge.post_agent_insight(
                     thought, mission_count=len(mission_results),

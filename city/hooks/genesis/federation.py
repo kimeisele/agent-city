@@ -187,4 +187,10 @@ class FederationDirectivesHook(BasePhaseHook):
         for d in directives:
             executed = _execute_directive(ctx, d)
             operations.append(f"directive:{d.directive_type}:{executed}")
-            ctx.federation.acknowledge_directive(d.id)
+            if executed:
+                ctx.federation.acknowledge_directive(d.id)
+            else:
+                logger.warning(
+                    "Directive %s (%s) failed — NOT acknowledged (will retry next cycle)",
+                    d.id, d.directive_type,
+                )

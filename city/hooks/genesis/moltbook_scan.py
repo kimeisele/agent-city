@@ -11,6 +11,7 @@ Extracted from genesis.py monolith (Phase 6A).
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 from config import get_config
@@ -22,8 +23,10 @@ if TYPE_CHECKING:
     from city.phases import PhaseContext
 
 logger = logging.getLogger("AGENT_CITY.HOOKS.GENESIS.MOLTBOOK")
-# Tracks seen message IDs to avoid re-processing across heartbeats
-_seen_message_ids: set[str] = set()
+# Tracks seen message IDs to avoid re-processing across heartbeats.
+# OrderedDict for FIFO eviction (oldest entries removed first).
+_seen_message_ids: OrderedDict[str, None] = OrderedDict()
+_SEEN_MESSAGE_IDS_MAX = 10000
 
 
 class MoltbookFeedScanHook(BasePhaseHook):
@@ -139,7 +142,7 @@ class DMInboxHook(BasePhaseHook):
                         msg_id = msg.get("id", "")
                         if msg_id in _seen_message_ids:
                             continue
-                        _seen_message_ids.add(msg_id)
+                        _seen_message_ids[msg_id] = None
 
                         sender = msg.get("from", {}).get("username", msg.get("sender", ""))
                         content = msg.get("content", msg.get("text", ""))
@@ -163,11 +166,9 @@ class DMInboxHook(BasePhaseHook):
         except Exception as e:
             logger.warning("GENESIS: DM conversation poll failed: %s", e)
 
-        # Cap seen set to prevent unbounded growth
-        if len(_seen_message_ids) > 10000:
-            excess = len(_seen_message_ids) - 5000
-            for _ in range(excess):
-                _seen_message_ids.pop()
+        # FIFO eviction: remove oldest entries first
+        while len(_seen_message_ids) > _SEEN_MESSAGE_IDS_MAX:
+            _seen_message_ids.popitem(last=False)
 
 
 class SubmoltScanHook(BasePhaseHook):

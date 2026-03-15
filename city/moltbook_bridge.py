@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from config import get_config
@@ -76,7 +77,7 @@ class MoltbookBridge:
     _own_username: str = field(
         default_factory=lambda: _bridge_cfg.get("own_username", ""),
     )
-    _seen_post_ids: set[str] = field(default_factory=set)
+    _seen_post_ids: OrderedDict[str, None] = field(default_factory=OrderedDict)
     _last_post_time: float = 0.0
     _post_cooldown_s: int = field(
         default_factory=lambda: _bridge_cfg.get("post_cooldown_s", 1800),
@@ -126,7 +127,7 @@ class MoltbookBridge:
             post_id = post.get("id", "")
             if not post_id or post_id in self._seen_post_ids:
                 continue
-            self._seen_post_ids.add(post_id)
+            self._seen_post_ids[post_id] = None
 
             # Filter: skip own posts
             author = post.get("author", {}).get("username", "")
@@ -175,11 +176,10 @@ class MoltbookBridge:
                     signal["mission_id"] = mission_id
                 comments_sent += 1
 
-        # Cap seen set to prevent unbounded growth
-        if len(self._seen_post_ids) > 5000:
-            excess = len(self._seen_post_ids) - 2500
-            for _ in range(excess):
-                self._seen_post_ids.pop()
+        # FIFO eviction: remove oldest entries first (OrderedDict preserves insertion order)
+        _MAX_SEEN = 5000
+        while len(self._seen_post_ids) > _MAX_SEEN:
+            self._seen_post_ids.popitem(last=False)  # evict oldest
 
         if signals:
             logger.info(
@@ -490,13 +490,13 @@ class MoltbookBridge:
     def snapshot(self) -> dict:
         """Serialize state for persistence across restarts."""
         return {
-            "seen_post_ids": sorted(self._seen_post_ids)[-2500:],
+            "seen_post_ids": list(self._seen_post_ids)[-2500:],
             "last_post_time": self._last_post_time,
             "subscribed": self._subscribed,
         }
 
     def restore(self, data: dict) -> None:
         """Restore state from persistence."""
-        self._seen_post_ids = set(data.get("seen_post_ids", []))
+        self._seen_post_ids = OrderedDict.fromkeys(data.get("seen_post_ids", []))
         self._last_post_time = data.get("last_post_time", 0.0)
         self._subscribed = data.get("subscribed", False)

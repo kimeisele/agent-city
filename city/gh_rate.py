@@ -15,6 +15,7 @@ secondary rate limit (~80 calls/min).
 from __future__ import annotations
 
 import logging
+import random
 import subprocess
 import time
 from collections import deque
@@ -114,11 +115,14 @@ class GhRateLimiter:
             return None
 
     def _apply_backoff(self) -> None:
-        """Apply exponential backoff: 30s → 60s → 120s."""
+        """Apply exponential backoff with jitter: ~30s → ~60s → ~120s."""
         self._backoff_step = min(self._backoff_step + 1, 3)
-        delay = 30 * (2 ** (self._backoff_step - 1))  # 30, 60, 120
+        base_delay = 30 * (2 ** (self._backoff_step - 1))  # 30, 60, 120
+        # Add ±20% jitter to prevent synchronized retries across clients
+        jitter = base_delay * 0.2 * (2 * random.random() - 1)
+        delay = base_delay + jitter
         self._backoff_until = time.monotonic() + delay
-        logger.warning("gh backoff step %d: waiting %ds", self._backoff_step, delay)
+        logger.warning("gh backoff step %d: waiting %.0fs", self._backoff_step, delay)
 
     def should_check_prs(self, heartbeat: int, frequency_hz: float) -> bool:
         """Determine if PR checks should run this heartbeat.
