@@ -116,7 +116,13 @@ class GovernanceLayer:
         
         # Calculate hours since last Discussions post from bridge telemetry.
         hours_since_last_post = self._hours_since_last_post(ctx)
-        
+
+        # Federation health from steward (read in GENESIS FederationHealthHook)
+        federation_health: dict = {}
+        federation = getattr(ctx, "federation", None)
+        if federation is not None and hasattr(federation, "federation_health"):
+            federation_health = federation.federation_health
+
         return CivicContext(
             heartbeat_count=heartbeat,
             avg_prana=avg_prana,
@@ -128,6 +134,7 @@ class GovernanceLayer:
             hours_since_last_post=hours_since_last_post,
             has_quorum=has_quorum,
             last_execution=last_execution,
+            federation_health=federation_health,
         )
 
     @staticmethod

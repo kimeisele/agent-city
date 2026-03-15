@@ -182,6 +182,12 @@ git:
     - "data/*.db-wal"
     # All JSON state in data/ root (NOT data/federation/ — those are durable)
     - "data/*.json"
+
+  # Exceptions — re-include paths that runtime_patterns would otherwise block.
+  # These are durable federation state that MUST be committed for Nadi transport.
+  runtime_exceptions:
+    - "!data/federation/"
+    - "!data/federation/**"
     # Binary runtime state
     - "data/*.bin"
     - "data/.heartbeat.lock"

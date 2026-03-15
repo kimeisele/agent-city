@@ -88,6 +88,7 @@ class FederationNadi:
     """
 
     _federation_dir: Path = field(default=Path("data/federation"))
+    _default_target: str = field(default="*")  # broadcast by default
     _outbox: list[FederationMessage] = field(default_factory=list)
     _processed_ids: set[str] = field(default_factory=set)
 
@@ -110,13 +111,14 @@ class FederationNadi:
         operation: str,
         payload: dict,
         *,
+        target: str = "",
         priority: int = RAJAS,
         correlation_id: str = "",
     ) -> bool:
         """Queue a message for the outbox (written on flush)."""
         msg = FederationMessage(
             source=source,
-            target="steward-protocol",
+            target=target or self._default_target,
             operation=operation,
             payload=payload,
             priority=priority,

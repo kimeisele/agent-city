@@ -140,6 +140,30 @@ class FederationNadiHook(BasePhaseHook):
             logger.info("GENESIS: %d federation Nadi messages received", len(fed_messages))
 
 
+class FederationHealthHook(BasePhaseHook):
+    """Read steward federation_health.json into relay for governance use."""
+
+    @property
+    def name(self) -> str:
+        return "federation_health_reader"
+
+    @property
+    def phase(self) -> str:
+        return GENESIS
+
+    @property
+    def priority(self) -> int:
+        return 32  # after nadi inbox, before directives
+
+    def should_run(self, ctx: PhaseContext) -> bool:
+        return ctx.federation is not None and hasattr(ctx.federation, "read_federation_health")
+
+    def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
+        health = ctx.federation.read_federation_health()
+        if health:
+            operations.append(f"fed_health:steward_hb={health.get('heartbeat', '?')}")
+
+
 class FederationDirectivesHook(BasePhaseHook):
     """Process mothership directives (register, freeze, mission, exec, policy)."""
 
