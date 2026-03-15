@@ -90,7 +90,7 @@ class FederationNadi:
     _federation_dir: Path = field(default=Path("data/federation"))
     _default_target: str = field(default="steward-protocol")
     _outbox: list[FederationMessage] = field(default_factory=list)
-    _processed_ids: set[str] = field(default_factory=set)
+    _processed_ids: dict[str, None] = field(default_factory=dict)  # ordered dedup (FIFO eviction)
 
     def __post_init__(self) -> None:
         self._federation_dir.mkdir(parents=True, exist_ok=True)
@@ -173,17 +173,17 @@ class FederationNadi:
             msg_id = f"{msg.source}:{msg.timestamp}"
             if msg_id in self._processed_ids:
                 continue
-            self._processed_ids.add(msg_id)
+            self._processed_ids[msg_id] = None
             messages.append(msg)
 
         # Sort by priority (highest first)
         messages.sort(key=lambda m: -m.priority)
 
-        # Cap processed_ids to prevent unbounded growth
+        # Evict oldest entries (FIFO) to prevent unbounded growth
         if len(self._processed_ids) > 5000:
-            excess = len(self._processed_ids) - 2500
-            for _ in range(excess):
-                self._processed_ids.pop()
+            keys = list(self._processed_ids)
+            for key in keys[:2500]:
+                del self._processed_ids[key]
 
         if messages:
             logger.info("FederationNadi: received %d new messages from inbox", len(messages))
