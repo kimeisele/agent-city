@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from config import get_config
 
 from city.membrane import IngressSurface, enqueue_ingress
+from city.net_retry import retry_call
 from city.phase_hook import GENESIS, BasePhaseHook
 
 if TYPE_CHECKING:
@@ -50,7 +51,10 @@ class MoltbookFeedScanHook(BasePhaseHook):
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         limit = get_config().get("mayor", {}).get("feed_scan_limit", 20)
         try:
-            feed = ctx.moltbook_client.sync_get_feed(limit=limit)
+            feed = retry_call(
+                ctx.moltbook_client.sync_get_feed, limit=limit,
+                label="moltbook_feed",
+            )
             for post in feed:
                 author_obj = post.get("author") or {}
                 author = author_obj.get("name") or author_obj.get("username")
@@ -94,7 +98,10 @@ class DMInboxHook(BasePhaseHook):
 
         # Step 1: Approve pending DM requests
         try:
-            requests = client.sync_get_dm_requests() if hasattr(client, "sync_get_dm_requests") else []
+            requests = (
+                retry_call(client.sync_get_dm_requests, label="moltbook_dm_requests")
+                if hasattr(client, "sync_get_dm_requests") else []
+            )
             for req in requests:
                 req_id = req.get("id", "")
                 from_agent = req.get("from", {}).get("username", req.get("from_agent", ""))
@@ -120,7 +127,7 @@ class DMInboxHook(BasePhaseHook):
         # Step 2: Read DM conversations → enqueue unread messages
         try:
             conversations = (
-                client.sync_get_dm_conversations()
+                retry_call(client.sync_get_dm_conversations, label="moltbook_dm_convos")
                 if hasattr(client, "sync_get_dm_conversations")
                 else []
             )
