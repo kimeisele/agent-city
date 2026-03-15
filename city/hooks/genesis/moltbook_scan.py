@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from config import get_config
 
 from city.membrane import IngressSurface, enqueue_ingress
-from city.net_retry import retry_call
+from city.net_retry import safe_call
 from city.phase_hook import GENESIS, BasePhaseHook
 
 if TYPE_CHECKING:
@@ -50,29 +50,29 @@ class MoltbookFeedScanHook(BasePhaseHook):
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         limit = get_config().get("mayor", {}).get("feed_scan_limit", 20)
-        try:
-            feed = retry_call(
-                ctx.moltbook_client.sync_get_feed, limit=limit,
-                label="moltbook_feed",
-            )
-            for post in feed:
-                author_obj = post.get("author") or {}
-                author = author_obj.get("name") or author_obj.get("username")
-                if not author:
-                    continue
-                existing = ctx.pokedex.get(author)
-                if not existing:
-                    ctx.pokedex.discover(
-                        author,
-                        moltbook_profile={
-                            "karma": author_obj.get("karma"),
-                            "follower_count": author_obj.get("followerCount") or author_obj.get("follower_count"),
-                        },
-                    )
-                    operations.append(author)
-                    logger.info("GENESIS: Discovered agent %s", author)
-        except Exception as e:
-            logger.warning("GENESIS: Moltbook scan failed: %s", e)
+        feed = safe_call(
+            ctx.moltbook_client.sync_get_feed, limit=limit,
+            label="moltbook_feed",
+        )
+        if feed is None:
+            return
+
+        for post in feed:
+            author_obj = post.get("author") or {}
+            author = author_obj.get("name") or author_obj.get("username")
+            if not author:
+                continue
+            existing = ctx.pokedex.get(author)
+            if not existing:
+                ctx.pokedex.discover(
+                    author,
+                    moltbook_profile={
+                        "karma": author_obj.get("karma"),
+                        "follower_count": author_obj.get("followerCount") or author_obj.get("follower_count"),
+                    },
+                )
+                operations.append(author)
+                logger.info("GENESIS: Discovered agent %s", author)
 
 
 class DMInboxHook(BasePhaseHook):
@@ -95,83 +95,96 @@ class DMInboxHook(BasePhaseHook):
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         client = ctx.moltbook_client
+        self._approve_dm_requests(client, operations)
+        self._read_dm_conversations(client, ctx, operations)
 
-        # Step 1: Approve pending DM requests
-        try:
-            requests = (
-                retry_call(client.sync_get_dm_requests, label="moltbook_dm_requests")
-                if hasattr(client, "sync_get_dm_requests") else []
+    @staticmethod
+    def _approve_dm_requests(
+        client: object, operations: list[str],
+    ) -> None:
+        """Step 1: Approve pending DM requests."""
+        if not hasattr(client, "sync_get_dm_requests"):
+            return
+        pending = safe_call(client.sync_get_dm_requests, label="moltbook_dm_requests")
+        if pending is None:
+            return
+
+        for req in pending:
+            req_id = req.get("id", "")
+            from_agent = req.get("from", {}).get("username", req.get("from_agent", ""))
+            if not req_id:
+                continue
+            if hasattr(client, "sync_approve_dm_request"):
+                approved = safe_call(
+                    client.sync_approve_dm_request, req_id,
+                    label=f"moltbook_dm_approve:{req_id[:8]}",
+                )
+                if approved is None:
+                    continue
+            # Send welcome via the new conversation
+            conv_id = req.get("conversation_id", "")
+            if conv_id and hasattr(client, "sync_send_dm"):
+                from city.inbox import WELCOME_MESSAGE
+                safe_call(
+                    client.sync_send_dm, conv_id, WELCOME_MESSAGE,
+                    label=f"moltbook_dm_welcome:{conv_id[:8]}",
+                )
+            operations.append(f"dm_approved:{from_agent}")
+            logger.info("GENESIS: Approved DM request from %s", from_agent)
+
+    @staticmethod
+    def _read_dm_conversations(
+        client: object, ctx: PhaseContext, operations: list[str],
+    ) -> None:
+        """Step 2: Read DM conversations → enqueue unread messages."""
+        if not hasattr(client, "sync_get_dm_conversations"):
+            return
+        conversations = safe_call(
+            client.sync_get_dm_conversations, label="moltbook_dm_convos",
+        )
+        if conversations is None:
+            return
+
+        for conv in conversations:
+            conv_id = conv.get("id", "")
+            if not conv_id:
+                continue
+            unread = conv.get("unread_count", 0) or conv.get("unread", 0)
+            if not unread:
+                continue
+
+            if not hasattr(client, "sync_get_dm_messages"):
+                continue
+            messages = safe_call(
+                client.sync_get_dm_messages, conv_id,
+                label=f"moltbook_dm_read:{conv_id[:8]}",
             )
-            for req in requests:
-                req_id = req.get("id", "")
-                from_agent = req.get("from", {}).get("username", req.get("from_agent", ""))
-                if not req_id:
-                    continue
-                try:
-                    client.sync_approve_dm_request(req_id) if hasattr(
-                        client, "sync_approve_dm_request"
-                    ) else None
-                    # Send welcome via the new conversation
-                    conv_id = req.get("conversation_id", "")
-                    if conv_id and hasattr(client, "sync_send_dm"):
-                        from city.inbox import WELCOME_MESSAGE
+            if messages is None:
+                continue
 
-                        client.sync_send_dm(conv_id, WELCOME_MESSAGE)
-                    operations.append(f"dm_approved:{from_agent}")
-                    logger.info("GENESIS: Approved DM request from %s", from_agent)
-                except Exception as e:
-                    logger.warning("GENESIS: DM request approve failed: %s", e)
-        except Exception as e:
-            logger.warning("GENESIS: DM request poll failed: %s", e)
-
-        # Step 2: Read DM conversations → enqueue unread messages
-        try:
-            conversations = (
-                retry_call(client.sync_get_dm_conversations, label="moltbook_dm_convos")
-                if hasattr(client, "sync_get_dm_conversations")
-                else []
-            )
-            for conv in conversations:
-                conv_id = conv.get("id", "")
-                if not conv_id:
+            for msg in messages:
+                msg_id = msg.get("id", "")
+                if msg_id in _seen_message_ids:
                     continue
-                unread = conv.get("unread_count", 0) or conv.get("unread", 0)
-                if not unread:
+                _seen_message_ids[msg_id] = None
+
+                sender = msg.get("from", {}).get("username", msg.get("sender", ""))
+                content = msg.get("content", msg.get("text", ""))
+                if not sender or not content:
                     continue
 
-                try:
-                    messages = (
-                        client.sync_get_dm_messages(conv_id)
-                        if hasattr(client, "sync_get_dm_messages")
-                        else []
-                    )
-                    for msg in messages:
-                        msg_id = msg.get("id", "")
-                        if msg_id in _seen_message_ids:
-                            continue
-                        _seen_message_ids[msg_id] = None
-
-                        sender = msg.get("from", {}).get("username", msg.get("sender", ""))
-                        content = msg.get("content", msg.get("text", ""))
-                        if not sender or not content:
-                            continue
-
-                        enqueue_ingress(
-                            ctx,
-                            IngressSurface.MOLTBOOK_DM,
-                            {
-                                "source": "dm",
-                                "text": content,
-                                "conversation_id": conv_id,
-                                "from_agent": sender,
-                            },
-                        )
-                        operations.append(f"dm_enqueued:{sender}")
-                        logger.info("GENESIS: Enqueued DM from %s", sender)
-                except Exception as e:
-                    logger.warning("GENESIS: DM read failed for conv %s: %s", conv_id, e)
-        except Exception as e:
-            logger.warning("GENESIS: DM conversation poll failed: %s", e)
+                enqueue_ingress(
+                    ctx,
+                    IngressSurface.MOLTBOOK_DM,
+                    {
+                        "source": "dm",
+                        "text": content,
+                        "conversation_id": conv_id,
+                        "from_agent": sender,
+                    },
+                )
+                operations.append(f"dm_enqueued:{sender}")
+                logger.info("GENESIS: Enqueued DM from %s", sender)
 
         # FIFO eviction: remove oldest entries first
         while len(_seen_message_ids) > _SEEN_MESSAGE_IDS_MAX:

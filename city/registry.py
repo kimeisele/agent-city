@@ -57,6 +57,7 @@ SVC_CONVERSATION_TRACKER = "conversation_tracker"
 SVC_ROUTER = "router"
 SVC_INTENT_EXECUTOR = "intent_executor"
 SVC_PRANA_ENGINE = "prana_engine"
+SVC_AGENT_INTERNET = "agent_internet"
 
 
 class CityServiceRegistry:

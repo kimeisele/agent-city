@@ -43,6 +43,7 @@ def _build_registry():
         FederationReportHook,
         GovernanceEvalHook,
         MoltbookOutboundHook,
+        StewardHealthEmitHook,
         WikiSyncHook,
     )
     from city.hooks.moksha.system_health import SystemHealthHook
@@ -64,6 +65,7 @@ def _build_registry():
     registry.register(SystemHealthHook())          # pri=68  12E: proactive diagnostics
     registry.register(DiscussionsOutboundHook())   # pri=70  discussions
     registry.register(WikiSyncHook())              # pri=75  wiki
+    registry.register(StewardHealthEmitHook())    # pri=78  steward observation
 
     return registry
 
