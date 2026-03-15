@@ -27,7 +27,7 @@ logger = logging.getLogger("AGENT_CITY.FEDERATION_NADI")
 # Nadi constants (derived from seed.py via steward-protocol)
 NADI_BUFFER_SIZE = 144
 NADI_TTL_S = 24.0
-NADI_FEDERATION_TTL_S = 900.0  # 15 min for federation messages (cross-repo latency)
+NADI_FEDERATION_TTL_S = 3600.0  # 1 hour — must survive ≥4 heartbeat cycles (4×15min)
 
 # Priority levels (Guna-based, matching NadiPriority)
 TAMAS = 0

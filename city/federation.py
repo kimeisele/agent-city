@@ -94,7 +94,7 @@ class FederationRelay:
     _dry_run: bool = False
     _directives_dir: Path = field(default=Path("data/federation/directives"))
     _reports_dir: Path = field(default=Path("data/federation/reports"))
-    _health_path: Path = field(default=Path(".steward/federation_health.json"))
+    _health_path: Path = field(default=Path("data/federation/steward_health.json"))
     _last_report: dict = field(default_factory=dict)
     _last_health: dict = field(default_factory=dict)
     _report_log: list[dict] = field(default_factory=list)
