@@ -42,7 +42,7 @@ class GovernanceEvalHook(BasePhaseHook):
         governance = get_governance_layer()
         actions = governance.evaluate_governance_actions(ctx)
         reflection = getattr(ctx, "_reflection", {})
-        reflection["_governance_actions"] = actions
+        ctx._governance_actions = actions  # on ctx, not reflection (non-serializable)
         reflection["governance_stats"] = governance.get_governance_stats()
         reflection["governance_actions"] = {
             "triggered_rules": len(actions.triggered_rules),
@@ -134,7 +134,7 @@ class MoltbookOutboundHook(BasePhaseHook):
             reflection["mission_insight_posted"] = insight_posted
 
         # Read governance result (evaluated by GovernanceEvalHook at pri=58)
-        actions = reflection.get("_governance_actions")
+        actions = getattr(ctx, "_governance_actions", None)
         if actions is not None and actions.should_post_city_report:
             post_data = _build_post_data(ctx, reflection, operations)
             posted = ctx.moltbook_bridge.post_city_update(post_data)
@@ -236,7 +236,7 @@ class DiscussionsOutboundHook(BasePhaseHook):
 
         if not ctx.offline_mode:
             # Read governance result (evaluated by GovernanceEvalHook at pri=58)
-            actions = reflection.get("_governance_actions")
+            actions = getattr(ctx, "_governance_actions", None)
             posted_any = False
 
             if actions is not None and actions.should_post_city_report:
@@ -248,7 +248,7 @@ class DiscussionsOutboundHook(BasePhaseHook):
                 posted_any = True
                 operations.append("disc_outbound:city_report")
 
-            if actions is not None and actions.should_post_health_diagnostic:
+            if actions is not None and getattr(actions, "should_post_health_diagnostic", False):
                 operations.append("disc_outbound:health_diagnostic")
 
             # Mission results cross-post (independent of governance rules)
