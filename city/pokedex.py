@@ -865,6 +865,86 @@ class Pokedex:
             logger.debug("DEBIT: %s -%d prana (reason=%s)", name, amount, reason)
             return True
 
+    def burn_prana(
+        self, amount: int, reason: str = "service", *, source: str = "",
+    ) -> bool:
+        """Burn prana from SystemTreasury — prana destruction (cost accounting).
+
+        Transfers FROM SYSTEM_TREASURY TO "BURN" in the CivicBank.
+        Used for city-level service costs (brain insight calls, etc.)
+        where no individual agent is debited.
+
+        Args:
+            amount: Prana to burn (must be > 0).
+            reason: Ledger reason tag (e.g., "moksha_insight").
+            source: Optional source label for the ledger entry.
+
+        Returns True if the burn succeeded, False on error.
+        """
+        if amount <= 0:
+            return True  # no-op
+
+        try:
+            self._bank.transfer(
+                SYSTEM_TREASURY, "BURN", amount,
+                reason, "service",
+            )
+        except Exception as e:
+            logger.warning("burn_prana failed: %s", e)
+            return False
+
+        self._record_event(
+            source or SYSTEM_TREASURY,
+            "prana_burn",
+            None,
+            "burned",
+            json.dumps({"amount": amount, "reason": reason}),
+        )
+        self._conn.commit()
+        logger.debug("BURN: %d prana from treasury (reason=%s)", amount, reason)
+        return True
+
+    def mint_prana(
+        self, target: str, amount: int, reason: str = "stipend", *,
+        category: str = "governance",
+    ) -> bool:
+        """Mint new prana into a target account — prana creation.
+
+        Transfers FROM "MINT" TO target in the CivicBank.
+        Used for council stipends, governance rewards, and other city-level
+        grants that don't come from an existing agent's balance.
+
+        Args:
+            target: Account name to receive minted prana.
+            amount: Prana to mint (must be > 0).
+            reason: Ledger reason tag (e.g., "council_stipend").
+            category: CivicBank category (default "governance").
+
+        Returns True if the mint succeeded, False on error.
+        """
+        if amount <= 0:
+            return True  # no-op
+
+        try:
+            self._bank.transfer(
+                "MINT", target, amount,
+                reason, category,
+            )
+        except Exception as e:
+            logger.warning("mint_prana failed: %s", e)
+            return False
+
+        self._record_event(
+            target,
+            "prana_mint",
+            None,
+            "minted",
+            json.dumps({"amount": amount, "reason": reason, "category": category}),
+        )
+        self._conn.commit()
+        logger.debug("MINT: %d prana → %s (reason=%s)", amount, target, reason)
+        return True
+
     def list_dormant(self) -> list[dict]:
         """List all frozen agents eligible for revival evaluation.
 

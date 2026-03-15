@@ -169,15 +169,11 @@ class MoltbookOutboundHook(BasePhaseHook):
             thought = brain.generate_insight(reflection, snapshot=snapshot)
             if thought is not None:
                 # 8H: Record insight cost against treasury (city service, no agent to debit)
-                # Uses _bank.transfer() directly because there's no public burn API.
-                # Transfer FROM treasury TO BURN = prana destruction (cost accounting).
                 try:
                     from city.brain_cell import BRAIN_CALL_COST
-                    from city.pokedex import SYSTEM_TREASURY
                     if ctx.pokedex is not None:
-                        ctx.pokedex._bank.transfer(
-                            SYSTEM_TREASURY, "BURN", BRAIN_CALL_COST,
-                            "moksha_insight", "service",
+                        ctx.pokedex.burn_prana(
+                            BRAIN_CALL_COST, "moksha_insight",
                         )
                 except Exception:
                     logger.debug("Insight cost recording failed (best-effort)")
