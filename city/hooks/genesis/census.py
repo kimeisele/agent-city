@@ -26,7 +26,12 @@ logger = logging.getLogger("AGENT_CITY.HOOKS.GENESIS.CENSUS")
 
 
 class CensusHook(BasePhaseHook):
-    """Offline: load agents from pokedex. First run: seed from census file."""
+    """Seed agents from census file when DB is empty, load existing otherwise.
+
+    Runs in ALL modes (online + offline).  The previous offline-only gate
+    caused population=0 whenever the ephemeral SQLite DB was lost between
+    CI runs — the census file was never re-seeded in online mode.
+    """
 
     @property
     def name(self) -> str:
@@ -41,17 +46,22 @@ class CensusHook(BasePhaseHook):
         return 0  # first hook: establishes agent population
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.offline_mode
+        # Always run: seed from census when DB is empty, enumerate otherwise.
+        return True
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         all_agents = ctx.pokedex.list_all()
         if not all_agents:
             seeded = _seed_from_census(ctx)
             operations.extend(seeded)
+            if seeded:
+                logger.info("GENESIS: Seeded %d agents from census (DB was empty)", len(seeded))
         else:
-            for agent in all_agents:
-                operations.append(agent["name"])
-        logger.info("GENESIS (offline): %d agents in registry", len(operations))
+            if ctx.offline_mode:
+                # Offline: report all agents as discovered (original behavior)
+                for agent in all_agents:
+                    operations.append(agent["name"])
+            logger.info("GENESIS: %d agents in registry", len(all_agents))
 
 
 def _seed_from_census(ctx: PhaseContext) -> list[str]:
