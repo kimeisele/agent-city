@@ -88,7 +88,7 @@ class FederationNadi:
     """
 
     _federation_dir: Path = field(default=Path("data/federation"))
-    _default_target: str = field(default="*")  # broadcast by default
+    _default_target: str = field(default="steward-protocol")
     _outbox: list[FederationMessage] = field(default_factory=list)
     _processed_ids: set[str] = field(default_factory=set)
 

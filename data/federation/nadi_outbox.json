@@ -1,7 +1,7 @@
 [
   {
     "source": "moksha",
-    "target": "*",
+    "target": "steward-protocol",
     "operation": "city_report",
     "payload": {
       "heartbeat": 179,
