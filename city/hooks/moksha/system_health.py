@@ -89,8 +89,13 @@ class SystemHealthHook(BasePhaseHook):
         diagnostic = _build_diagnostic(issues, ctx.heartbeat_count)
         operations.append(f"system_health:issues={len(issues)}")
 
-        # Post to brainstream (not city_log — this is self-awareness, not reporting)
-        if ctx.discussions is not None and not ctx.offline_mode:
+        # Post to brainstream — gated by governance rules
+        actions = getattr(ctx, "_governance_actions", None)
+        should_post = (
+            actions is not None
+            and getattr(actions, "should_post_health_diagnostic", False)
+        )
+        if should_post and ctx.discussions is not None and not ctx.offline_mode:
             brainstream = ctx.discussions._seed_threads.get("brainstream")
             if brainstream is not None:
                 ctx.discussions.comment(brainstream, diagnostic)
