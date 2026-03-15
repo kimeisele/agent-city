@@ -79,6 +79,14 @@ def execute(ctx: PhaseContext) -> dict:
     # Reflection dict is built by ReflectionStatsHook and enriched by later hooks
     reflection = getattr(ctx, "_reflection", {})
 
+    # Guard: if ReflectionStatsHook failed, reflection is empty — downstream hooks
+    # silently wrote to a throwaway dict. Flag so operator knows data is incomplete.
+    if reflection and "city_stats" not in reflection:
+        logger.critical(
+            "MOKSHA: reflection missing city_stats — ReflectionStatsHook may have failed"
+        )
+        reflection["_incomplete"] = True
+
     if operations:
         logger.info(
             "MOKSHA: %d operations via %d hooks",
