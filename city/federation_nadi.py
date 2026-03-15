@@ -179,11 +179,11 @@ class FederationNadi:
         # Sort by priority (highest first)
         messages.sort(key=lambda m: -m.priority)
 
-        # Evict oldest entries (FIFO) to prevent unbounded growth
-        if len(self._processed_ids) > 5000:
-            keys = list(self._processed_ids)
-            for key in keys[:2500]:
-                del self._processed_ids[key]
+        # FIFO eviction: remove oldest entries (dict is insertion-ordered in Python 3.7+)
+        _MAX_PROCESSED = 5000
+        while len(self._processed_ids) > _MAX_PROCESSED:
+            oldest_key = next(iter(self._processed_ids))
+            del self._processed_ids[oldest_key]
 
         if messages:
             logger.info("FederationNadi: received %d new messages from inbox", len(messages))

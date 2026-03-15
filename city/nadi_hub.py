@@ -158,8 +158,14 @@ class CityNadi:
                 correlation_id=conversation_id or None,
             )
 
-            # Direct inbox delivery (local queue pattern)
-            self._nadi._deliver(msg)
+            # Deliver via public API (send to self endpoint = local enqueue)
+            if hasattr(self._nadi, "send"):
+                self._nadi.send(msg)
+            elif hasattr(self._nadi, "deliver"):
+                self._nadi.deliver(msg)
+            else:
+                # Fallback: private API (legacy steward-protocol versions)
+                self._nadi._deliver(msg)  # type: ignore[attr-defined]
             return True
 
         except Exception as e:

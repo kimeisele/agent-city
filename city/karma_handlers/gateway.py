@@ -602,7 +602,10 @@ def _handle_agent_intro(
 
 
 # 6C-9: Track executed action_hints per comment_id to prevent duplicate fires on edits.
-_executed_hints: dict[str, str] = {}  # comment_id → last executed hint
+# OrderedDict for FIFO eviction (oldest entries removed first, not arbitrary).
+from collections import OrderedDict as _OrderedDict
+
+_executed_hints: _OrderedDict[str, str] = _OrderedDict()  # comment_id → last executed hint
 _EXECUTED_HINTS_MAX = 500
 
 
@@ -722,11 +725,9 @@ def _execute_action_hint(
                 f"brain_hint_dedup:{hint[:30]}:{comment_id[:12]}:#{discussion_number}"
             )
             return
-        # Track this execution (bounded dict)
-        if len(_executed_hints) >= _EXECUTED_HINTS_MAX:
-            # Evict oldest entries (first 100)
-            for old_key in list(_executed_hints)[:100]:
-                del _executed_hints[old_key]
+        # Track this execution (bounded OrderedDict — FIFO eviction)
+        while len(_executed_hints) >= _EXECUTED_HINTS_MAX:
+            _executed_hints.popitem(last=False)  # evict oldest
         _executed_hints[comment_id] = hint
 
     # Schritt 6B: Unified dispatch via CityIntentExecutor

@@ -23,7 +23,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import subprocess
 import time
 from dataclasses import dataclass, field
 
@@ -178,12 +177,15 @@ mutation($commentId:ID!, $body:String!) {
 
 
 def _gh_graphql(query: str, variables: dict | None = None) -> dict | None:
-    """Run a GraphQL query via gh CLI. Returns parsed JSON or None.
+    """Run a GraphQL query via gh CLI through the shared GhRateLimiter.
 
     Uses -f for string variables, -F for integer variables.
-    Adapted from city/issues.py:_gh_run().
+    All calls are rate-limited via the central sliding-window throttle
+    to prevent 403/429 errors from GitHub's secondary rate limit.
     """
-    args = ["gh", "api", "graphql", "-f", f"query={query}"]
+    from city.gh_rate import get_gh_limiter
+
+    args = ["api", "graphql", "-f", f"query={query}"]
     if variables:
         for k, v in variables.items():
             if isinstance(v, int):
@@ -191,20 +193,12 @@ def _gh_graphql(query: str, variables: dict | None = None) -> dict | None:
             else:
                 args.extend(["-f", f"{k}={v}"])
 
-    try:
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            timeout=_GH_TIMEOUT_S,
-        )
-        if result.returncode != 0:
-            logger.warning("gh graphql failed: %s", result.stderr.strip()[:200])
-            return None
-        return json.loads(result.stdout)
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        logger.warning("gh CLI unavailable or timed out: %s", e)
+    stdout = get_gh_limiter().call(args, timeout=_GH_TIMEOUT_S)
+    if stdout is None:
         return None
+
+    try:
+        return json.loads(stdout)
     except json.JSONDecodeError as e:
         logger.warning("gh graphql: invalid JSON response: %s", e)
         return None
