@@ -58,12 +58,11 @@ class ElectionHook(BasePhaseHook):
                 if not getattr(ctx.council, stipend_key, False):
                     for _seat_idx, member_name in result["council_seats"].items():
                         try:
-                            ctx.pokedex._bank.transfer(
-                                "MINT",
+                            ctx.pokedex.mint_prana(
                                 member_name,
                                 WORKER_VISA_STIPEND,
                                 "council_stipend",
-                                "governance",
+                                category="governance",
                             )
                             operations.append(
                                 f"council_stipend:{member_name}:{WORKER_VISA_STIPEND}",
