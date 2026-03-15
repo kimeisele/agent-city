@@ -19,6 +19,10 @@ data/*.db-journal
 data/*.db-shm
 data/*.db-wal
 data/*.json
+
+# Exceptions — durable federation state (Nadi transport)
+!data/federation/
+!data/federation/**
 data/*.bin
 data/.heartbeat.lock
 data/agents/

@@ -157,7 +157,7 @@ class CivicRule:
 @dataclass(frozen=True)
 class CivicContext:
     """System state snapshot for rule evaluation."""
-    
+
     heartbeat_count: int
     avg_prana: float
     total_prana: int
@@ -168,6 +168,7 @@ class CivicContext:
     hours_since_last_post: float
     has_quorum: bool
     last_execution: dict[str, int] = field(default_factory=dict)
+    federation_health: dict = field(default_factory=dict)
 
 
 # ── Civic Engine ───────────────────────────────────────────────────────

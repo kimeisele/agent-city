@@ -87,13 +87,16 @@ class FederationRelay:
 
     Saves CityReports locally (audit trail). Social posting via MoltbookBridge.
     Reads directives from data/federation/directives/ (file-based intake).
+    Reads federation health from steward's .steward/federation_health.json.
     """
 
     _mothership_repo: str = DEFAULT_MOTHERSHIP
     _dry_run: bool = False
     _directives_dir: Path = field(default=Path("data/federation/directives"))
     _reports_dir: Path = field(default=Path("data/federation/reports"))
+    _health_path: Path = field(default=Path(".steward/federation_health.json"))
     _last_report: dict = field(default_factory=dict)
+    _last_health: dict = field(default_factory=dict)
     _report_log: list[dict] = field(default_factory=list)
     _acknowledged: list[str] = field(default_factory=list)
 
@@ -192,6 +195,35 @@ class FederationRelay:
 
         return False
 
+    def read_federation_health(self) -> dict:
+        """Read federation health from steward's federation_health.json.
+
+        Returns cached health data if the file hasn't changed.
+        This data is used by GovernanceLayer to incorporate federation
+        health into civic decisions (e.g. degraded steward → local safety mode).
+        """
+        if not self._health_path.exists():
+            return self._last_health
+
+        try:
+            data = json.loads(self._health_path.read_text())
+            if isinstance(data, dict):
+                self._last_health = data
+                logger.info(
+                    "Federation: read health (steward heartbeat=%s, repos=%d)",
+                    data.get("heartbeat", "?"),
+                    len(data.get("repos", {})),
+                )
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Federation: failed to read health: %s", e)
+
+        return self._last_health
+
+    @property
+    def federation_health(self) -> dict:
+        """Last read federation health snapshot."""
+        return dict(self._last_health)
+
     @property
     def last_report(self) -> dict:
         """Last sent report payload."""
@@ -213,6 +245,7 @@ class FederationRelay:
             if self._directives_dir.exists()
             else 0
         )
+        health = self._last_health
         return {
             "mothership": self._mothership_repo,
             "dry_run": self._dry_run,
@@ -220,4 +253,9 @@ class FederationRelay:
             "pending_directives": pending,
             "processed_directives": done,
             "last_report_heartbeat": self._last_report.get("heartbeat"),
+            "federation_health": {
+                "available": bool(health),
+                "steward_heartbeat": health.get("heartbeat"),
+                "repos_tracked": len(health.get("repos", {})),
+            },
         }

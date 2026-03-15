@@ -1,9 +1,9 @@
 {
   "city/identity.py": "77c58a9ed68444791c61b58f134069d0fca4967ea2a3966f09338b6ba09b27ab",
   "city/pokedex.py": "af8782cb4f7df2f0169fb2034d60f3f6994ed6c147d1456ae895ed18451b7d12",
-  "city/git_client.py": "137e8e4de582f5d97e97695feab4f1fce6fcfbf41b6acf2e1175ebc43e8e58a2",
+  "city/git_client.py": "b08555757c55df226d0a28b32354df595774d6b7fdedf39aeec94ca64b588034",
   "city/gateway.py": "f93de25ed8c79a49b9d6a1508286c5301969bf6611dffd12e59943aa727d7272",
-  "config/city.yaml": "73b7d06d6f813a3f8f0ca0135fed8ec3342036fda1cf0beb137cf769aad15b34",
+  "config/city.yaml": "5ee68515907d19aa27b0064dadd1e68d625402a51f3b9d0a13549aaf30e2542b",
   ".github/workflows/agent_city_heartbeat.yml": "FILE_NOT_FOUND",
   ".github/workflows/ci.yml": "FILE_NOT_FOUND"
 }

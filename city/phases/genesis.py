@@ -35,6 +35,7 @@ def _build_registry():
     )
     from city.hooks.genesis.federation import (
         FederationDirectivesHook,
+        FederationHealthHook,
         FederationNadiHook,
     )
     from city.hooks.genesis.discussion_scanner import (
@@ -50,6 +51,7 @@ def _build_registry():
     registry.register(DMInboxHook())              # pri=15  inbox
     registry.register(SubmoltScanHook())           # pri=20  submolt
     registry.register(FederationNadiHook())        # pri=30  federation
+    registry.register(FederationHealthHook())      # pri=32  health reader
     registry.register(FederationDirectivesHook())  # pri=35  directives
     registry.register(DiscussionScannerHook())     # pri=60  discussions
     registry.register(AgentIntroHook())            # pri=70  intros

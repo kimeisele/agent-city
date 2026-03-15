@@ -83,6 +83,10 @@ class GitStateAuthority(VajraGuarded):
     def protected_files(self) -> List[str]:
         return self._git_cfg.get("protected_files", [])
 
+    @property
+    def runtime_exceptions(self) -> List[str]:
+        return self._git_cfg.get("runtime_exceptions", [])
+
     # ── Classification ──────────────────────────────────────────────────────
 
     @staticmethod
@@ -102,10 +106,22 @@ class GitStateAuthority(VajraGuarded):
                 return "security"
         for pattern in self.runtime_patterns:
             if self._matches(path, pattern):
+                # Check runtime_exceptions — e.g. !data/federation/** re-includes
+                if self._is_excepted(path):
+                    break
                 return "runtime"
         if path in self.protected_files:
             return "protected"
         return "code"
+
+    def _is_excepted(self, path: str) -> bool:
+        """Check if path matches a runtime exception (negation pattern)."""
+        for exc in self.runtime_exceptions:
+            # Strip leading '!' for matching
+            pattern = exc.lstrip("!")
+            if self._matches(path, pattern) or path.startswith(pattern.rstrip("/*")):
+                return True
+        return False
 
     def is_blocked(self, path: str) -> bool:
         """Return True if a file must never be staged."""
@@ -125,6 +141,12 @@ class GitStateAuthority(VajraGuarded):
         lines.append("# Runtime state — ephemeral, changes every tick")
         for p in self.runtime_patterns:
             lines.append(p)
+        # Exceptions — re-include durable federation state for Nadi transport
+        if self.runtime_exceptions:
+            lines.append("")
+            lines.append("# Exceptions — durable federation state (Nadi transport)")
+            for p in self.runtime_exceptions:
+                lines.append(p)
         lines.append("")
 
         lines.append("# Standard Python / tooling")
