@@ -295,77 +295,12 @@ class WikiSyncHook(BasePhaseHook):
 # All posting decisions now flow through deterministic rule evaluation
 
 
-def _build_post_data(
+def _collect_city_state(
     ctx: PhaseContext,
     reflection: dict,
     operations: list[str] | None = None,
 ) -> dict:
-    """Build data dict for Moltbook city update post."""
-    stats = reflection.get("city_stats", {})
-    recent_actions = _collect_recent_actions(reflection, operations)
-
-    elected_mayor = None
-    council_seats = 0
-    open_proposals = 0
-    if ctx.council is not None:
-        elected_mayor = ctx.council.elected_mayor
-        council_seats = ctx.council.member_count
-        open_proposals = len(ctx.council.get_open_proposals())
-
-    contract_status: dict = {}
-    if ctx.contracts is not None:
-        cs = ctx.contracts.stats()
-        contract_status = {
-            "total": cs.get("total", 0),
-            "passing": cs.get("passing", 0),
-            "failing": cs.get("failing", 0),
-        }
-
-    # Collect mission results from sankalpa registry
-    mission_results: list[dict] = []
-    if ctx.sankalpa is not None and hasattr(ctx.sankalpa, "registry"):
-        try:
-            all_missions = ctx.sankalpa.registry.list_missions()
-            for m in all_missions:
-                mission_results.append(
-                    {
-                        "id": m.id,
-                        "name": m.name,
-                        "status": m.status.value if hasattr(m.status, "value") else str(m.status),
-                        "owner": getattr(m, "owner", "unknown"),
-                    }
-                )
-        except Exception as e:
-            logger.warning("MOKSHA: Failed to collect mission results for post: %s", e)
-
-    directive_acks = ctx.federation.pending_acks if ctx.federation is not None else []
-    active_campaigns = _collect_active_campaigns(ctx)
-
-    return {
-        "heartbeat": ctx.heartbeat_count,
-        "population": stats.get("total", 0),
-        "alive": stats.get("active", 0) + stats.get("citizen", 0),
-        "elected_mayor": elected_mayor,
-        "council_seats": council_seats,
-        "open_proposals": open_proposals,
-        "recent_actions": recent_actions,
-        "contract_status": contract_status,
-        "chain_valid": reflection.get("chain_valid", False),
-        "mission_results": mission_results,
-        "directive_acks": directive_acks,
-        "pr_results": reflection.get("pr_results", []),
-        "active_campaigns": active_campaigns,
-    }
-
-
-def _build_city_report(
-    ctx: PhaseContext,
-    reflection: dict,
-    operations: list[str] | None = None,
-) -> object:
-    """Build a CityReport from current city state."""
-    from city.federation import CityReport
-
+    """Collect city state once — shared by Moltbook post and federation report."""
     stats = reflection.get("city_stats", {})
     total = stats.get("total", 0)
     alive = stats.get("active", 0) + stats.get("citizen", 0)
@@ -388,46 +323,65 @@ def _build_city_report(
             "failing": cs.get("failing", 0),
         }
 
-    directive_acks = ctx.federation.pending_acks if ctx.federation is not None else []
-    active_campaigns = _collect_active_campaigns(ctx)
-
-    # Collect mission results from sankalpa registry
     mission_results: list[dict] = []
     if ctx.sankalpa is not None and hasattr(ctx.sankalpa, "registry"):
         try:
-            all_missions = ctx.sankalpa.registry.list_missions()
-            for m in all_missions:
-                mission_results.append(
-                    {
-                        "id": m.id,
-                        "name": m.name,
-                        "status": m.status.value if hasattr(m.status, "value") else str(m.status),
-                        "owner": getattr(m, "owner", "unknown"),
-                        "priority": m.priority.name
-                        if hasattr(m.priority, "name")
-                        else str(m.priority),
-                    }
-                )
+            for m in ctx.sankalpa.registry.list_missions():
+                entry: dict = {
+                    "id": m.id,
+                    "name": m.name,
+                    "status": m.status.value if hasattr(m.status, "value") else str(m.status),
+                    "owner": getattr(m, "owner", "unknown"),
+                }
+                if hasattr(m, "priority"):
+                    entry["priority"] = (
+                        m.priority.name if hasattr(m.priority, "name") else str(m.priority)
+                    )
+                mission_results.append(entry)
         except Exception as e:
             logger.warning("MOKSHA: Failed to collect mission results: %s", e)
 
-    return CityReport(
-        heartbeat=ctx.heartbeat_count,
-        timestamp=time.time(),
-        population=total,
-        alive=alive,
-        dead=total - alive,
-        elected_mayor=elected_mayor,
-        council_seats=council_seats,
-        open_proposals=open_proposals,
-        chain_valid=reflection.get("chain_valid", False),
-        recent_actions=recent_actions,
-        contract_status=contract_status,
-        mission_results=mission_results,
-        directive_acks=directive_acks,
-        pr_results=reflection.get("pr_results", []),
-        active_campaigns=active_campaigns,
-    )
+    directive_acks = ctx.federation.pending_acks if ctx.federation is not None else []
+    active_campaigns = _collect_active_campaigns(ctx)
+
+    return {
+        "heartbeat": ctx.heartbeat_count,
+        "timestamp": time.time(),
+        "population": total,
+        "alive": alive,
+        "dead": total - alive,
+        "elected_mayor": elected_mayor,
+        "council_seats": council_seats,
+        "open_proposals": open_proposals,
+        "recent_actions": recent_actions,
+        "contract_status": contract_status,
+        "chain_valid": reflection.get("chain_valid", False),
+        "mission_results": mission_results,
+        "directive_acks": directive_acks,
+        "pr_results": reflection.get("pr_results", []),
+        "active_campaigns": active_campaigns,
+    }
+
+
+def _build_post_data(
+    ctx: PhaseContext,
+    reflection: dict,
+    operations: list[str] | None = None,
+) -> dict:
+    """Build data dict for Moltbook city update post."""
+    return _collect_city_state(ctx, reflection, operations)
+
+
+def _build_city_report(
+    ctx: PhaseContext,
+    reflection: dict,
+    operations: list[str] | None = None,
+) -> object:
+    """Build a CityReport from current city state."""
+    from city.federation import CityReport
+
+    data = _collect_city_state(ctx, reflection, operations)
+    return CityReport(**data)
 
 
 def _collect_active_campaigns(ctx: PhaseContext) -> list[dict]:
