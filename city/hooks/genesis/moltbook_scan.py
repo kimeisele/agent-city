@@ -68,7 +68,10 @@ class MoltbookFeedScanHook(BasePhaseHook):
                     author,
                     moltbook_profile={
                         "karma": author_obj.get("karma"),
-                        "follower_count": author_obj.get("followerCount") or author_obj.get("follower_count"),
+                        "follower_count": (
+                            author_obj.get("followerCount")
+                            or author_obj.get("follower_count")
+                        ),
                     },
                 )
                 operations.append(author)

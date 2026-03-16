@@ -433,9 +433,21 @@ def build_agent_spec(
             METABOLIC_COST,
         )
         _PRANA_BUDGET: dict[str, dict[str, int]] = {
-            "ephemeral": {"genesis_prana": GENESIS_PRANA_EPHEMERAL, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_EPHEMERAL},
-            "standard": {"genesis_prana": GENESIS_PRANA_STANDARD, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_STANDARD},
-            "resilient": {"genesis_prana": GENESIS_PRANA_RESILIENT, "metabolic_cost": METABOLIC_COST, "max_age": MAX_AGE_RESILIENT},
+            "ephemeral": {
+                "genesis_prana": GENESIS_PRANA_EPHEMERAL,
+                "metabolic_cost": METABOLIC_COST,
+                "max_age": MAX_AGE_EPHEMERAL,
+            },
+            "standard": {
+                "genesis_prana": GENESIS_PRANA_STANDARD,
+                "metabolic_cost": METABOLIC_COST,
+                "max_age": MAX_AGE_STANDARD,
+            },
+            "resilient": {
+                "genesis_prana": GENESIS_PRANA_RESILIENT,
+                "metabolic_cost": METABOLIC_COST,
+                "max_age": MAX_AGE_RESILIENT,
+            },
             "immortal": {"genesis_prana": -1, "metabolic_cost": 0, "max_age": -1},
         }
         budget = _PRANA_BUDGET.get(prana_class, _PRANA_BUDGET["standard"])

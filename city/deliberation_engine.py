@@ -290,7 +290,8 @@ class DeliberationEngine:
 
         recommendations = {}
         for result in results:
-            recommendations[result.recommendation] = recommendations.get(result.recommendation, 0) + 1
+            rec = result.recommendation
+            recommendations[rec] = recommendations.get(rec, 0) + 1
 
         return {
             "total": len(results),

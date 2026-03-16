@@ -162,7 +162,10 @@ def _check_brain(ctx: PhaseContext) -> list[dict]:
             "severity": "critical",
             "system": "brain",
             "signal": "Brain is OFFLINE — NoOp provider, no LLM API key detected",
-            "detail": "All agent cognition suppressed. Check OPENROUTER_API_KEY / OPENAI_API_KEY secrets.",
+            "detail": (
+                "All agent cognition suppressed."
+                " Check OPENROUTER_API_KEY / OPENAI_API_KEY secrets."
+            ),
         })
 
     # Suppressed posts from recent outage

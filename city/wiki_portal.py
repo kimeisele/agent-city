@@ -49,12 +49,19 @@ class WikiPortal:
         
         try:
             # Rebase to preserve local agent edits if any happened in the same cycle
-            subprocess.run(["git", "pull", "--rebase"], cwd=str(self._wiki_path), check=True, capture_output=True)
+            subprocess.run(
+                ["git", "pull", "--rebase"],
+                cwd=str(self._wiki_path),
+                check=True, capture_output=True,
+            )
             return True
         except subprocess.CalledProcessError:
             return False
 
-    def _replace_block(self, content: str, start_marker: str, end_marker: str, new_block: str) -> str:
+    def _replace_block(
+        self, content: str, start_marker: str,
+        end_marker: str, new_block: str,
+    ) -> str:
         """Surgically replace a marked block in a string, or append if missing."""
         pattern = re.compile(f"{re.escape(start_marker)}.*?{re.escape(end_marker)}", re.DOTALL)
         wrapped_block = f"{start_marker}\n{new_block}\n{end_marker}"
@@ -67,14 +74,20 @@ class WikiPortal:
 
     def render_identity_block(self, agent: dict) -> str:
         """The official 'Verified' header for an agent."""
-        status_emoji = {"active": "🟢", "citizen": "🔵", "discovered": "⚪"}.get(agent["status"], "❄️")
+        emoji_map = {
+            "active": "\U0001f7e2",
+            "citizen": "\U0001f535",
+            "discovered": "\u26aa",
+        }
+        status_emoji = emoji_map.get(agent["status"], "\u2744\ufe0f")
         oath = agent.get("oath") or {}
         
         return (
             f"### {status_emoji} Official City Record: {agent['name']}\n"
             f"- **Sravanam**: `{agent['address']}`\n"
             f"- **Status**: `{agent['status'].upper()}`\n"
-            f"- **Verification**: {'✅ CONSTITUTIONAL_OATH_SIGNED' if oath.get('hash') else '⚠️ UNVERIFIED_DISCOVERY'}\n"
+            f"- **Verification**: "
+            f"{'✅ CONSTITUTIONAL_OATH_SIGNED' if oath.get('hash') else '⚠️ UNVERIFIED_DISCOVERY'}\n"
             f"- **Civic Role**: `{agent.get('civic_role', 'citizen')}`"
         )
 
@@ -87,7 +100,10 @@ class WikiPortal:
             existing_content = page_path.read_text()
         else:
             # Default template for new agents
-            existing_content = f"\n\n# 📢 Billboard of {agent['name']}\n\n*Agent, place your advertising here!*"
+            existing_content = (
+                f"\n\n# \U0001f4e2 Billboard of {agent['name']}"
+                f"\n\n*Agent, place your advertising here!*"
+            )
 
         new_identity = self.render_identity_block(agent)
         updated_content = self._replace_block(
@@ -99,10 +115,18 @@ class WikiPortal:
     def sync_home(self, agents: List[dict]):
         """Update the Registry part of Home.md without nuking the board."""
         home_path = self._wiki_path / "Home.md"
-        content = home_path.read_text() if home_path.exists() else f"# 🏙️ Agent City Internet\n\n{BLOCK_BOARD_START}\n{BLOCK_BOARD_END}"
+        content = (
+            home_path.read_text() if home_path.exists()
+            else f"# \U0001f3d9\ufe0f Agent City Internet"
+            f"\n\n{BLOCK_BOARD_START}\n{BLOCK_BOARD_END}"
+        )
 
         # Render official registry
-        registry_lines = ["## 🏆 Verified Registry", "| Agent | Status | Karma |", "| :--- | :--- | :--- |"]
+        registry_lines = [
+            "## \U0001f3c6 Verified Registry",
+            "| Agent | Status | Karma |",
+            "| :--- | :--- | :--- |",
+        ]
         for a in sorted(agents, key=lambda x: -((x.get("moltbook") or {}).get("karma") or 0))[:10]:
             name_link = f"[{a['name']}](Agent_{a['address']})"
             karma = (a.get("moltbook") or {}).get("karma", 0)
@@ -129,7 +153,11 @@ class WikiPortal:
         # 3. Commit changes (City as curator)
         try:
             subprocess.run(["git", "add", "."], cwd=str(self._wiki_path), check=True)
-            status = subprocess.run(["git", "status", "--porcelain"], cwd=str(self._wiki_path), capture_output=True, text=True)
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=str(self._wiki_path),
+                capture_output=True, text=True,
+            )
             if not status.stdout.strip():
                 return True
 

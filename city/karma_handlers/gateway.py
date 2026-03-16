@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict as _OrderedDict
 from typing import TYPE_CHECKING
 
 from city.cognition import emit_event
@@ -603,8 +604,6 @@ def _handle_agent_intro(
 
 # 6C-9: Track executed action_hints per comment_id to prevent duplicate fires on edits.
 # OrderedDict for FIFO eviction (oldest entries removed first, not arbitrary).
-from collections import OrderedDict as _OrderedDict
-
 _executed_hints: _OrderedDict[str, str] = _OrderedDict()  # comment_id → last executed hint
 _EXECUTED_HINTS_MAX = 500
 

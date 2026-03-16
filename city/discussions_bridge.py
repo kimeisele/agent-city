@@ -262,7 +262,8 @@ class DiscussionsBridge:
         self._seed_threads = dict(state["seed_threads"])
         self._posted_hashes = set(state["posted_hashes"])
         logger.info(
-            "DISCUSSIONS: restored %d threads, %d comment cursors, %d posted hashes, %d seed threads from city.db",
+            "DISCUSSIONS: restored %d threads, %d comment cursors,"
+            " %d posted hashes, %d seed threads from city.db",
             len(self._seen_discussion_numbers),
             len(self._seen_comment_hashes),
             len(self._posted_hashes),

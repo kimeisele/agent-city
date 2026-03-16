@@ -512,7 +512,10 @@ def _build_pathogen_index(ctx: BuildContext) -> object:
     reactor = ctx.registry.get("reactor")
     if reactor is not None:
         idx.connect_reactor(reactor)
-        logger.info("PathogenIndex: %d pathogens, connected to CityReactor", len(idx.list_pathogens()))
+        logger.info(
+            "PathogenIndex: %d pathogens, connected to CityReactor",
+            len(idx.list_pathogens()),
+        )
     else:
         logger.info("PathogenIndex: %d pathogens (no reactor)", len(idx.list_pathogens()))
     return idx
