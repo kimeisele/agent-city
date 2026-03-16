@@ -1,16 +1,8 @@
 [
   {
-    "correlation_id": "",
-    "delivered_at": 1773583995.945146,
-    "envelope_id": "",
-    "operation": "heartbeat",
-    "source_city_id": "steward",
-    "target_city_id": "agent-city"
-  },
-  {
-    "correlation_id": "",
-    "delivered_at": 1773670923.8983161,
-    "envelope_id": "7d37861d-1b9c-4855-b662-7e50d9f2f02d",
+    "correlation_id": "0d90a4a6-8255-4dd0-b51b-fb7915ef6dd7",
+    "delivered_at": 1773673195.6911318,
+    "envelope_id": "0d90a4a6-8255-4dd0-b51b-fb7915ef6dd7",
     "operation": "heartbeat",
     "source_city_id": "steward",
     "target_city_id": "agent-city"
