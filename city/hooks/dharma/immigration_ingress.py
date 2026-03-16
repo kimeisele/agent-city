@@ -129,10 +129,11 @@ class ImmigrationIngressHook(BasePhaseHook):
         jiva_info = ""
         agent_data = ctx.pokedex.get(agent_name)
         if agent_data:
-            jiva = agent_data.get("jiva", {})
-            element = jiva.get("element", "unknown")
-            zone = jiva.get("zone", "unknown")
-            guardian = jiva.get("guardian", "unknown")
+            vibration = agent_data.get("vibration", {})
+            classification = agent_data.get("classification", {})
+            element = vibration.get("element", "unknown")
+            zone = agent_data.get("zone", "unknown")
+            guardian = classification.get("guardian", "unknown")
             if element != "unknown":
                 jiva_info = (
                     f"\n\nYour Jiva derivation: {element} element, "
