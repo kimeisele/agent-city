@@ -1,15 +1,1 @@
-[
-  {
-    "source": "agent-city",
-    "target": "steward-protocol",
-    "operation": "city_report",
-    "payload": {
-      "test": true,
-      "origin_phase": "moksha"
-    },
-    "priority": 1,
-    "correlation_id": "",
-    "timestamp": 1773673135.322958,
-    "ttl_s": 7200.0
-  }
-]
+[]
