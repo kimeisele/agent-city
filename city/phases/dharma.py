@@ -40,6 +40,7 @@ def _build_registry():
         IssueLifecycleHook,
         MoltbookAssistantDharmaHook,
     )
+    from city.hooks.dharma.immigration_ingress import ImmigrationIngressHook
     from city.hooks.dharma.immigration_processor import ImmigrationProcessorHook
     from city.hooks.dharma.zone_governance import ZoneGovernanceHook
 
@@ -47,6 +48,7 @@ def _build_registry():
     registry.register(HibernationHook())              # pri=0   freeze first
     registry.register(MetabolizeHook())                # pri=5   metabolize
     registry.register(PromotionHook())                 # pri=10  promote
+    registry.register(ImmigrationIngressHook())        # pri=11  DM→application bridge
     registry.register(ImmigrationProcessorHook())      # pri=12  immigration
     registry.register(ZoneHealthHook())                # pri=15  zone health
     registry.register(ZoneGovernanceHook())            # pri=16  zone governance
