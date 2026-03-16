@@ -258,7 +258,7 @@ class MoltbookAssistant:
         c = agent.get("classification", {})
         v = agent.get("vibration", {})
         element = v.get("element", "?")
-        zone = c.get("zone", "?")
+        zone = agent.get("zone", "?")  # zone is top-level, not in classification
         guardian = c.get("guardian", "")
 
         message = (
