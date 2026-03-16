@@ -158,14 +158,10 @@ class CityNadi:
                 correlation_id=conversation_id or None,
             )
 
-            # Deliver via public API (send to self endpoint = local enqueue)
-            if hasattr(self._nadi, "send"):
-                self._nadi.send(msg)
-            elif hasattr(self._nadi, "deliver"):
-                self._nadi.deliver(msg)
-            else:
-                # Fallback: private API (legacy steward-protocol versions)
-                self._nadi._deliver(msg)  # type: ignore[attr-defined]
+            # Deliver locally: LocalNadi.send() requires a connection to
+            # the target, but CityNadi sends to *itself* (local queue).
+            # Use _deliver() directly for local enqueue.
+            self._nadi._deliver(msg)  # type: ignore[attr-defined]
             return True
 
         except Exception as e:

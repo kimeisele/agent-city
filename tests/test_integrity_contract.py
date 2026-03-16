@@ -19,12 +19,15 @@ from city.contracts import ContractStatus
 
 
 def _init_git_repo(tmp_path: Path) -> Path:
-    """Create a git repo with initial commit."""
+    """Create a git repo with initial commit (signing disabled for test isolation)."""
     subprocess.run(["git", "init"], cwd=str(tmp_path), check=True,
                    capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=str(tmp_path),
                    check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "t@t.t"], cwd=str(tmp_path),
+                   check=True, capture_output=True)
+    # Disable commit signing — test repos don't have signing keys
+    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=str(tmp_path),
                    check=True, capture_output=True)
     return tmp_path
 
