@@ -282,19 +282,24 @@ class MoltbookAssistant:
             return False
 
     def _ensure_voice(self) -> object | None:
-        """Lazy-init BrainVoice from same provider as Brain."""
+        """Lazy-init BrainVoice from the EXISTING registered provider.
+
+        Brain already registered the LLM provider in ServiceRegistry.
+        We grab it from there — no re-initialization, no PhoenixConfig.
+        """
         if self._voice is not None:
             return self._voice
         try:
             from city.brain_voice import BrainVoice
-            from vibe_core.runtime.providers.factory import get_llm_provider
-            from vibe_core.runtime.providers.base import NoOpProvider
+            from vibe_core.di import ServiceRegistry
+            from vibe_core.runtime.providers.base import LLMProvider, NoOpProvider
 
-            provider = get_llm_provider()
-            if isinstance(provider, NoOpProvider):
+            # Get the ALREADY REGISTERED provider (Brain registered it)
+            provider = ServiceRegistry.get(LLMProvider)
+            if provider is None or isinstance(provider, NoOpProvider):
                 return None
             self._voice = BrainVoice(_provider=provider)
-            logger.info("BrainVoice: initialized")
+            logger.info("BrainVoice: initialized from existing provider")
             return self._voice
         except Exception as e:
             logger.debug("BrainVoice: unavailable: %s", e)
@@ -310,6 +315,7 @@ class MoltbookAssistant:
         target = CONTENT_TARGETS.get(series, SUBMOLT)
 
         # Narrative series: BrainVoice generates from real city data
+        # For m/general posts: BrainVoice or NOTHING. No template spam.
         narrative_series = {"sovereignty_brief", "federation_update", "digest"}
         if series in narrative_series:
             voice = self._ensure_voice()
@@ -317,16 +323,19 @@ class MoltbookAssistant:
                 title, content = voice.narrate(series, hb, city_stats, target_submolt=target)
                 if title and content:
                     return self._publish(title, content, target, series)
-            # Fallback to template if BrainVoice unavailable
+            # If BrainVoice unavailable and target is m/general: DO NOT fall back
+            # to templates. Better to stay silent than post spam.
+            if target == "general":
+                logger.info("CONTENT: %s skipped — BrainVoice offline, refusing template spam in m/general", series)
+                return False
 
-        # Template series: deterministic builders
+        # Template series: deterministic builders (internal content only)
+        # sovereignty_brief and federation_update are BrainVoice-ONLY
         builders = {
             "spotlight": self._build_spotlight,
             "zone_report": self._build_zone_report,
             "digest": self._build_digest,
             "discussion": self._build_discussion,
-            "federation_update": self._build_federation_update,
-            "sovereignty_brief": self._build_sovereignty_brief,
         }
         builder = builders.get(series)
         if builder is None:
