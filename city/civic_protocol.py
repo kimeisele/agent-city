@@ -326,6 +326,26 @@ def create_default_rules() -> list[CivicRule]:
             priority=30,
         ),
 
+        # Moltbook content cadence (controls MoltbookAssistant posting)
+        CivicRule(
+            name="regular_moltbook_content",
+            condition=CivicCondition.HEARTBEAT_MODULO,
+            condition_params={"modulo": 8},  # Every 2 MURALI cycles (~2 hours)
+            action=CivicAction.POST_CITY_REPORT,  # Reused as "should_post" signal
+            constraints=CivicConstraint(cooldown_heartbeats=6),
+            priority=25,
+        ),
+
+        # Silence too long — post regardless of other conditions
+        CivicRule(
+            name="silence_breaker",
+            condition=CivicCondition.TIME_SINCE_LAST_POST_HOURS,
+            condition_params={"hours": 6},
+            action=CivicAction.POST_CITY_REPORT,
+            constraints=CivicConstraint(cooldown_heartbeats=20),
+            priority=65,
+        ),
+
         # Governance rules
         CivicRule(
             name="trigger_election",
