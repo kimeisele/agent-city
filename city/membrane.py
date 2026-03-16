@@ -24,7 +24,6 @@ class IngressSurface(str, Enum):
     MOLTBOOK_FEED = "moltbook_feed"
     SUBMOLT_SIGNAL = "submolt_signal"
     FEDERATION = "federation"
-    AGENT_INTERNET = "agent_internet"
 
 
 class AuthRoute(str, Enum):
@@ -34,7 +33,6 @@ class AuthRoute(str, Enum):
     PLATFORM_DM = "platform_dm"
     PUBLIC_FEED = "public_feed"
     FEDERATION_NADI = "federation_nadi"
-    AGENT_INTERNET_NADI = "agent_internet_nadi"
 
 
 @dataclass(frozen=True)
@@ -101,12 +99,6 @@ AUTHORITY_MAP: dict[IngressSurface, AuthorityDescriptor] = {
         AccessClass.STEWARD,
         ClaimLevel.CRYPTO_VERIFIED,
         AuthRoute.FEDERATION_NADI,
-    ),
-    IngressSurface.AGENT_INTERNET: AuthorityDescriptor(
-        "external",
-        AccessClass.OBSERVER,
-        ClaimLevel.DISCOVERED,
-        AuthRoute.AGENT_INTERNET_NADI,
     ),
 }
 

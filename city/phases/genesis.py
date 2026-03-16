@@ -38,7 +38,6 @@ def _build_registry():
         FederationHealthHook,
         FederationNadiHook,
     )
-    from city.hooks.genesis.internet_inbox import InternetNadiHook
     from city.hooks.genesis.discussion_scanner import (
         AgentIntroHook,
         DiscussionScannerHook,
@@ -51,7 +50,6 @@ def _build_registry():
     registry.register(MoltbookFeedScanHook())     # pri=10  discovery
     registry.register(DMInboxHook())              # pri=15  inbox
     registry.register(SubmoltScanHook())           # pri=20  submolt
-    registry.register(InternetNadiHook())          # pri=25  agent-internet
     registry.register(FederationNadiHook())        # pri=30  federation
     registry.register(FederationHealthHook())      # pri=32  health reader
     registry.register(FederationDirectivesHook())  # pri=35  directives
