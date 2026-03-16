@@ -225,11 +225,11 @@ def test_extract_brain_feedback_skips_pure_command():
 
 
 def test_extract_brain_feedback_truncates_long():
-    """Long comments are truncated to 300 chars."""
-    long_text = "a" * 500
+    """Long comments are truncated to 800 chars."""
+    long_text = "a" * 1000
     fb = extract_brain_feedback(long_text, author="alice")
     assert fb is not None
-    assert len(fb["comprehension"]) <= 300
+    assert len(fb["comprehension"]) <= 800
 
 
 def test_extract_brain_feedback_mixed_command_and_prose():

@@ -439,7 +439,7 @@ def extract_brain_feedback(
 
     return {
         "intent": "external_feedback",
-        "comprehension": prose[:300],
+        "comprehension": prose[:800],
         "confidence": 0.5,  # neutral — human input, not LLM-scored
         "domain_relevance": "community",
         "key_concepts": [f"human:{author}"],

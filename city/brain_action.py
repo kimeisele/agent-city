@@ -19,6 +19,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from city.reactor import CityIntent
 
 logger = logging.getLogger("AGENT_CITY.BRAIN_ACTION")
 

@@ -112,7 +112,7 @@ def test_post_agent_update_rate_limited():
     bridge = MoltbookBridge(
         _client=client,
         _post_cooldown_s=3600,
-        _last_post_time=time.time(),  # just posted
+        _last_post_times={"agent_update": time.time()},  # just posted
     )
 
     result = bridge.post_agent_update(

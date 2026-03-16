@@ -34,7 +34,9 @@ def publish_wiki(
     _git_run(["add", "."], cwd=checkout)
     status = _git_output(["status", "--porcelain"], cwd=checkout)
     source_sha = _git_output(["rev-parse", "HEAD"], cwd=root).strip() or "unknown"
-    commit_message = str(manifest["publication"]["commit_message_template"]).format(source_sha=source_sha)
+    commit_message = str(
+        manifest["publication"]["commit_message_template"]
+    ).format(source_sha=source_sha)
     if not status.strip():
         return {
             "changed": False,
@@ -73,7 +75,10 @@ def write_publication_result(path: Path, result: dict) -> Path:
     return path
 
 
-def ensure_wiki_checkout(*, workspace: Path, wiki_repo_url: str, wiki_path: Path | None = None) -> Path:
+def ensure_wiki_checkout(
+    *, workspace: Path, wiki_repo_url: str,
+    wiki_path: Path | None = None,
+) -> Path:
     checkout = wiki_path or workspace / ".vibe" / "wiki"
     if not checkout.exists():
         checkout.parent.mkdir(parents=True, exist_ok=True)
@@ -81,7 +86,11 @@ def ensure_wiki_checkout(*, workspace: Path, wiki_repo_url: str, wiki_path: Path
         return checkout
     _git_run(["fetch", "origin", "--prune"], cwd=checkout)
     current_branch = _git_output(["branch", "--show-current"], cwd=checkout).strip()
-    remote_branches = _git_output(["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"], cwd=checkout).splitlines()
+    remote_branches = _git_output(
+        ["for-each-ref", "--format=%(refname:short)",
+         "refs/remotes/origin"],
+        cwd=checkout,
+    ).splitlines()
     if current_branch and f"origin/{current_branch}" in remote_branches:
         _git_run(["pull", "--rebase", "origin", current_branch], cwd=checkout)
     return checkout
@@ -92,19 +101,32 @@ def _git_run(args: list[str], *, cwd: Path) -> None:
 
 
 def _git_output(args: list[str], *, cwd: Path) -> str:
-    completed = subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True)
+    completed = subprocess.run(
+        ["git", *args], cwd=str(cwd),
+        check=True, capture_output=True, text=True,
+    )
     return completed.stdout
 
 
 def _ensure_local_git_identity(checkout: Path) -> None:
     for key, value in (("user.name", "agent-city-bot"), ("user.email", "bot@agent-city")):
-        current = subprocess.run(["git", "config", key], cwd=str(checkout), check=False, capture_output=True, text=True)
+        current = subprocess.run(
+            ["git", "config", key], cwd=str(checkout),
+            check=False, capture_output=True, text=True,
+        )
         if getattr(current, "returncode", 0) != 0 or not getattr(current, "stdout", "").strip():
             _git_run(["config", key, value], cwd=checkout)
 
 
 def _normalize_relative_paths(root: Path, built: list[Path]) -> list[str]:
-    return [_normalize_relative_path(Path(path).resolve().relative_to(root.resolve()).as_posix()) for path in built]
+    return [
+        _normalize_relative_path(
+            Path(path).resolve().relative_to(
+                root.resolve()
+            ).as_posix()
+        )
+        for path in built
+    ]
 
 
 def _normalize_relative_path(path: str) -> str:

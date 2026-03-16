@@ -571,7 +571,8 @@ class ThreadStateEngine:
         """Ledger summary for diagnostics."""
         with self._lock:
             rows = self._conn.execute(
-                "SELECT status, source, COUNT(*) as cnt FROM comment_ledger GROUP BY status, source",
+                "SELECT status, source, COUNT(*) as cnt"
+                " FROM comment_ledger GROUP BY status, source",
             ).fetchall()
         result: dict = {}
         for r in rows:

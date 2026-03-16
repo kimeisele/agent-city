@@ -22,7 +22,10 @@ def render_world_home(page: dict, context: dict, entity: dict | None = None) -> 
     intro = _read_optional(context["root"] / "wiki-src/pages/Home.md")
     top = sorted(agents, key=lambda item: int(item.get("prana", 0)), reverse=True)[:10]
     table = ["## Verified Registry", "| Agent | Status | Prana |", "| :--- | :--- | ---: |"]
-    table.extend(f"| [{a['name']}](Agent--{a['slug']}) | {a['status']} | {a['prana']} |" for a in top)
+    table.extend(
+        f"| [{a['name']}](Agent--{a['slug']}) | {a['status']} | {a['prana']} |"
+        for a in top
+    )
     return {
         "page_meta": f"Generated city home for `{context['origin_id']}`.",
         "world_status": "\n".join([
@@ -85,7 +88,11 @@ def render_world_map(page: dict, context: dict, entity: dict | None = None) -> s
 
 
 def render_doc_projection(page: dict, context: dict, entity: dict | None = None) -> str:
-    paths = [context["root"] / source["path"] for source in page.get("sources", []) if source["kind"] in {"authored", "doc"}]
+    paths = [
+        context["root"] / source["path"]
+        for source in page.get("sources", [])
+        if source["kind"] in {"authored", "doc"}
+    ]
     primary = next((path for path in paths if path.exists()), None)
     body = _read_optional(primary) if primary else ""
     extra = [f"- `{source['path']}`" for source in page.get("sources", [])[1:]]
@@ -109,20 +116,36 @@ def render_registry_agents(page: dict, context: dict, entity: dict | None = None
     lines.extend(f"- `{status}`: **{count}**" for status, count in sorted(status_counts.items()))
     lines.extend(["", "## Role Breakdown"])
     lines.extend(f"- `{role}`: **{count}**" for role, count in sorted(role_counts.items()))
-    lines.extend(["", "## Registry Table", "| Agent | Status | Role | Prana | Verified |", "| :--- | :--- | :--- | ---: | :--- |"])
+    lines.extend([
+        "",
+        "## Registry Table",
+        "| Agent | Status | Role | Prana | Verified |",
+        "| :--- | :--- | :--- | ---: | :--- |",
+    ])
     lines.extend(
-        f"| [{a['name']}](Agent--{a['slug']}) | {a['status']} | {a['role']} | {a['prana']} | {'yes' if a.get('oath_hash') else 'no'} |"
+        f"| [{a['name']}](Agent--{a['slug']}) | {a['status']} "
+        f"| {a['role']} | {a['prana']} "
+        f"| {'yes' if a.get('oath_hash') else 'no'} |"
         for a in agents[:200]
     )
     lines.extend(["", "## First Alphabetical Slice"])
-    lines.extend(f"- [{agent['name']}](Agent--{agent['slug']}) — `{agent['status']}` / `{agent['role']}`" for agent in recent)
+    lines.extend(
+        f"- [{agent['name']}](Agent--{agent['slug']}) "
+        f"— `{agent['status']}` / `{agent['role']}`"
+        for agent in recent
+    )
     lines.extend(["", _provenance(page, context)])
     return "\n".join(lines)
 
 
 def render_registry_services(page: dict, context: dict, entity: dict | None = None) -> str:
     services = _service_names()
-    bridge_services = [service for service in services if "bridge" in service or "nadi" in service or "federation" in service]
+    bridge_services = [
+        service for service in services
+        if "bridge" in service
+        or "nadi" in service
+        or "federation" in service
+    ]
     lines = [
         f"Total registered service types: **{len(services)}**",
         "",
@@ -184,7 +207,8 @@ def render_federation_overview(page: dict, context: dict, entity: dict | None = 
     latest = federation["latest_report"]
     lines = [
         "## Federation Surface",
-        "Agent City exchanges directives and reports through a file-backed federation membrane and Nadi bridge.",
+        "Agent City exchanges directives and reports through"
+        " a file-backed federation membrane and Nadi bridge.",
         "",
         f"- Reports archived: `{federation['reports_count']}`",
         f"- Pending directives: `{federation['directives_pending']}`",
@@ -213,7 +237,9 @@ def render_mothership_repo_graph(page: dict, context: dict, entity: dict | None 
     concept = load_mothership_repo_graph_context(context["root"], concept="governance")
     lines = [
         "## Mothership Repo Graph",
-        "This page consumes the published repo-graph surface from `agent-internet`, pointed at the sibling `steward-protocol` mothership repository.",
+        "This page consumes the published repo-graph surface"
+        " from `agent-internet`, pointed at the sibling"
+        " `steward-protocol` mothership repository.",
         "",
     ]
     if not mothership["available"]:
@@ -236,14 +262,25 @@ def render_mothership_repo_graph(page: dict, context: dict, entity: dict | None 
         "",
         "## Domain Breakdown",
     ])
-    lines.extend(f"- `{domain}`: **{count}**" for domain, count in summary.get("domain_counts", {}).items())
-    lines.extend(["", "## Selected Nodes", "| Node | Type | Domain | Description |", "| :--- | :--- | :--- | :--- |"])
+    lines.extend(
+        f"- `{domain}`: **{count}**"
+        for domain, count in summary.get("domain_counts", {}).items()
+    )
+    lines.extend([
+        "",
+        "## Selected Nodes",
+        "| Node | Type | Domain | Description |",
+        "| :--- | :--- | :--- | :--- |",
+    ])
     lines.extend(
         f"| `{node['node_id']}` | `{node['type']}` | `{node['domain']}` | {node['description']} |"
         for node in snapshot.get("nodes", [])
     )
     lines.extend(["", "## Relation Mix"])
-    lines.extend(f"- `{relation}`: **{count}**" for relation, count in summary.get("relation_counts", {}).items())
+    lines.extend(
+        f"- `{relation}`: **{count}**"
+        for relation, count in summary.get("relation_counts", {}).items()
+    )
     lines.extend(["", "## Governance Context Probe"])
     if concept["available"]:
         lines.append(concept["context"]["context"] or "No context returned.")
@@ -258,38 +295,63 @@ def render_mothership_governance_map(page: dict, context: dict, entity: dict | N
     concept = load_mothership_repo_graph_context(context["root"], concept="governance")
     lines = [
         "## Mothership Governance Map",
-        "Governance-facing nodes projected from the steward-protocol repo graph through the published agent-internet membrane.",
+        "Governance-facing nodes projected from the"
+        " steward-protocol repo graph through the published"
+        " agent-internet membrane.",
         "",
     ]
     if not mothership["available"]:
-        lines.extend([f"- Status: `unavailable`", f"- Error: `{mothership['error']}`", "", _provenance(page, context)])
+        lines.extend([
+            f"- Status: `unavailable`",
+            f"- Error: `{mothership['error']}`",
+            "",
+            _provenance(page, context),
+        ])
         return "\n".join(lines)
     snapshot = mothership["snapshot"]
-    lines.extend(["| Node | Type | Description |", "| :--- | :--- | :--- |"])
+    lines.extend([
+        "| Node | Type | Description |",
+        "| :--- | :--- | :--- |",
+    ])
     lines.extend(
         f"| `{node['node_id']}` | `{node['type']}` | {node['description']} |"
         for node in snapshot.get("nodes", [])
     )
     lines.extend(["", "## Governance Neighbor Echoes"])
     for node in snapshot.get("nodes", [])[:3]:
-        neighbor_payload = load_mothership_repo_graph_neighbors(context["root"], node_id=node["node_id"], depth=1, limit=6)
+        neighbor_payload = load_mothership_repo_graph_neighbors(
+            context["root"], node_id=node["node_id"],
+            depth=1, limit=6,
+        )
         lines.append(f"### `{node['node_id']}`")
         if neighbor_payload["available"]:
             neighbors = neighbor_payload["neighbors"].get("neighbors", [])
             if neighbors:
-                lines.extend(f"- `{neighbor['node_id']}` — {neighbor['description']}" for neighbor in neighbors)
+                lines.extend(
+                    f"- `{neighbor['node_id']}` — {neighbor['description']}"
+                    for neighbor in neighbors
+                )
             else:
                 lines.append("- No neighbors returned.")
         else:
-            lines.append(f"- Neighbor lookup unavailable: `{neighbor_payload['error']}`")
+            lines.append(
+                f"- Neighbor lookup unavailable: `{neighbor_payload['error']}`"
+            )
         lines.append("")
     lines.append("## Governance Context Probe")
-    lines.append(concept["context"]["context"] if concept["available"] else f"Repo-graph context unavailable: `{concept['error']}`")
+    if concept["available"]:
+        lines.append(concept["context"]["context"])
+    else:
+        lines.append(
+            f"Repo-graph context unavailable: `{concept['error']}`"
+        )
     lines.extend(["", _provenance(page, context)])
     return "\n".join(lines)
 
 
-def render_mothership_agent_constellation(page: dict, context: dict, entity: dict | None = None) -> str:
+def render_mothership_agent_constellation(
+    page: dict, context: dict, entity: dict | None = None,
+) -> str:
     mothership = load_mothership_repo_graph_snapshot(context["root"], node_type="agent", limit=10)
     lines = [
         "## Mothership Agent Constellation",
@@ -297,26 +359,48 @@ def render_mothership_agent_constellation(page: dict, context: dict, entity: dic
         "",
     ]
     if not mothership["available"]:
-        lines.extend([f"- Status: `unavailable`", f"- Error: `{mothership['error']}`", "", _provenance(page, context)])
+        lines.extend([
+            f"- Status: `unavailable`",
+            f"- Error: `{mothership['error']}`",
+            "",
+            _provenance(page, context),
+        ])
         return "\n".join(lines)
     snapshot = mothership["snapshot"]
-    lines.extend(["| Agent Node | Domain | Critical | Varsha | Description |", "| :--- | :--- | :--- | :--- | :--- |"])
+    lines.extend([
+        "| Agent Node | Domain | Critical | Varsha | Description |",
+        "| :--- | :--- | :--- | :--- | :--- |",
+    ])
     lines.extend(
-        f"| `{node['node_id']}` | `{node['domain']}` | {'yes' if node['properties'].get('critical') else 'no'} | `{node['properties'].get('varsha', 'unknown')}` | {node['description']} |"
+        f"| `{node['node_id']}` | `{node['domain']}` "
+        f"| {'yes' if node['properties'].get('critical') else 'no'} "
+        f"| `{node['properties'].get('varsha', 'unknown')}` "
+        f"| {node['description']} |"
         for node in snapshot.get("nodes", [])
     )
     lines.extend(["", "## Constellation Links"])
     for node in snapshot.get("nodes", [])[:4]:
-        neighbor_payload = load_mothership_repo_graph_neighbors(context["root"], node_id=node["node_id"], depth=1, limit=6)
+        neighbor_payload = load_mothership_repo_graph_neighbors(
+            context["root"], node_id=node["node_id"],
+            depth=1, limit=6,
+        )
         lines.append(f"### `{node['node_id']}`")
         if neighbor_payload["available"]:
             edges = neighbor_payload["neighbors"].get("edges", [])[:6]
             if edges:
-                lines.extend(f"- `{edge['source_id']}` -[{edge['relation']}]-> `{edge['target_id']}`" for edge in edges)
+                lines.extend(
+                    f"- `{edge['source_id']}` "
+                    f"-[{edge['relation']}]-> "
+                    f"`{edge['target_id']}`"
+                    for edge in edges
+                )
             else:
                 lines.append("- No constellation edges returned.")
         else:
-            lines.append(f"- Neighbor lookup unavailable: `{neighbor_payload['error']}`")
+            lines.append(
+                f"- Neighbor lookup unavailable:"
+                f" `{neighbor_payload['error']}`"
+            )
         lines.append("")
     lines.extend(["", _provenance(page, context)])
     return "\n".join(lines)
@@ -333,7 +417,13 @@ def render_federation_recent_reports(page: dict, context: dict, entity: dict | N
         "| ---: | ---: | ---: | :--- | ---: | :--- |",
     ]
     lines.extend(
-        f"| {report.get('heartbeat', 0)} | {report.get('population', 0)} | {report.get('alive', 0)} | {'yes' if report.get('chain_valid', False) else 'no'} | {len(report.get('mission_results', []))} | {report.get('contract_status', {}).get('passing', 0)}/{report.get('contract_status', {}).get('total', 0)} |"
+        f"| {report.get('heartbeat', 0)} "
+        f"| {report.get('population', 0)} "
+        f"| {report.get('alive', 0)} "
+        f"| {'yes' if report.get('chain_valid', False) else 'no'} "
+        f"| {len(report.get('mission_results', []))} "
+        f"| {report.get('contract_status', {}).get('passing', 0)}"
+        f"/{report.get('contract_status', {}).get('total', 0)} |"
         for report in reports
     )
     latest = federation["latest_report"]
@@ -341,7 +431,10 @@ def render_federation_recent_reports(page: dict, context: dict, entity: dict | N
     if missions:
         lines.extend(["", "## Latest Mission Echoes"])
         lines.extend(
-            f"- `{mission.get('id', 'unknown')}` — {mission.get('name', 'Unnamed mission')} / owner `{mission.get('owner', 'unknown')}` / priority `{mission.get('priority', 'unknown')}`"
+            f"- `{mission.get('id', 'unknown')}` "
+            f"— {mission.get('name', 'Unnamed mission')} "
+            f"/ owner `{mission.get('owner', 'unknown')}` "
+            f"/ priority `{mission.get('priority', 'unknown')}`"
             for mission in missions
         )
     lines.extend(["", _provenance(page, context)])
@@ -354,7 +447,9 @@ def render_runtime_active_bridges(page: dict, context: dict, entity: dict | None
     missions = latest.get("mission_results", []) if latest else []
     lines = [
         "## Active Bridges",
-        "The runtime currently exposes its outward traffic primarily through federation reports and Nadi message files.",
+        "The runtime currently exposes its outward traffic"
+        " primarily through federation reports"
+        " and Nadi message files.",
         "",
         "| Bridge | Signal | Current Value |",
         "| :--- | :--- | ---: |",
@@ -365,14 +460,23 @@ def render_runtime_active_bridges(page: dict, context: dict, entity: dict | None
     ]
     if missions:
         lines.extend(["", "## Active Mission Echoes"])
-        lines.extend(f"- `{mission.get('id', 'unknown')}` — {mission.get('name', 'Unnamed mission')} ({mission.get('status', 'unknown')})" for mission in missions)
+        lines.extend(
+            f"- `{mission.get('id', 'unknown')}` "
+            f"— {mission.get('name', 'Unnamed mission')} "
+            f"({mission.get('status', 'unknown')})"
+            for mission in missions
+        )
     lines.extend(["", _provenance(page, context)])
     return "\n".join(lines)
 
 
 def render_agent_page(page: dict, context: dict, entity: dict | None = None) -> dict:
     assert entity is not None
-    verification = "CONSTITUTIONAL_OATH_SIGNED" if entity.get("oath_hash") else "UNVERIFIED_DISCOVERY"
+    verification = (
+        "CONSTITUTIONAL_OATH_SIGNED"
+        if entity.get("oath_hash")
+        else "UNVERIFIED_DISCOVERY"
+    )
     return {
         "page_meta": f"Agent page materialized from `data/agents/{entity['slug']}`.",
         "official_identity": "\n".join([
@@ -390,7 +494,12 @@ def render_agent_page(page: dict, context: dict, entity: dict | None = None) -> 
 def render_sidebar(page: dict, context: dict, entity: dict | None = None) -> str:
     entries = []
     for section in context["manifest"]["navigation"]["section_order"]:
-        section_pages = [p for p in context["manifest"]["pages"] if p.get("section") == section and p.get("visibility", "listed") != "hidden" and "wiki_name" in p]
+        section_pages = [
+            p for p in context["manifest"]["pages"]
+            if p.get("section") == section
+            and p.get("visibility", "listed") != "hidden"
+            and "wiki_name" in p
+        ]
         if not section_pages:
             continue
         entries.append(f"## {section}")
@@ -400,20 +509,39 @@ def render_sidebar(page: dict, context: dict, entity: dict | None = None) -> str
 
 
 def render_footer(page: dict, context: dict, entity: dict | None = None) -> str:
-    return f"Generated by Agent City wiki compiler from `{context['source_sha']}` at `{context['generated_at']}` for `{context['origin_id']}`."
+    return (
+        f"Generated by Agent City wiki compiler"
+        f" from `{context['source_sha']}`"
+        f" at `{context['generated_at']}`"
+        f" for `{context['origin_id']}`."
+    )
 
 
 def render_ledger_recent_changes(page: dict, context: dict, entity: dict | None = None) -> str:
     try:
-        output = subprocess.check_output(["git", "log", "--oneline", "-n", "10"], cwd=context["root"], text=True)
+        output = subprocess.check_output(
+            ["git", "log", "--oneline", "-n", "10"],
+            cwd=context["root"], text=True,
+        )
     except Exception:
         output = "history unavailable"
-    return "## Recent Changes\n\n" + "\n".join(f"- `{line}`" for line in output.splitlines() if line.strip()) + "\n\n" + _provenance(page, context)
+    change_lines = "\n".join(
+        f"- `{line}`"
+        for line in output.splitlines() if line.strip()
+    )
+    return (
+        "## Recent Changes\n\n"
+        + change_lines
+        + "\n\n"
+        + _provenance(page, context)
+    )
 
 
 def _load_agents(root: Path) -> list[dict]:
     agents = []
-    for agent_dir in sorted((root / "data/agents").iterdir() if (root / "data/agents").exists() else []):
+    agents_path = root / "data/agents"
+    agent_dirs = sorted(agents_path.iterdir()) if agents_path.exists() else []
+    for agent_dir in agent_dirs:
         if not agent_dir.is_dir():
             continue
         manifest = _load_json(agent_dir / "manifest.json")
@@ -433,7 +561,11 @@ def _load_agents(root: Path) -> list[dict]:
 
 def _phase_names(root: Path) -> list[str]:
     phases_dir = root / "city/phases"
-    return [path.stem.upper() for path in sorted(phases_dir.glob("*.py")) if path.stem != "__init__"]
+    return [
+        path.stem.upper()
+        for path in sorted(phases_dir.glob("*.py"))
+        if path.stem != "__init__"
+    ]
 
 
 def _service_names() -> list[str]:
@@ -445,7 +577,11 @@ def _service_names() -> list[str]:
 def _heartbeat_snapshot(root: Path) -> dict:
     mayor_state = _load_json(root / "data/mayor_state.json")
     last_heartbeat = float(mayor_state.get("last_heartbeat", 0) or 0)
-    seconds_since = max(0, int(datetime.now(UTC).timestamp() - last_heartbeat)) if last_heartbeat else -1
+    if last_heartbeat:
+        elapsed = datetime.now(UTC).timestamp() - last_heartbeat
+        seconds_since = max(0, int(elapsed))
+    else:
+        seconds_since = -1
     snapshot = {
         "mode": "local_fallback",
         "health": "unknown",
@@ -485,12 +621,19 @@ def _heartbeat_snapshot(root: Path) -> dict:
 
 
 def _should_run_live_observer() -> bool:
-    return bool(os.environ.get("AGENT_CITY_WIKI_OBSERVE") or os.environ.get("GITHUB_ACTIONS")) and shutil.which("gh") is not None
+    has_env = bool(
+        os.environ.get("AGENT_CITY_WIKI_OBSERVE")
+        or os.environ.get("GITHUB_ACTIONS")
+    )
+    return has_env and shutil.which("gh") is not None
 
 
 def _github_origin_parts(root: Path) -> tuple[str, str]:
     try:
-        origin = subprocess.check_output(["git", "remote", "get-url", "origin"], cwd=root, text=True).strip()
+        origin = subprocess.check_output(
+            ["git", "remote", "get-url", "origin"],
+            cwd=root, text=True,
+        ).strip()
     except Exception:
         return "", ""
     trimmed = origin[:-4] if origin.endswith(".git") else origin
@@ -506,22 +649,38 @@ def _github_origin_parts(root: Path) -> tuple[str, str]:
 
 def _federation_summary(root: Path) -> dict:
     federation_dir = root / "data/federation"
-    reports = sorted((federation_dir / "reports").glob("report_*.json")) if (federation_dir / "reports").exists() else []
+    reports_dir = federation_dir / "reports"
+    reports = (
+        sorted(reports_dir.glob("report_*.json"))
+        if reports_dir.exists() else []
+    )
     recent_reports = [_load_json(path) for path in reports[-10:]]
     latest_report = recent_reports[-1] if recent_reports else {}
     outbox = _load_json(federation_dir / "nadi_outbox.json")
     inbox = _load_json(federation_dir / "nadi_inbox.json")
     directives_dir = federation_dir / "directives"
     pending = list(directives_dir.glob("*.json")) if directives_dir.exists() else []
-    done = list(directives_dir.glob("*.done")) + list(directives_dir.glob("*.done.json")) if directives_dir.exists() else []
+    if directives_dir.exists():
+        done = (
+            list(directives_dir.glob("*.done"))
+            + list(directives_dir.glob("*.done.json"))
+        )
+    else:
+        done = []
     return {
         "reports_count": len(reports),
         "recent_reports": recent_reports,
         "latest_report": latest_report,
-        "latest_report_heartbeat": latest_report.get("heartbeat", "none") if latest_report else "none",
+        "latest_report_heartbeat": (
+            latest_report.get("heartbeat", "none")
+            if latest_report else "none"
+        ),
         "outbox_on_disk": len(outbox) if isinstance(outbox, list) else 0,
         "inbox_on_disk": len(inbox) if isinstance(inbox, list) else 0,
-        "directives_pending": len([path for path in pending if not path.name.endswith(".done.json")]),
+        "directives_pending": len([
+            path for path in pending
+            if not path.name.endswith(".done.json")
+        ]),
         "directives_done": len(done),
     }
 
@@ -545,14 +704,20 @@ def _provenance(page: dict, context: dict, **extra: str) -> str:
         "Origin-ID": context["origin_id"],
         "Page-ID": page.get("id", "unknown"),
     }
-    fields.update({key.replace("_", "-").title(): value for key, value in extra.items()})
-    return "\n".join(["## Provenance", *[f"- **{key}**: `{value}`" for key, value in fields.items()]])
+    fields.update({
+        key.replace("_", "-").title(): value
+        for key, value in extra.items()
+    })
+    items = [f"- **{key}**: `{value}`" for key, value in fields.items()]
+    return "\n".join(["## Provenance", *items])
 
 
 def compiler_context(root: Path, manifest: dict) -> dict:
     manifest_scope = manifest.get("city") or manifest.get("world") or {}
     try:
-        source_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+        source_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True,
+        ).strip()
     except Exception:
         source_sha = "unknown"
     return {

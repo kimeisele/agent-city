@@ -194,7 +194,10 @@ def _compose_response(
     if semantic_reading:
         parts.append(f"\n**{frame}**: {semantic_reading}")
     elif protocol and element:
-        parts.append(f"\n**{frame}**: `{element}` · `{protocol}` — I can {verb} this from the {domain} perspective.")
+        parts.append(
+            f"\n**{frame}**: `{element}` · `{protocol}`"
+            f" — I can {verb} this from the {domain} perspective."
+        )
     else:
         parts.append(f"\n**{frame}**: I can {verb} this from the {domain} perspective.")
 

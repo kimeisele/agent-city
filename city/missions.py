@@ -485,3 +485,42 @@ def create_federation_mission(ctx: object, directive: object) -> bool:
     ctx.sankalpa.registry.add_mission(mission)
     logger.info("Created federation mission %s from %s", mission_id, topic)
     return True
+
+
+def create_zone_recruitment_mission(ctx: object, zone: str) -> str | None:
+    """Create a Sankalpa mission to recruit agents for an underpopulated zone.
+
+    Deduplicates: skips if an active recruitment mission for this zone exists.
+    """
+    if ctx.sankalpa is None:
+        return None
+
+    from vibe_core.mahamantra.protocols.sankalpa.types import (
+        MissionPriority,
+        MissionStatus,
+        SankalpaMission,
+    )
+
+    # Dedup: check for existing active zone recruitment missions
+    for existing in ctx.sankalpa.registry.get_active_missions():
+        if (
+            existing.id.startswith(f"zone_recruit_{zone}_")
+            and existing.status == MissionStatus.ACTIVE
+        ):
+            return existing.id
+
+    mission_id = f"zone_recruit_{zone}_{ctx.heartbeat_count}"
+    mission = SankalpaMission(
+        id=mission_id,
+        name=f"Recruit: {zone} zone",
+        description=(
+            f"Zone '{zone}' is critically underpopulated. "
+            f"Discover and invite agents with {zone}-relevant capabilities."
+        ),
+        priority=MissionPriority.HIGH,
+        status=MissionStatus.ACTIVE,
+        owner="zone_governance",
+    )
+    ctx.sankalpa.registry.add_mission(mission)
+    logger.info("Created zone recruitment mission %s", mission_id)
+    return mission_id

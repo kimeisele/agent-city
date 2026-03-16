@@ -330,7 +330,8 @@ class ReferendumEngine:
 
         logger.debug(
             "ReferendumEngine: %s signed petition for %s (%d/%d signatures)",
-            citizen_name, referendum_id, len(signatures), referendum.config.petition_signatures_required
+            citizen_name, referendum_id, len(signatures),
+            referendum.config.petition_signatures_required,
         )
         return True
 
@@ -359,7 +360,10 @@ class ReferendumEngine:
         )
 
         self._referendums[referendum_id] = updated
-        logger.info("ReferendumEngine: voting started for %s (ends in %d hours)", referendum_id, referendum.config.voting_duration_hours)
+        logger.info(
+            "ReferendumEngine: voting started for %s (ends in %d hours)",
+            referendum_id, referendum.config.voting_duration_hours,
+        )
         return True
 
     def cast_vote(
@@ -459,7 +463,10 @@ class ReferendumEngine:
         active = len(self.list_active_referendums())
         petitioning = len(self.list_petitioning_referendums())
         passed = len([r for r in self._referendums.values() if r.status == ReferendumStatus.PASSED])
-        rejected = len([r for r in self._referendums.values() if r.status == ReferendumStatus.REJECTED])
+        rejected = len([
+            r for r in self._referendums.values()
+            if r.status == ReferendumStatus.REJECTED
+        ])
 
         return {
             "total": total,

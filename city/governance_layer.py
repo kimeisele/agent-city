@@ -121,7 +121,9 @@ class GovernanceLayer:
         federation_health: dict = {}
         federation = getattr(ctx, "federation", None)
         if federation is not None and hasattr(federation, "federation_health"):
-            federation_health = federation.federation_health
+            raw = federation.federation_health
+            if isinstance(raw, dict):
+                federation_health = raw
 
         return CivicContext(
             heartbeat_count=heartbeat,
