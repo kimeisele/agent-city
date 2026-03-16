@@ -21,7 +21,10 @@ def load_campaign_payload(path: Path) -> dict:
         return payload
     if isinstance(payload, dict) and "id" in payload:
         return {"campaigns": [payload]}
-    raise ValueError("campaign file must contain a campaign object or {\"campaigns\": [...]} payload")
+    raise ValueError(
+        "campaign file must contain a campaign object"
+        " or {\"campaigns\": [...]} payload"
+    )
 
 
 class CampaignStatus(str, Enum):
@@ -64,7 +67,10 @@ class CampaignRecord:
             id=data["id"],
             title=data.get("title", data["id"]),
             north_star=data.get("north_star", ""),
-            success_signals=[CampaignSignal(**signal) for signal in data.get("success_signals", [])],
+            success_signals=[
+                CampaignSignal(**signal)
+                for signal in data.get("success_signals", [])
+            ],
             heartbeat_interval=int(data.get("heartbeat_interval", 4)),
             max_active_missions=int(data.get("max_active_missions", 1)),
             status=CampaignStatus(data.get("status", CampaignStatus.ACTIVE.value)),
@@ -125,7 +131,10 @@ class CampaignRegistry:
     def restore(self, payload: dict) -> None:
         self._campaigns = {
             campaign.id: campaign
-            for campaign in (CampaignRecord.from_dict(item) for item in payload.get("campaigns", []))
+            for campaign in (
+                CampaignRecord.from_dict(item)
+                for item in payload.get("campaigns", [])
+            )
         }
 
     def evaluate(self, ctx: PhaseContext) -> list[str]:
@@ -141,7 +150,9 @@ class CampaignRegistry:
             gaps = self._compute_gaps(ctx, campaign, active_missions)
             campaign.last_gap_summary = list(gaps)
             campaign.derived_mission_ids = [
-                mission_id for mission_id in campaign.derived_mission_ids if mission_id in active_ids
+                mission_id
+                for mission_id in campaign.derived_mission_ids
+                if mission_id in active_ids
             ]
             campaign.derived_issue_numbers = [
                 issue_number
@@ -175,7 +186,10 @@ class CampaignRegistry:
     def _due(self, campaign: CampaignRecord, heartbeat: int) -> bool:
         if campaign.last_evaluated_heartbeat == 0:
             return True
-        return (heartbeat - campaign.last_evaluated_heartbeat) >= max(campaign.heartbeat_interval, 1)
+        return (
+            (heartbeat - campaign.last_evaluated_heartbeat)
+            >= max(campaign.heartbeat_interval, 1)
+        )
 
     def _compute_gaps(
         self,
@@ -191,13 +205,16 @@ class CampaignRegistry:
                 if healthy is not bool(signal.target):
                     gaps.append(signal.description or "heartbeat unhealthy")
             elif signal.kind == "chain_valid":
-                chain_valid = bool(ctx.pokedex.verify_chain())
+                chain_valid = bool(ctx.pokedex.verify_event_chain())
                 if chain_valid is not bool(signal.target):
                     gaps.append(signal.description or "ledger chain invalid")
             elif signal.kind == "active_missions_at_most":
                 limit = int(signal.target)
                 if len(active_missions) > limit:
-                    gaps.append(signal.description or f"active missions {len(active_missions)} > {limit}")
+                    gaps.append(
+                        signal.description
+                        or f"active missions {len(active_missions)} > {limit}"
+                    )
             else:
                 gaps.append(signal.description or f"unknown signal:{signal.kind}")
         return gaps
@@ -258,13 +275,18 @@ class CampaignRegistry:
 
         mission_id = create_issue_mission(ctx, issue["number"], issue["title"], "intent_needed")
         if mission_id is None:
-            logger.warning("Campaign %s failed to create mission for issue #%s", campaign.id, issue["number"])
+            logger.warning(
+                "Campaign %s failed to create mission for issue #%s",
+                campaign.id, issue["number"],
+            )
             return None, issue["number"]
 
         ctx.issues.bind_mission(issue["number"], mission_id)
         return mission_id, issue["number"]
 
-    def _find_reusable_issue_number(self, ctx: PhaseContext, campaign: CampaignRecord) -> int | None:
+    def _find_reusable_issue_number(
+        self, ctx: PhaseContext, campaign: CampaignRecord,
+    ) -> int | None:
         for issue_number in reversed(campaign.derived_issue_numbers):
             if self._is_issue_open(ctx, issue_number):
                 return issue_number

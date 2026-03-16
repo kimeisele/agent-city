@@ -11,6 +11,7 @@ from city.registry import (
     SVC_CAMPAIGNS,
     SVC_DISCUSSIONS,
     SVC_MOLTBOOK_ASSISTANT,
+    SVC_MOLTBOOK_CLIENT,
     CityServiceRegistry,
 )
 
@@ -204,8 +205,10 @@ def _wire_moltbook_client(*, runtime: CityRuntime, log: logging.Logger) -> None:
     try:
         from vibe_core.mahamantra.adapters.moltbook import MoltbookClient
 
-        runtime.mayor._moltbook_client = MoltbookClient(api_key=api_key)
-        log.info("Moltbook DM pipeline wired")
+        client = MoltbookClient(api_key=api_key)
+        runtime.mayor._moltbook_client = client
+        runtime.registry.register(SVC_MOLTBOOK_CLIENT, client)
+        log.info("Moltbook DM pipeline wired (client in registry)")
     except Exception as exc:
         log.warning("MoltbookClient init failed: %s", exc)
 

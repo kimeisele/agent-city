@@ -175,6 +175,7 @@ def default_definitions(
         SVC_CLAIMS,
         SVC_CONTRACTS,
         SVC_COUNCIL,
+        SVC_IMMIGRATION,
         SVC_EVENT_BUS,
         SVC_EXECUTOR,
         SVC_FEDERATION,
@@ -240,6 +241,10 @@ def default_definitions(
                 ServiceDefinition(
                     name=SVC_CLAIMS,
                     factory=lambda ctx: _build_claims(),
+                ),
+                ServiceDefinition(
+                    name=SVC_IMMIGRATION,
+                    factory=lambda ctx: _build_immigration(ctx),
                 ),
             ]
         )
@@ -453,6 +458,12 @@ def _build_audit() -> object | None:
     return AuditKernel()
 
 
+def _build_immigration(ctx: BuildContext) -> object:
+    from city.immigration import ImmigrationService
+
+    return ImmigrationService(db_path=str(ctx.db_path))
+
+
 def _build_federation(ctx: BuildContext) -> object:
     from city.federation import FederationRelay
 
@@ -501,7 +512,10 @@ def _build_pathogen_index(ctx: BuildContext) -> object:
     reactor = ctx.registry.get("reactor")
     if reactor is not None:
         idx.connect_reactor(reactor)
-        logger.info("PathogenIndex: %d pathogens, connected to CityReactor", len(idx.list_pathogens()))
+        logger.info(
+            "PathogenIndex: %d pathogens, connected to CityReactor",
+            len(idx.list_pathogens()),
+        )
     else:
         logger.info("PathogenIndex: %d pathogens (no reactor)", len(idx.list_pathogens()))
     return idx

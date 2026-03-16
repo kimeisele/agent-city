@@ -73,7 +73,10 @@ def _process_issue_missions(
 
     for mission in active:
         if mission.id.startswith("exec_"):
-            if not authorize_mission(mission.id, all_specs, ctx.active_agents, all_inventories, router=router):
+            if not authorize_mission(
+                mission.id, all_specs, ctx.active_agents,
+                all_inventories, router=router,
+            ):
                 logger.info(
                     "KARMA: No agent with execute capability"
                     " — executor handles exec mission %s as system service",
@@ -103,7 +106,10 @@ def _process_issue_missions(
         if not mission.id.startswith("issue_"):
             continue
 
-        if not authorize_mission(mission.id, all_specs, ctx.active_agents, all_inventories, router=router):
+        if not authorize_mission(
+            mission.id, all_specs, ctx.active_agents,
+            all_inventories, router=router,
+        ):
             operations.append(f"issue_blocked:{mission.id}:capability_gate")
             logger.info(
                 "KARMA: Issue mission %s blocked — no agent with execute capability",
@@ -202,7 +208,10 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
         from city.registry import SVC_ROUTER
 
         router = ctx.registry.get(SVC_ROUTER) if ctx.registry else None
-        routing = route_mission(mission, all_specs, ctx.active_agents, all_inventories, router=router)
+        routing = route_mission(
+            mission, all_specs, ctx.active_agents,
+            all_inventories, router=router,
+        )
         if routing["agent_name"] is not None:
             agent_name = routing["agent_name"]
             # Call Cartridge process() for agent-specific cognition
@@ -212,12 +221,16 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
                 if factory is not None:
                     cartridge = factory.get(agent_name)
                     if cartridge is not None and hasattr(cartridge, "process"):
-                        task_desc = getattr(mission, "description", getattr(mission, "name", str(mission)))
+                        task_desc = getattr(
+                            mission, "description",
+                            getattr(mission, "name", str(mission)),
+                        )
                         cartridge_result = cartridge.process(task_desc)
                         logger.info(
                             "KARMA: Agent %s processed mission %s (status=%s)",
                             agent_name, mission.id,
-                            cartridge_result.get("status", "?") if isinstance(cartridge_result, dict) else "?",
+                            cartridge_result.get("status", "?")
+                            if isinstance(cartridge_result, dict) else "?",
                         )
             except Exception as e:
                 logger.debug("Cartridge process() skipped for %s: %s", agent_name, e)

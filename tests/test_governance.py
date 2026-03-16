@@ -316,12 +316,11 @@ class TestCouncilCompensation(unittest.TestCase):
         stipend_key = "_stipend_paid_0"
         if not getattr(council, stipend_key, False):
             for _seat_idx, member_name in result["council_seats"].items():
-                pokedex._bank.transfer(
-                    "MINT",
+                pokedex.mint_prana(
                     member_name,
                     WORKER_VISA_STIPEND,
                     "council_stipend",
-                    "governance",
+                    category="governance",
                 )
             setattr(council, stipend_key, True)
 

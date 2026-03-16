@@ -42,7 +42,10 @@ def load_mothership_repo_graph_context(workspace_root: Path, *, concept: str) ->
         context = module.read_agent_web_repo_graph_context(repo_root, concept=concept)
         return {"available": True, "repo_root": str(repo_root), "context": context}
     except Exception as exc:
-        return {"available": False, "repo_root": str(repo_root), "error": str(exc), "concept": concept}
+        return {
+            "available": False, "repo_root": str(repo_root),
+            "error": str(exc), "concept": concept,
+        }
 
 
 def load_mothership_repo_graph_neighbors(
@@ -66,14 +69,21 @@ def load_mothership_repo_graph_neighbors(
         )
         return {"available": True, "repo_root": str(repo_root), "neighbors": payload}
     except Exception as exc:
-        return {"available": False, "repo_root": str(repo_root), "error": str(exc), "node_id": node_id}
+        return {
+            "available": False, "repo_root": str(repo_root),
+            "error": str(exc), "node_id": node_id,
+        }
 
 
 @lru_cache(maxsize=1)
 def _repo_graph_module(workspace_root: Path):
     sibling = workspace_root.parent / "agent-internet"
     if not sibling.exists():
-        sibling = _cached_repo_checkout(workspace_root, repo_slug=_agent_internet_repo_slug(workspace_root), cache_name="agent-internet")
+        sibling = _cached_repo_checkout(
+            workspace_root,
+            repo_slug=_agent_internet_repo_slug(workspace_root),
+            cache_name="agent-internet",
+        )
     path = str(sibling)
     if path not in sys.path:
         sys.path.insert(0, path)
@@ -84,7 +94,11 @@ def _mothership_repo_root(workspace_root: Path) -> Path:
     sibling = workspace_root.parent / "steward-protocol"
     if sibling.exists():
         return sibling
-    return _cached_repo_checkout(workspace_root, repo_slug=_mothership_repo_slug(workspace_root), cache_name="steward-protocol")
+    return _cached_repo_checkout(
+        workspace_root,
+        repo_slug=_mothership_repo_slug(workspace_root),
+        cache_name="steward-protocol",
+    )
 
 
 @lru_cache(maxsize=8)
@@ -98,7 +112,11 @@ def _cached_repo_checkout(workspace_root: Path, *, repo_slug: str, cache_name: s
         return checkout
     _git_run(["fetch", "origin", "--depth", "1", "--prune"], cwd=checkout)
     current_branch = _git_output(["branch", "--show-current"], cwd=checkout).strip()
-    remote_branches = _git_output(["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"], cwd=checkout).splitlines()
+    remote_branches = _git_output(
+        ["for-each-ref", "--format=%(refname:short)",
+         "refs/remotes/origin"],
+        cwd=checkout,
+    ).splitlines()
     if current_branch and f"origin/{current_branch}" in remote_branches:
         _git_run(["pull", "--rebase", "origin", current_branch], cwd=checkout)
     return checkout
@@ -123,7 +141,10 @@ def _mothership_repo_slug(workspace_root: Path) -> str:
     )
 
 
-def _federation_repo_slug(workspace_root: Path, *, env_key: str, config_key: str, default: str) -> str:
+def _federation_repo_slug(
+    workspace_root: Path, *, env_key: str,
+    config_key: str, default: str,
+) -> str:
     env_value = os.getenv(env_key, "").strip()
     if env_value:
         return env_value
@@ -147,5 +168,8 @@ def _git_run(args: list[str], *, cwd: Path) -> None:
 
 
 def _git_output(args: list[str], *, cwd: Path) -> str:
-    completed = subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True, text=True)
+    completed = subprocess.run(
+        ["git", *args], cwd=str(cwd),
+        check=True, capture_output=True, text=True,
+    )
     return completed.stdout

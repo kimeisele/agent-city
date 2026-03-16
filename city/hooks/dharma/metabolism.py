@@ -142,7 +142,9 @@ class PromotionHook(BasePhaseHook):
 
         spawner = ctx.registry.get(SVC_SPAWNER)
         if spawner is not None:
-            promoted = spawner.promote_eligible(ctx.heartbeat_count)
+            promoted = spawner.promote_eligible(
+                ctx.heartbeat_count, immigration=ctx.immigration
+            )
             for name in promoted:
                 operations.append(f"promoted:{name}:citizen")
 

@@ -93,20 +93,48 @@ class AgentSpawner:
         self._system_agents = [f"sys_{n}" for n in cartridge_names]
         return spawned
 
-    def promote_eligible(self, heartbeat: int) -> list[str]:
+    def promote_eligible(
+        self, heartbeat: int, *, immigration: object = None
+    ) -> list[str]:
         """DHARMA: upgrade discovered agents to citizens.
 
-        All discovered agents are eligible for promotion. Promotion means:
-        1. pokedex.register() — Jiva + ECDSA Identity + Wallet + Oath
-        2. network.register_agent() — CellRouter + AnantaShesha + AgentNadi
+        Two paths:
+        1. Direct promotion (system/census agents): pokedex.register() immediately
+        2. Immigration pipeline (community agents): submit application → review → council → visa
 
-        Returns list of promoted agent names.
+        System agents (sys_* prefix) and census-seeded agents (discovered_at == registered
+        in same heartbeat window) get direct promotion. Community agents discovered via
+        Moltbook/Discussions go through the immigration pipeline.
+
+        Returns list of promoted agent names (direct path only; immigration is async).
         """
         discovered = self._pokedex.list_by_status("discovered")
         promoted: list[str] = []
 
         for agent in discovered:
             name = agent["name"]
+
+            # Community agents go through immigration if service available
+            if immigration is not None and not name.startswith("sys_"):
+                try:
+                    from city.immigration import ApplicationReason
+                    from city.visa import VisaClass
+
+                    immigration.submit_application(
+                        agent_name=name,
+                        reason=ApplicationReason.CITIZEN_APPLICATION,
+                        requested_visa_class=VisaClass.WORKER,
+                    )
+                    logger.info(
+                        "Immigration application submitted for %s (heartbeat %d)",
+                        name,
+                        heartbeat,
+                    )
+                except Exception as e:
+                    logger.warning("Immigration application failed for %s: %s", name, e)
+                continue
+
+            # Direct promotion: system agents or no immigration service
             try:
                 self._pokedex.register(name)
                 cell = self._pokedex.get_cell(name)

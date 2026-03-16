@@ -248,7 +248,10 @@ def build_field_digest(ctx: object) -> str:
             for m in sankalpa.registry.get_active_missions()[:10]:
                 cells.append(digest_mission_result(
                     {
-                        "status": m.status.value if hasattr(m.status, "value") else str(getattr(m, "status", "")),
+                        "status": (
+                            m.status.value if hasattr(m.status, "value")
+                            else str(getattr(m, "status", ""))
+                        ),
                         "owner": getattr(m, "owner", "unknown"),
                         "name": getattr(m, "name", ""),
                     },
@@ -507,7 +510,10 @@ def build_context_snapshot(ctx: object) -> ContextSnapshot:
                 active_missions_data.append({
                     "id": getattr(m, "id", ""),
                     "name": getattr(m, "name", ""),
-                    "status": m.status.value if hasattr(m.status, "value") else str(getattr(m, "status", "")),
+                    "status": (
+                        m.status.value if hasattr(m.status, "value")
+                        else str(getattr(m, "status", ""))
+                    ),
                     "owner": getattr(m, "owner", "unknown"),
                 })
     except Exception:

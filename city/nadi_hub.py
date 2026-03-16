@@ -158,8 +158,10 @@ class CityNadi:
                 correlation_id=conversation_id or None,
             )
 
-            # Direct inbox delivery (local queue pattern)
-            self._nadi._deliver(msg)
+            # Deliver locally: LocalNadi.send() requires a connection to
+            # the target, but CityNadi sends to *itself* (local queue).
+            # Use _deliver() directly for local enqueue.
+            self._nadi._deliver(msg)  # type: ignore[attr-defined]
             return True
 
         except Exception as e:

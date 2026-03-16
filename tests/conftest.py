@@ -24,12 +24,49 @@ import pytest
 # ═══════════════════════════════════════════════════════════════════════
 
 _repo_root = Path(__file__).parent.parent
-_steward_root = _repo_root.parent / "steward-protocol"
+
+# Steward-protocol can live in two places:
+#   1. Sibling directory (local dev):  ../steward-protocol
+#   2. Federation cache (container):   .vibe/federation-cache/steward-protocol
+_steward_root_sibling = _repo_root.parent / "steward-protocol"
+_steward_root_federation = _repo_root / ".vibe" / "federation-cache" / "steward-protocol"
+
+if _steward_root_sibling.is_dir():
+    _steward_root = _steward_root_sibling
+elif _steward_root_federation.is_dir():
+    _steward_root = _steward_root_federation
+else:
+    raise RuntimeError(
+        f"steward-protocol not found at {_steward_root_sibling} "
+        f"or {_steward_root_federation}"
+    )
 
 if str(_steward_root) not in sys.path:
     sys.path.insert(0, str(_steward_root))
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
+
+# Also set PYTHONPATH so subprocess-based tests (campaign CLI, heartbeat)
+# can find vibe_core and city modules without explicit path manipulation.
+_pythonpath_entries = [str(_steward_root), str(_repo_root)]
+_existing = os.environ.get("PYTHONPATH", "")
+_needed = [p for p in _pythonpath_entries if p not in _existing]
+if _needed:
+    os.environ["PYTHONPATH"] = os.pathsep.join(_needed + ([_existing] if _existing else []))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# GIT — disable commit signing for test-created repos
+# ═══════════════════════════════════════════════════════════════════════
+
+# Tests that create temp git repos fail when the host has commit signing
+# configured (SSH/GPG keys not available in container environments).
+# Write a minimal global gitconfig that disables signing.
+_test_gitconfig = _repo_root / "tests" / "data" / ".gitconfig-test"
+if not _test_gitconfig.exists():
+    _test_gitconfig.parent.mkdir(parents=True, exist_ok=True)
+    _test_gitconfig.write_text("[commit]\n\tgpgsign = false\n")
+os.environ["GIT_CONFIG_GLOBAL"] = str(_test_gitconfig)
 
 
 # ═══════════════════════════════════════════════════════════════════════

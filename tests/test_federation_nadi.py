@@ -551,7 +551,7 @@ class TestConstants:
         assert NADI_BUFFER_SIZE == 144
 
     def test_federation_ttl(self):
-        assert NADI_FEDERATION_TTL_S == 900.0
+        assert NADI_FEDERATION_TTL_S == 7200.0
 
     def test_priority_ordering(self):
         assert TAMAS < RAJAS < SATTVA < SUDDHA

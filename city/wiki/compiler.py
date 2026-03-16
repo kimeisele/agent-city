@@ -16,13 +16,21 @@ def build_wiki(*, root: Path, output_dir: Path) -> list[Path]:
     built: list[Path] = []
     for page in manifest["pages"]:
         if "wiki_name_pattern" in page:
-            built.extend(_build_entity_family(page=page, context=context, blocks=blocks, output_dir=output_dir))
+            built.extend(_build_entity_family(
+                page=page, context=context,
+                blocks=blocks, output_dir=output_dir,
+            ))
         else:
-            built.append(_build_page(page=page, context=context, blocks=blocks, output_dir=output_dir))
+            built.append(_build_page(
+                page=page, context=context,
+                blocks=blocks, output_dir=output_dir,
+            ))
     return built
 
 
-def _build_entity_family(*, page: dict, context: dict, blocks: dict, output_dir: Path) -> list[Path]:
+def _build_entity_family(
+    *, page: dict, context: dict, blocks: dict, output_dir: Path,
+) -> list[Path]:
     agents_dir = context["root"] / page["source_collection"]["path"]
     built = []
     for agent_dir in sorted(agents_dir.iterdir() if agents_dir.exists() else []):
@@ -41,18 +49,31 @@ def _build_entity_family(*, page: dict, context: dict, blocks: dict, output_dir:
             entity.update(_load_yaml_or_json(cell_path))
         entity_page = dict(page)
         entity_page["wiki_name"] = str(page["wiki_name_pattern"]).format(slug=entity["slug"])
-        entity_page["title"] = str(page["title_pattern"]).format(name=entity.get("name", entity["slug"]))
-        built.append(_build_page(page=entity_page, context=context, blocks=blocks, output_dir=output_dir, entity=entity))
+        entity_page["title"] = str(page["title_pattern"]).format(
+            name=entity.get("name", entity["slug"]),
+        )
+        built.append(_build_page(
+            page=entity_page, context=context,
+            blocks=blocks, output_dir=output_dir,
+            entity=entity,
+        ))
     return built
 
 
-def _build_page(*, page: dict, context: dict, blocks: dict, output_dir: Path, entity: dict | None = None) -> Path:
+def _build_page(
+    *, page: dict, context: dict, blocks: dict,
+    output_dir: Path, entity: dict | None = None,
+) -> Path:
     renderer = _resolve_renderer(page["renderer"], context["manifest"])
     output_path = output_dir / f"{page['wiki_name']}.md"
     if page["mode"] == "hybrid":
         rendered_blocks = renderer(page, context, entity)
         existing = output_path.read_text() if output_path.exists() else None
-        content = merge_hybrid_content(existing=existing, page=page, blocks_config=blocks, rendered_blocks=rendered_blocks)
+        content = merge_hybrid_content(
+            existing=existing, page=page,
+            blocks_config=blocks,
+            rendered_blocks=rendered_blocks,
+        )
     else:
         body = renderer(page, context, entity)
         content = f"# {page['title']}\n\n{body.rstrip()}\n"

@@ -62,7 +62,9 @@ class DiscussionsStateStore:
         with self._lock:
             self._conn.executescript(_SCHEMA)
             self._conn.execute(
-                "INSERT OR IGNORE INTO discussion_runtime_meta (singleton, last_report_hb, last_post_at) VALUES (1, 0, 0.0)"
+                "INSERT OR IGNORE INTO discussion_runtime_meta"
+                " (singleton, last_report_hb, last_post_at)"
+                " VALUES (1, 0, 0.0)"
             )
             self._conn.commit()
         self.purge_stale_post_reservations()
@@ -70,7 +72,8 @@ class DiscussionsStateStore:
     def load_state(self) -> dict:
         with self._lock:
             meta = self._conn.execute(
-                "SELECT last_report_hb, last_post_at FROM discussion_runtime_meta WHERE singleton = 1"
+                "SELECT last_report_hb, last_post_at"
+                " FROM discussion_runtime_meta WHERE singleton = 1"
             ).fetchone()
             seen_discussions = {
                 int(r["discussion_number"])
@@ -99,7 +102,10 @@ class DiscussionsStateStore:
             }
         return {
             "seen_discussion_numbers": seen_discussions,
-            "seen_comment_hashes": {str(r["comment_id"]): str(r["body_hash"]) for r in comment_rows},
+            "seen_comment_hashes": {
+                str(r["comment_id"]): str(r["body_hash"])
+                for r in comment_rows
+            },
             "seen_comment_ids": {str(r["comment_id"]) for r in comment_rows},
             "responded_discussions": responded,
             "seed_threads": seed_threads,
@@ -111,7 +117,8 @@ class DiscussionsStateStore:
     def mark_discussion_seen(self, discussion_number: int, now: float | None = None) -> bool:
         with self._lock:
             cur = self._conn.execute(
-                "INSERT OR IGNORE INTO discussion_seen (discussion_number, first_seen_at) VALUES (?, ?)",
+                "INSERT OR IGNORE INTO discussion_seen"
+                " (discussion_number, first_seen_at) VALUES (?, ?)",
                 (discussion_number, now or time.time()),
             )
             self._conn.commit()
@@ -158,11 +165,15 @@ class DiscussionsStateStore:
             self._conn.commit()
         return "seen"
 
-    def reserve_post_hash(self, content_hash: str, discussion_number: int, now: float | None = None) -> bool:
+    def reserve_post_hash(
+        self, content_hash: str, discussion_number: int, now: float | None = None,
+    ) -> bool:
         ts = now or time.time()
         with self._lock:
             self._conn.execute(
-                "DELETE FROM discussion_post_dedup WHERE status = 'pending' AND content_hash = ? AND reserved_at < ?",
+                "DELETE FROM discussion_post_dedup"
+                " WHERE status = 'pending'"
+                " AND content_hash = ? AND reserved_at < ?",
                 (content_hash, ts - _POST_RESERVATION_TTL_S),
             )
             cur = self._conn.execute(
@@ -182,7 +193,9 @@ class DiscussionsStateStore:
             )
             self._conn.commit()
 
-    def confirm_post_hash(self, content_hash: str, comment_id: str, now: float | None = None) -> None:
+    def confirm_post_hash(
+        self, content_hash: str, comment_id: str, now: float | None = None,
+    ) -> None:
         with self._lock:
             self._conn.execute(
                 """UPDATE discussion_post_dedup
@@ -206,7 +219,8 @@ class DiscussionsStateStore:
             self._conn.execute(
                 """INSERT INTO discussion_response_cursor (discussion_number, responded_at)
                    VALUES (?, ?)
-                   ON CONFLICT(discussion_number) DO UPDATE SET responded_at = excluded.responded_at""",
+                   ON CONFLICT(discussion_number)
+                   DO UPDATE SET responded_at = excluded.responded_at""",
                 (discussion_number, responded_at),
             )
             self._conn.commit()
@@ -225,7 +239,8 @@ class DiscussionsStateStore:
             self._conn.execute(
                 """INSERT INTO discussion_seed_thread (thread_key, discussion_number)
                    VALUES (?, ?)
-                   ON CONFLICT(thread_key) DO UPDATE SET discussion_number = excluded.discussion_number""",
+                   ON CONFLICT(thread_key)
+                   DO UPDATE SET discussion_number = excluded.discussion_number""",
                 (thread_key, discussion_number),
             )
             self._conn.commit()
