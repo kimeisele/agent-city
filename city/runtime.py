@@ -107,6 +107,9 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
         network=network,
     )
 
+    # Wire MoltbookClient BEFORE factory — the assistant needs it during build
+    _wire_moltbook_client_early(registry, log)
+
     definitions = default_definitions(
         governance=getattr(args, "governance", False),
         federation=(
@@ -194,10 +197,13 @@ def build_daemon_service(runtime: CityRuntime) -> object:
     )
 
 
-def _wire_moltbook_client(*, runtime: CityRuntime, log: logging.Logger) -> None:
-    if runtime.mayor._offline_mode:
-        return
+def _wire_moltbook_client_early(registry: object, log: logging.Logger) -> None:
+    """Register MoltbookClient in registry BEFORE factory builds services.
 
+    The MoltbookAssistant depends on SVC_MOLTBOOK_CLIENT in the registry.
+    If we register the client after factory.build_all(), the assistant
+    can't find it and gets skipped.
+    """
     api_key = os.environ.get("MOLTBOOK_API_KEY", "")
     if not api_key:
         return
@@ -206,11 +212,34 @@ def _wire_moltbook_client(*, runtime: CityRuntime, log: logging.Logger) -> None:
         from vibe_core.mahamantra.adapters.moltbook import MoltbookClient
 
         client = MoltbookClient(api_key=api_key)
-        runtime.mayor._moltbook_client = client
-        runtime.registry.register(SVC_MOLTBOOK_CLIENT, client)
-        log.info("Moltbook DM pipeline wired (client in registry)")
+        registry.register(SVC_MOLTBOOK_CLIENT, client)
+        log.info("MoltbookClient registered early (before factory)")
     except Exception as exc:
-        log.warning("MoltbookClient init failed: %s", exc)
+        log.warning("MoltbookClient early init failed: %s", exc)
+
+
+def _wire_moltbook_client(*, runtime: CityRuntime, log: logging.Logger) -> None:
+    """Wire MoltbookClient to mayor (legacy path) + ensure registry."""
+    if runtime.mayor._offline_mode:
+        return
+
+    client = runtime.registry.get(SVC_MOLTBOOK_CLIENT)
+    if client is None:
+        # Fallback: try late init if early init failed
+        api_key = os.environ.get("MOLTBOOK_API_KEY", "")
+        if not api_key:
+            return
+        try:
+            from vibe_core.mahamantra.adapters.moltbook import MoltbookClient
+
+            client = MoltbookClient(api_key=api_key)
+            runtime.registry.register(SVC_MOLTBOOK_CLIENT, client)
+        except Exception as exc:
+            log.warning("MoltbookClient init failed: %s", exc)
+            return
+
+    runtime.mayor._moltbook_client = client
+    log.info("Moltbook DM pipeline wired (client in registry)")
 
 
 def _wire_moltbook_bridge(*, runtime: CityRuntime, config: dict, log: logging.Logger) -> None:
