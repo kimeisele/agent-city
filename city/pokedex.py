@@ -267,7 +267,8 @@ class Pokedex:
                 try:
                     cell, _ = MahaCellUnified.from_bytes(row["cell_bytes"])
                     cur.execute(
-                        "UPDATE agents SET prana = ?, cell_cycle = ?, cell_active = ? WHERE name = ?",
+                        "UPDATE agents SET prana = ?, cell_cycle = ?,"
+                        " cell_active = ? WHERE name = ?",
                         (cell.prana, cell.age, 1 if cell.is_alive else 0, row["name"]),
                     )
                 except Exception:
@@ -1676,7 +1677,8 @@ class Pokedex:
         with self._lock:
             cur = self._conn.cursor()
             cur.execute(
-                "UPDATE agents SET claim_level = ?, claim_verified_at = ?, updated_at = ? WHERE name = ?",
+                "UPDATE agents SET claim_level = ?,"
+                " claim_verified_at = ?, updated_at = ? WHERE name = ?",
                 (target_level, now, now, name),
             )
             self._record_event(
@@ -1806,7 +1808,8 @@ class Pokedex:
 
             cur.execute(
                 """INSERT INTO agent_inventory
-                   (agent_name, asset_type, asset_id, quantity, expires_at, source, acquired_at, tx_id)
+                   (agent_name, asset_type, asset_id, quantity,
+                    expires_at, source, acquired_at, tx_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (name, asset_type, asset_id, quantity, expires_at, source, now, tx_id),
             )

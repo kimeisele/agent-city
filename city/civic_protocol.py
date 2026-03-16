@@ -102,7 +102,9 @@ class CivicRule:
             return False
 
         # Check cooldown
-        if context.heartbeat_count - context.last_execution.get(self.name, -999) < self.constraints.cooldown_heartbeats:
+        cooldown = self.constraints.cooldown_heartbeats
+        last_exec = context.last_execution.get(self.name, -999)
+        if context.heartbeat_count - last_exec < cooldown:
             return False
 
         # Check quorum if required
@@ -110,7 +112,8 @@ class CivicRule:
             return False
 
         # Check prana threshold
-        if self.constraints.min_prana_threshold > 0 and context.total_prana < self.constraints.min_prana_threshold:
+        min_prana = self.constraints.min_prana_threshold
+        if min_prana > 0 and context.total_prana < min_prana:
             return False
 
         # Evaluate condition
@@ -202,7 +205,10 @@ class CivicEngine:
                 triggered.append(rule)
                 # Record execution for cooldown tracking
                 self._execution_history.setdefault(rule.name, []).append(context.heartbeat_count)
-                logger.info("CivicEngine: rule %s triggered (heartbeat #%d)", rule.name, context.heartbeat_count)
+                logger.info(
+                    "CivicEngine: rule %s triggered (heartbeat #%d)",
+                    rule.name, context.heartbeat_count,
+                )
         
         return triggered
 

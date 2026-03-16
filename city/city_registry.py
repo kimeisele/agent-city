@@ -216,7 +216,10 @@ class CityRegistry:
         if existing.is_alive:
             # Collision or refresh — merge prana
             existing.lifecycle.prana += cell.lifecycle.prana
-            logger.debug("REGISTRY: Refreshed '%s' at slot %d (prana=%d)", key, slot, existing.lifecycle.prana)
+            logger.debug(
+                "REGISTRY: Refreshed '%s' at slot %d (prana=%d)",
+                key, slot, existing.lifecycle.prana,
+            )
         else:
             self._registry.set(slot, cell)
             logger.debug("REGISTRY: Registered '%s' at slot %d", key, slot)
@@ -325,7 +328,10 @@ class CityRegistry:
             "registered_keys": len(self._key_to_slot),
             "active_claims": len(self._active_claims),
             "kinds": {
-                kind.name: sum(1 for k, kd in self._entity_kinds.items() if kd == kind and self.is_alive(k))
+                kind.name: sum(
+                    1 for k, kd in self._entity_kinds.items()
+                    if kd == kind and self.is_alive(k)
+                )
                 for kind in EntityKind
             },
         }

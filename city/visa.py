@@ -297,7 +297,10 @@ def revoke_visa(visa: Visa, reason: str = "") -> Visa:
     )
 
 
-def upgrade_visa(visa: Visa, new_class: VisaClass, sponsor: str, sponsor_visa_id: str | None = None) -> Visa:
+def upgrade_visa(
+    visa: Visa, new_class: VisaClass, sponsor: str,
+    sponsor_visa_id: str | None = None,
+) -> Visa:
     """Upgrade a visa to a higher class. Parampara chain is preserved."""
     if new_class == VisaClass.REVOKED:
         return revoke_visa(visa, "Upgraded to revoked")

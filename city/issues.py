@@ -405,7 +405,8 @@ class CityIssueManager:
                         del self._issue_cells[number]
                         self._issue_types.pop(number, None)
                         # Watertight: remove from SQLite
-                        if self._pokedex is not None and hasattr(self._pokedex, "delete_issue_cell"):
+                        if (self._pokedex is not None
+                                and hasattr(self._pokedex, "delete_issue_cell")):
                             self._pokedex.delete_issue_cell(number)
 
                 elif issue_type == IssueType.ITERATIVE:

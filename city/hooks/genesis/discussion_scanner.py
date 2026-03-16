@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import TYPE_CHECKING
 
 from city.membrane import IngressSurface, enqueue_ingress, queue_item
@@ -61,7 +62,7 @@ def _ingest_brain_feedback(ctx: PhaseContext, body: str) -> None:
         parsed.get("heartbeat", "?"),
         parsed.get("intent", "?"),
     )
-import re
+
 
 # ── Claim Detection (Plan Step 3) ─────────────────────────────────────
 
@@ -226,7 +227,8 @@ def _check_seed_thread_health(ctx: PhaseContext, operations: list[str]) -> None:
             if thread_key in ctx.discussions._seed_threads:
                 old_num = ctx.discussions._seed_threads.pop(thread_key)
                 logger.warning(
-                    "RESILIENCE: Seed thread '%s' (#%d) missing from registry — purged for recreation",
+                    "RESILIENCE: Seed thread '%s' (#%d) missing"
+                    " from registry — purged for recreation",
                     thread_key, old_num,
                 )
                 operations.append(f"disc_resilience:purged:{thread_key}:#{old_num}")

@@ -57,7 +57,10 @@ class HealHandler(DIWAwareHandler, BaseKarmaHandler):
         from city.registry import SVC_ROUTER
 
         router = ctx.registry.get(SVC_ROUTER) if ctx.registry else None
-        heal_authorized = authorize_mission("heal_", all_specs, ctx.active_agents, all_inventories, router=router)
+        heal_authorized = authorize_mission(
+            "heal_", all_specs, ctx.active_agents,
+            all_inventories, router=router,
+        )
         if not heal_authorized:
             logger.info(
                 "KARMA: No agent with validate capability — executor handles heal as system service"

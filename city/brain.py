@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from city.brain_context import ContextSnapshot
+    from city.prompt_registry import PromptContext
 
 logger = logging.getLogger("AGENT_CITY.BRAIN")
 
@@ -461,7 +462,11 @@ class CityBrain:
             {"role": "user", "content": user_msg},
         ]
 
-        thought_kind = ThoughtKind(kind) if kind in ThoughtKind.__members__.values() else ThoughtKind.COMPREHENSION
+        thought_kind = (
+            ThoughtKind(kind)
+            if kind in ThoughtKind.__members__.values()
+            else ThoughtKind.COMPREHENSION
+        )
 
         # Model metabolism: select tier model based on ThoughtKind
         tier = _KIND_TIER.get(kind, ModelTier.STANDARD)

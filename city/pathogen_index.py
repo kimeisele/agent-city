@@ -174,7 +174,10 @@ class PathogenIndex:
             if antidote.remedy_id:
                 existing.antidote = antidote
                 existing.remedy_id = antidote.remedy_id
-            logger.debug("Pathogen re-encountered: %s (count=%d)", keyword, existing.encounter_count)
+            logger.debug(
+                "Pathogen re-encountered: %s (count=%d)",
+                keyword, existing.encounter_count,
+            )
             return existing
 
         entry = PathogenEntry(

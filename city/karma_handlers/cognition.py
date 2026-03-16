@@ -129,7 +129,10 @@ def _route_to_cartridges(
         if mission.id.startswith(("issue_", "exec_")):
             continue
 
-        result = route_mission(mission, all_specs, ctx.active_agents, all_inventories, router=router)
+        result = route_mission(
+            mission, all_specs, ctx.active_agents,
+            all_inventories, router=router,
+        )
 
         if result["blocked"]:
             operations.append(f"route_blocked:{mission.id}:no_qualified_agent")

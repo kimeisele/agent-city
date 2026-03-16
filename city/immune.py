@@ -274,7 +274,10 @@ class CityImmune:
         for detail in details:
             # Re-check breaker each iteration (may trip mid-batch)
             if self._breaker.is_open():
-                logger.warning("Immune: Circuit breaker tripped mid-batch — aborting remaining heals.")
+                logger.warning(
+                    "Immune: Circuit breaker tripped mid-batch"
+                    " — aborting remaining heals."
+                )
                 break
 
             diagnosis = self.diagnose(detail)

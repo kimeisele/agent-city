@@ -88,7 +88,8 @@ class BasePhaseHook(ABC):
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None: ...
 
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__} name={self.name} phase={self.phase} pri={self.priority}>"
+        cls = self.__class__.__name__
+        return f"<{cls} name={self.name} phase={self.phase} pri={self.priority}>"
 
 
 # ── PhaseHookRegistry ────────────────────────────────────────────────
