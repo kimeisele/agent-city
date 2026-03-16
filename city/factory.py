@@ -175,6 +175,7 @@ def default_definitions(
         SVC_CLAIMS,
         SVC_CONTRACTS,
         SVC_COUNCIL,
+        SVC_IMMIGRATION,
         SVC_EVENT_BUS,
         SVC_EXECUTOR,
         SVC_FEDERATION,
@@ -240,6 +241,10 @@ def default_definitions(
                 ServiceDefinition(
                     name=SVC_CLAIMS,
                     factory=lambda ctx: _build_claims(),
+                ),
+                ServiceDefinition(
+                    name=SVC_IMMIGRATION,
+                    factory=lambda ctx: _build_immigration(ctx),
                 ),
             ]
         )
@@ -451,6 +456,12 @@ def _build_audit() -> object | None:
     from vibe_core.mahamantra.audit.kernel import AuditKernel
 
     return AuditKernel()
+
+
+def _build_immigration(ctx: BuildContext) -> object:
+    from city.immigration import ImmigrationService
+
+    return ImmigrationService(db_path=str(ctx.db_path))
 
 
 def _build_federation(ctx: BuildContext) -> object:

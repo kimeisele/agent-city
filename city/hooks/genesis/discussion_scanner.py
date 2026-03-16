@@ -61,6 +61,88 @@ def _ingest_brain_feedback(ctx: PhaseContext, body: str) -> None:
         parsed.get("heartbeat", "?"),
         parsed.get("intent", "?"),
     )
+import re
+
+# ── Claim Detection (Plan Step 3) ─────────────────────────────────────
+
+# Matches both [CLAIM] AgentName and [city-claim:AgentName]
+_CLAIM_PATTERN = re.compile(
+    r"\[CLAIM\]\s+([\w-]+)"           # [CLAIM] AgentName
+    r"|\[city-claim:([\w-]+)\]",      # [city-claim:AgentName]
+    re.IGNORECASE,
+)
+
+
+def _detect_claims(text: str) -> list[str]:
+    """Extract agent names from claim patterns in text.
+
+    Recognizes:
+      - [CLAIM] AgentName  (discussion shorthand)
+      - [city-claim:AgentName]  (canonical Moltbook format)
+    """
+    names: list[str] = []
+    for m in _CLAIM_PATTERN.finditer(text):
+        name = m.group(1) or m.group(2)
+        if name:
+            names.append(name)
+    return names
+
+
+def _process_claims(
+    ctx: PhaseContext,
+    agent_names: list[str],
+    claimer: str,
+    source_text: str,
+    operations: list[str],
+) -> None:
+    """Process detected claim patterns: self-claim upgrade + immigration application.
+
+    1. Discover agent if unknown
+    2. Attempt ClaimManager.attempt_self_claim() for level upgrade
+    3. Submit immigration application if immigration service available
+    """
+    for agent_name in agent_names:
+        # Ensure agent is discovered
+        existing = ctx.pokedex.get(agent_name)
+        if not existing:
+            ctx.pokedex.discover(agent_name, moltbook_profile={})
+            operations.append(f"claim_discover:{agent_name}")
+            logger.info("CLAIM: Discovered agent %s via claim by %s", agent_name, claimer)
+
+        # Self-claim level upgrade (DISCOVERED → SELF_CLAIMED)
+        if ctx.claims is not None:
+            try:
+                upgraded = ctx.claims.attempt_self_claim(
+                    agent_name, source_text, ctx.pokedex,
+                )
+                if upgraded:
+                    operations.append(f"claim_self:{agent_name}")
+                    logger.info("CLAIM: %s self-claimed by %s", agent_name, claimer)
+            except Exception as exc:
+                logger.warning("CLAIM: self-claim failed for %s: %s", agent_name, exc)
+
+        # Submit immigration application
+        if ctx.immigration is not None:
+            try:
+                from city.immigration import ApplicationReason
+                from city.visa import VisaClass
+
+                ctx.immigration.submit_application(
+                    agent_name=agent_name,
+                    reason=ApplicationReason.CITIZEN_APPLICATION,
+                    requested_visa_class=VisaClass.WORKER,
+                )
+                operations.append(f"claim_immigration:{agent_name}")
+                logger.info(
+                    "CLAIM: Immigration application submitted for %s (claimed by %s)",
+                    agent_name, claimer,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "CLAIM: Immigration submission failed for %s: %s", agent_name, exc,
+                )
+
+
 SEED_THREAD_KEYS = ("welcome", "registry", "ideas", "city_log", "brainstream")
 
 
@@ -201,6 +283,15 @@ class DiscussionScannerHook(BasePhaseHook):
         for signal in disc_signals:
             operations.append(f"discussion:{signal['number']}")
 
+            # Claim detection in discussion titles (new discussions)
+            if signal.get("is_new"):
+                title_claims = _detect_claims(signal.get("title", ""))
+                if title_claims:
+                    _process_claims(
+                        ctx, title_claims, signal.get("author", ""),
+                        signal.get("title", ""), operations,
+                    )
+
             # New threads → create discussion mission
             if signal.get("is_new") and ctx.sankalpa is not None:
                 from city.missions import create_discussion_mission
@@ -240,6 +331,18 @@ class DiscussionScannerHook(BasePhaseHook):
                 if is_own:
                     _ingest_brain_feedback(ctx, body)
                     continue
+
+                # Claim detection: [CLAIM] AgentName or [city-claim:AgentName]
+                claimed_agents = _detect_claims(body)
+                if not claimed_agents:
+                    # Also check discussion title for claims
+                    claimed_agents = _detect_claims(signal.get("title", ""))
+                if claimed_agents:
+                    _process_claims(
+                        ctx, claimed_agents, comment_author,
+                        f"{signal.get('title', '')} {body}",
+                        operations,
+                    )
 
                 # External comment: update thread lifecycle + enqueue for processing
                 if ctx.thread_state is not None:

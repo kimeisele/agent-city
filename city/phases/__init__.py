@@ -26,6 +26,7 @@ from city.registry import (
     SVC_BRAIN_MEMORY,
     SVC_CITY_NADI,
     SVC_CAMPAIGNS,
+    SVC_CLAIMS,
     SVC_CONTRACTS,
     SVC_CONVERSATION_TRACKER,
     SVC_COUNCIL,
@@ -234,6 +235,10 @@ class PhaseContext:
     @property
     def immigration(self) -> object | None:
         return self.registry.get(SVC_IMMIGRATION)
+
+    @property
+    def claims(self) -> object | None:
+        return self.registry.get(SVC_CLAIMS)
 
     @property
     def discussions(self) -> object | None:
