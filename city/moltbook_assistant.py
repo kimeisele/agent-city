@@ -64,6 +64,7 @@ class MoltbookAssistant:
 
     _client: object  # MoltbookClient
     _pokedex: object  # Pokedex
+    _voice: object | None = None  # BrainVoice (lazy init, fail-closed)
 
     # Persistent state (survives GH Actions restarts via snapshot/restore)
     _followed: set[str] = field(default_factory=set)
@@ -279,12 +280,45 @@ class MoltbookAssistant:
             logger.warning("INVITE failed: %s — %s", name, e)
             return False
 
+    def _ensure_voice(self) -> object | None:
+        """Lazy-init BrainVoice from same provider as Brain."""
+        if self._voice is not None:
+            return self._voice
+        try:
+            from city.brain_voice import BrainVoice
+            from vibe_core.runtime.providers.factory import get_llm_provider
+            from vibe_core.runtime.providers.base import NoOpProvider
+
+            provider = get_llm_provider()
+            if isinstance(provider, NoOpProvider):
+                return None
+            self._voice = BrainVoice(_provider=provider)
+            logger.info("BrainVoice: initialized")
+            return self._voice
+        except Exception as e:
+            logger.debug("BrainVoice: unavailable: %s", e)
+            return None
+
     def _create_content(self, series: str, hb: int, city_stats: dict) -> bool:
         """Create themed post in the appropriate submolt.
 
         Content is posted WHERE THE AUDIENCE IS, not in m/agent-city.
         Target submolt determined by CONTENT_TARGETS mapping.
+        Narrative series use BrainVoice; template series use builders.
         """
+        target = CONTENT_TARGETS.get(series, SUBMOLT)
+
+        # Narrative series: BrainVoice generates from real city data
+        narrative_series = {"sovereignty_brief", "federation_update", "digest"}
+        if series in narrative_series:
+            voice = self._ensure_voice()
+            if voice is not None:
+                title, content = voice.narrate(series, hb, city_stats, target_submolt=target)
+                if title and content:
+                    return self._publish(title, content, target, series)
+            # Fallback to template if BrainVoice unavailable
+
+        # Template series: deterministic builders
         builders = {
             "spotlight": self._build_spotlight,
             "zone_report": self._build_zone_report,
@@ -302,7 +336,10 @@ class MoltbookAssistant:
             logger.info("CONTENT: %s — insufficient data", series)
             return False
 
-        target = CONTENT_TARGETS.get(series, SUBMOLT)
+        return self._publish(title, content, target, series)
+
+    def _publish(self, title: str, content: str, target: str, series: str) -> bool:
+        """Publish a post to the target submolt."""
         try:
             self._client.sync_create_post(title, content, submolt=target)
             self._last_post_time = time.time()
