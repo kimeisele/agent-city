@@ -27,6 +27,7 @@ def _agent(name: str, zone: str = "karma", element: str = "agni",
            guardian: str = "prahlada", karma: int = 0) -> dict:
     return {
         "name": name,
+        "zone": zone,
         "classification": {"zone": zone, "guardian": guardian},
         "vibration": {"element": element},
         "moltbook": {"karma": karma, "follower_count": 0},
