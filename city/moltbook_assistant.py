@@ -162,25 +162,24 @@ class MoltbookAssistant:
             self._planned_series or "(cooldown)",
         )
 
-    def on_karma(self, heartbeat_count: int, city_stats: dict, *, should_post_content: bool = True) -> dict:
+    def on_karma(self, heartbeat_count: int, city_stats: dict) -> dict:
         """KARMA: Execute planned actions.
 
-        Args:
-            should_post_content: Governance gate — if False, skip posting
-                but still process invites. This prevents spam while keeping
-                the recruitment pipeline active.
+        Posting is gated by the assistant's own cooldown in on_dharma().
+        GovernanceEvalHook runs in MOKSHA (after KARMA) so we cannot
+        use governance_actions here.
 
         Returns structured dict consumed by karma.py phase caller.
         """
         result: dict = {"invites_sent": 0, "post_created": False}
 
-        # Send DM invitations (always allowed, not gated by governance)
+        # Send DM invitations
         for name in self._invite_queue[:_MAX_INVITES]:
             if self._send_invite(name):
                 result["invites_sent"] += 1
 
-        # Create themed content (gated by governance cadence)
-        if self._planned_series and should_post_content:
+        # Create themed content (gated by cooldown in on_dharma)
+        if self._planned_series:
             result["post_created"] = self._create_content(
                 self._planned_series, heartbeat_count, city_stats,
             )
@@ -213,7 +212,7 @@ class MoltbookAssistant:
             name = agent.get("name", "")
             if not name or name in self._invited or name not in self._followed:
                 continue
-            zone = agent.get("classification", {}).get("zone", "")
+            zone = agent.get("zone", "")
             zone_pop = zones.get(zone, max_pop) if zone else max_pop
             scarcity = 1.0 - (zone_pop / max_pop) if max_pop > 0 else 0.5
             scored.append((scarcity, name))
@@ -431,7 +430,7 @@ class MoltbookAssistant:
         mb = agent.get("moltbook", {}) or {}
 
         lines = [
-            f"Element: {v.get('element', '?')} | Zone: {c.get('zone', '?')} "
+            f"Element: {v.get('element', '?')} | Zone: {agent.get('zone', '?')} "
             f"| Guna: {c.get('guna', '?')}",
             f"Guardian: {c.get('guardian', '?')} | Chapter: {c.get('chapter', '?')} "
             f"| Position: {c.get('position', '?')}",
