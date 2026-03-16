@@ -149,20 +149,25 @@ class MoltbookAssistant:
             self._planned_series or "(cooldown)",
         )
 
-    def on_karma(self, heartbeat_count: int, city_stats: dict) -> dict:
+    def on_karma(self, heartbeat_count: int, city_stats: dict, *, should_post_content: bool = True) -> dict:
         """KARMA: Execute planned actions.
+
+        Args:
+            should_post_content: Governance gate — if False, skip posting
+                but still process invites. This prevents spam while keeping
+                the recruitment pipeline active.
 
         Returns structured dict consumed by karma.py phase caller.
         """
         result: dict = {"invites_sent": 0, "post_created": False}
 
-        # Send DM invitations
+        # Send DM invitations (always allowed, not gated by governance)
         for name in self._invite_queue[:_MAX_INVITES]:
             if self._send_invite(name):
                 result["invites_sent"] += 1
 
-        # Create themed content
-        if self._planned_series:
+        # Create themed content (gated by governance cadence)
+        if self._planned_series and should_post_content:
             result["post_created"] = self._create_content(
                 self._planned_series, heartbeat_count, city_stats,
             )
