@@ -224,11 +224,13 @@ class MoltbookAssistant:
     def _select_series(self) -> str:
         """Select content series based on city state.
 
-        State-driven, not dumb round-robin:
-        - Few citizens → spotlight (attract attention)
-        - Zone imbalance → zone_report (awareness)
-        - Otherwise → round-robin through all series
+        First post ALWAYS sovereignty_brief (BrainVoice origin story).
+        Then state-driven selection, then round-robin.
         """
+        # First post ever → sovereignty brief in m/general
+        if self._ops.get("posts", 0) == 0:
+            return "sovereignty_brief"
+
         stats = self._pokedex.stats()
         citizens = stats.get("citizen", 0)
         zones = stats.get("zones", {})

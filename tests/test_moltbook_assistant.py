@@ -267,9 +267,16 @@ def test_invite_message_contains_jiva():
 # ── Series Selection ──────────────────────────────────────────────────
 
 
+def test_select_series_first_post_sovereignty():
+    agents = [_agent("a"), _agent("b")]
+    assistant, _ = _make_assistant(agents)
+    assert assistant._select_series() == "sovereignty_brief"
+
+
 def test_select_series_spotlight_few_citizens():
     agents = [_agent("a"), _agent("b")]  # < 5 citizens
     assistant, _ = _make_assistant(agents)
+    assistant._ops["posts"] = 1  # not first post anymore
     assert assistant._select_series() == "spotlight"
 
 
@@ -277,6 +284,7 @@ def test_select_series_zone_report_imbalanced():
     agents = ([_agent(f"k{i}", zone="karma") for i in range(10)]
               + [_agent("m0", zone="moksha")])
     assistant, _ = _make_assistant(agents)
+    assistant._ops["posts"] = 1  # not first post anymore
     # 10 karma vs 1 moksha → imbalanced
     series = assistant._select_series()
     assert series == "zone_report"
