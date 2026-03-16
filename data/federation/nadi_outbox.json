@@ -1,1 +1,29 @@
-[]
+[
+  {
+    "source": "moksha",
+    "target": "steward-protocol",
+    "operation": "city_report",
+    "payload": {
+      "heartbeat": 3,
+      "population": 32,
+      "alive": 32,
+      "chain_valid": true,
+      "pr_results": [],
+      "mission_results": [],
+      "active_campaigns": [
+        {
+          "id": "internet-adaptation",
+          "title": "Internet adaptation",
+          "north_star": "Continuously adapt the city to relevant new protocols, tools, and standards while keeping execution bounded and the heartbeat healthy.",
+          "status": "active",
+          "last_gap_summary": [],
+          "last_evaluated_heartbeat": 1
+        }
+      ]
+    },
+    "priority": 2,
+    "correlation_id": "",
+    "timestamp": 1773660581.6281023,
+    "ttl_s": 7200.0
+  }
+]
