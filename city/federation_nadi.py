@@ -91,9 +91,24 @@ class FederationNadi:
     _default_target: str = field(default="steward-protocol")
     _outbox: list[FederationMessage] = field(default_factory=list)
     _processed_ids: dict[str, None] = field(default_factory=dict)  # ordered dedup (FIFO eviction)
+    _city_id: str = field(default="")
 
     def __post_init__(self) -> None:
         self._federation_dir.mkdir(parents=True, exist_ok=True)
+        if not self._city_id:
+            self._city_id = self._load_city_id()
+
+    def _load_city_id(self) -> str:
+        """Load city_id from peer.json — the federation identity."""
+        peer_path = self._federation_dir / "peer.json"
+        if peer_path.exists():
+            try:
+                data = json.loads(peer_path.read_text())
+                identity = data.get("identity", {})
+                return identity.get("city_id", "") or identity.get("slug", "")
+            except (json.JSONDecodeError, OSError):
+                pass
+        return ""
 
     @property
     def outbox_path(self) -> Path:
@@ -115,9 +130,18 @@ class FederationNadi:
         priority: int = RAJAS,
         correlation_id: str = "",
     ) -> bool:
-        """Queue a message for the outbox (written on flush)."""
+        """Queue a message for the outbox (written on flush).
+
+        The source field is overridden with the federation city_id from
+        peer.json. The caller's source value (e.g. "moksha") is preserved
+        in the payload as "origin_phase" for traceability.
+        """
+        # Federation identity always comes from peer.json, not the caller
+        federation_source = self._city_id or source
+        if self._city_id and source != self._city_id:
+            payload = {**payload, "origin_phase": source}
         msg = FederationMessage(
-            source=source,
+            source=federation_source,
             target=target or self._default_target,
             operation=operation,
             payload=payload,
