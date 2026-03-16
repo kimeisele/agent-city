@@ -28,17 +28,14 @@ class AssistantHandler(BaseKarmaHandler):
         return ctx.moltbook_assistant is not None
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        # Gate posting on governance approval — invites always allowed
-        governance_actions = getattr(ctx, "_governance_actions", None)
-        should_post = governance_actions is not None and governance_actions.should_post_city_report
+        # NOTE: GovernanceEvalHook runs in MOKSHA (after KARMA), so we
+        # CANNOT gate on governance_actions here — they don't exist yet.
+        # The assistant has its own cooldown logic in on_dharma().
         assistant_result = ctx.moltbook_assistant.on_karma(
             ctx.heartbeat_count,
             ctx.pokedex.stats(),
-            should_post_content=should_post,
         )
         if assistant_result.get("invites_sent"):
             operations.append(f"assistant:invites={assistant_result['invites_sent']}")
         if assistant_result.get("post_created"):
             operations.append("assistant:post_created")
-        elif not should_post:
-            operations.append("assistant:post_skipped:governance_gate")
