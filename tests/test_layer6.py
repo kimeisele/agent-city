@@ -574,8 +574,8 @@ def test_bridge_creation():
     from city.moltbook_bridge import MoltbookBridge
 
     bridge = MoltbookBridge(_client=_MockBridgeClient(), _own_username="mayor_bot")
-    assert bridge._seen_post_ids == set()
-    assert bridge._last_post_time == 0.0
+    assert len(bridge._seen_post_ids) == 0
+    assert bridge._last_post_times == {}
     assert bridge._subscribed is False
 
 
@@ -757,8 +757,9 @@ def test_bridge_persistence():
 
     client = _MockBridgeClient()
     bridge = MoltbookBridge(_client=client, _own_username="mayor_bot")
-    bridge._seen_post_ids = {"p1", "p2", "p3"}
-    bridge._last_post_time = 12345.0
+    from collections import OrderedDict
+    bridge._seen_post_ids = OrderedDict.fromkeys(["p1", "p2", "p3"])
+    bridge._last_post_times = {"submolt": 12345.0}
     bridge._subscribed = True
 
     snapshot = bridge.snapshot()
@@ -766,8 +767,8 @@ def test_bridge_persistence():
     bridge2 = MoltbookBridge(_client=client, _own_username="mayor_bot")
     bridge2.restore(snapshot)
 
-    assert bridge2._seen_post_ids == {"p1", "p2", "p3"}
-    assert bridge2._last_post_time == 12345.0
+    assert set(bridge2._seen_post_ids) == {"p1", "p2", "p3"}
+    assert bridge2._last_post_times == {"submolt": 12345.0}
     assert bridge2._subscribed is True
 
 

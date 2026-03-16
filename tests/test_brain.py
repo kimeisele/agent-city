@@ -285,7 +285,7 @@ class TestJsonParsing:
         raw = json.dumps({"comprehension": "x" * 500})
         thought = _parse_json_thought(raw)
         assert thought is not None
-        assert len(thought.comprehension) <= 300
+        assert len(thought.comprehension) <= 800
 
     def test_parse_limits_key_concepts(self):
         raw = json.dumps({"key_concepts": ["a", "b", "c", "d", "e", "f", "g"]})

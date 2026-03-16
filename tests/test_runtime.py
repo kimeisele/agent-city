@@ -86,7 +86,7 @@ def test_persist_city_runtime_saves_snapshots_and_checkpoints(tmp_path, monkeypa
     discussions = SimpleNamespace(snapshot=lambda: {"discussions": [1, 2]})
     runtime = CityRuntime(
         db_path=tmp_path / "city.db",
-        registry=SimpleNamespace(),
+        registry=SimpleNamespace(get=lambda key, default=None: default),
         mayor=SimpleNamespace(_moltbook_bridge=bridge),
         pokedex=fake_pokedex,
         factory_stats={},
