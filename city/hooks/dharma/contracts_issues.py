@@ -188,33 +188,3 @@ def _process_issue_directive(ctx: PhaseContext, directive: object) -> None:
         ctx.issues.bind_mission(directive.issue_number, mission_id)
 
 
-def _process_issue_action(ctx: PhaseContext, action: str) -> None:
-    """Legacy string parser — kept for backward compatibility.
-
-    Prefer _process_issue_directive() for new code.
-    """
-    parts = action.split(":")
-    if len(parts) < 2:
-        return
-
-    action_type = parts[0]
-    issue_ref = parts[1] if len(parts) > 1 else ""
-
-    if action_type not in ("intent_needed", "contract_check"):
-        return
-
-    if not issue_ref.startswith("#"):
-        return
-    try:
-        issue_number = int(issue_ref[1:])
-    except ValueError:
-        return
-
-    title = f"Issue #{issue_number}"
-    if ctx.issues is not None:
-        cell = ctx.issues._issue_cells.get(issue_number)
-        if cell is not None:
-            title = getattr(cell, "name", title)
-
-    mission_type = "audit_needed" if action_type == "contract_check" else "intent_needed"
-    create_issue_mission(ctx, issue_number, title, mission_type)

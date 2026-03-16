@@ -79,7 +79,7 @@ class MoltbookBridge:
         default_factory=lambda: _bridge_cfg.get("own_username", ""),
     )
     _seen_post_ids: OrderedDict[str, None] = field(default_factory=OrderedDict)
-    _last_post_time: float = 0.0
+    _last_post_times: dict[str, float] = field(default_factory=dict)
     _post_cooldown_s: int = field(
         default_factory=lambda: _bridge_cfg.get("post_cooldown_s", 1800),
     )
@@ -236,7 +236,7 @@ class MoltbookBridge:
             return 0
 
         now = time.time()
-        if (now - self._last_post_time) < self._post_cooldown_s:
+        if (now - self._last_post_times.get("mission", 0.0)) < self._post_cooldown_s:
             logger.debug("BRIDGE: Mission results skipped — cooldown active")
             return 0
 
@@ -269,7 +269,7 @@ class MoltbookBridge:
         )
         if posted is None:
             return 0
-        self._last_post_time = now
+        self._last_post_times["mission"] = now
         logger.info(
             "BRIDGE: Posted %d mission result(s) in single summary",
             len(terminal),
@@ -285,7 +285,7 @@ class MoltbookBridge:
         Returns True if posted, False if skipped or failed.
         """
         now = time.time()
-        if (now - self._last_post_time) < self._post_cooldown_s:
+        if (now - self._last_post_times.get("insight", 0.0)) < self._post_cooldown_s:
             logger.debug("BRIDGE: Insight post skipped — cooldown active")
             return False
 
@@ -323,7 +323,7 @@ class MoltbookBridge:
         )
         if posted is None:
             return False
-        self._last_post_time = now
+        self._last_post_times["insight"] = now
         logger.info("BRIDGE: Posted agent insight (%d missions)", mission_count)
         return True
 
@@ -334,7 +334,7 @@ class MoltbookBridge:
         Returns True if posted, False if skipped or failed.
         """
         now = time.time()
-        if (now - self._last_post_time) < self._post_cooldown_s:
+        if (now - self._last_post_times.get("city_update", 0.0)) < self._post_cooldown_s:
             logger.debug("BRIDGE: Post cooldown active, skipping")
             return False
 
@@ -350,7 +350,7 @@ class MoltbookBridge:
         )
         if posted is None:
             return False
-        self._last_post_time = now
+        self._last_post_times["city_update"] = now
         logger.info("BRIDGE: Posted city update to m/%s", SUBMOLT_NAME)
         return True
 
@@ -469,7 +469,7 @@ class MoltbookBridge:
         Returns True if posted.
         """
         now = time.time()
-        if (now - self._last_post_time) < self._post_cooldown_s:
+        if (now - self._last_post_times.get("agent_update", 0.0)) < self._post_cooldown_s:
             return False
 
         title = f"[Agent] {agent_name}: {action}"
@@ -486,7 +486,7 @@ class MoltbookBridge:
         )
         if posted is None:
             return False
-        self._last_post_time = now
+        self._last_post_times["agent_update"] = now
         logger.info("BRIDGE: Agent post by %s: %s", agent_name, action)
         return True
 
@@ -496,12 +496,21 @@ class MoltbookBridge:
         """Serialize state for persistence across restarts."""
         return {
             "seen_post_ids": list(self._seen_post_ids)[-2500:],
-            "last_post_time": self._last_post_time,
+            "last_post_times": dict(self._last_post_times),
             "subscribed": self._subscribed,
         }
 
     def restore(self, data: dict) -> None:
         """Restore state from persistence."""
         self._seen_post_ids = OrderedDict.fromkeys(data.get("seen_post_ids", []))
-        self._last_post_time = data.get("last_post_time", 0.0)
+        # Backward compat: migrate old single timestamp to per-type dict
+        saved_times = data.get("last_post_times")
+        if saved_times and isinstance(saved_times, dict):
+            self._last_post_times = saved_times
+        else:
+            old_time = data.get("last_post_time", 0.0)
+            self._last_post_times = {
+                "mission": old_time, "insight": old_time,
+                "city_update": old_time, "agent_update": old_time,
+            }
         self._subscribed = data.get("subscribed", False)

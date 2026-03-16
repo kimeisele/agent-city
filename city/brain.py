@@ -704,7 +704,7 @@ def _parse_json_thought(
 
     try:
         # Extract with defaults
-        comprehension = str(normalized.get("comprehension", ""))[:300]
+        comprehension = str(normalized.get("comprehension", ""))[:800]
         raw_intent = str(normalized.get("intent", "observe"))
         intent = _normalize_intent(raw_intent)
         domain_relevance = str(normalized.get("domain_relevance", ""))[:200]

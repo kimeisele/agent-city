@@ -171,7 +171,7 @@ def render_past_thoughts(past_thoughts: list[dict] | None) -> list[str]:
         thought = entry.get("thought", {})
         hb = entry.get("heartbeat", "?")
         intent = thought.get("intent", "?")
-        comp = thought.get("comprehension", "")[:80]
+        comp = thought.get("comprehension", "")[:200]
         conf = thought.get("confidence", 0)
         lines.append(
             f"  hb#{hb}: [{intent}] {comp} (conf={conf:.0%})"
