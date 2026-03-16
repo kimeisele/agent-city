@@ -49,7 +49,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e steward-protocol
+          pip install -e "steward-protocol[providers]"
           pip install -e .
 
       - name: Restore state
