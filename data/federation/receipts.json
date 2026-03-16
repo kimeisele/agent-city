@@ -1,0 +1,18 @@
+[
+  {
+    "correlation_id": "",
+    "delivered_at": 1773583995.945146,
+    "envelope_id": "",
+    "operation": "heartbeat",
+    "source_city_id": "steward",
+    "target_city_id": "agent-city"
+  },
+  {
+    "correlation_id": "",
+    "delivered_at": 1773670923.8983161,
+    "envelope_id": "7d37861d-1b9c-4855-b662-7e50d9f2f02d",
+    "operation": "heartbeat",
+    "source_city_id": "steward",
+    "target_city_id": "agent-city"
+  }
+]

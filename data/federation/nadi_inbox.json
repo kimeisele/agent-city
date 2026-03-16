@@ -1,0 +1,35 @@
+[
+  {
+    "correlation_id": "",
+    "envelope_id": "7d37861d-1b9c-4855-b662-7e50d9f2f02d",
+    "maha_header_hex": "238e10b6e43f4887ae9609ed158f73b1778958b04b41b791cdd011495b6b41c93254e39acee73322d0038f39d6b97d84a0bb0d0000000000ab47c7a58f365214deeaf6a476f2d1dc",
+    "nadi_op": "send",
+    "nadi_priority": "rajas",
+    "nadi_type": "vyana",
+    "operation": "heartbeat",
+    "payload": {
+      "agent_id": "steward",
+      "capabilities": [
+        "code_analysis",
+        "task_execution",
+        "ci_automation",
+        "federation_bridge",
+        "autonomous_daemon",
+        "healing",
+        "immune_system",
+        "cross_repo_diagnostic"
+      ],
+      "fingerprint": "67f02b9fc889c49c1ddf0611ce8ed0f132bf0f6cce9d06499562efbd0c8fc053",
+      "health": 0.95,
+      "repo": "kimeisele/steward",
+      "timestamp": 1773670912.744698,
+      "version": "0.18.0"
+    },
+    "priority": 1,
+    "source": "steward",
+    "target": "agent-city",
+    "timestamp": 1773670923.888087,
+    "ttl_ms": 900000,
+    "ttl_s": 900.0
+  }
+]
