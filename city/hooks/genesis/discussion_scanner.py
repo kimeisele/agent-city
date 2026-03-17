@@ -281,6 +281,14 @@ class DiscussionScannerHook(BasePhaseHook):
         # Step 4: Push newly discovered/created threads into registry
         _register_seed_threads(ctx)
 
+        # Archive locked/closed threads in thread_state (stop unresponsive warnings)
+        if ctx.thread_state is not None:
+            for locked_num in (24, 25, 26, 42):
+                ts = ctx.thread_state.get(locked_num)
+                if ts is not None and ts.status != "archived":
+                    ctx.thread_state.archive_thread(locked_num)
+                    logger.info("GENESIS: Archived locked thread #%d", locked_num)
+
         disc_signals = ctx.discussions.scan()
         for signal in disc_signals:
             operations.append(f"discussion:{signal['number']}")

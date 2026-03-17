@@ -129,7 +129,7 @@ query($owner:String!, $repo:String!, $limit:Int!) {
   repository(owner:$owner, name:$repo) {
     discussions(first:$limit, orderBy:{field:CREATED_AT, direction:DESC}) {
       nodes {
-        number title createdAt
+        number title createdAt locked closed
         author { login }
         comments(last:20) {
           nodes { id body author { login } createdAt lastEditedAt }
@@ -533,6 +533,10 @@ class DiscussionsBridge:
         """Build one scan signal from a discussion node if new activity exists."""
         number = node.get("number", 0)
         if not number:
+            return None
+
+        # Skip locked/closed discussions — they're archived, don't process
+        if node.get("locked") or node.get("closed"):
             return None
 
         author = (node.get("author") or {}).get("login", "")
