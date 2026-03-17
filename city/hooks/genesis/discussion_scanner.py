@@ -413,6 +413,28 @@ class DiscussionScannerHook(BasePhaseHook):
                 if ctx.thread_state is not None and comment_id:
                     ctx.thread_state.mark_enqueued(comment_id)
 
+        # Re-enqueue stuck comments (enqueued but never replied, older than 15min)
+        if ctx.thread_state is not None:
+            stuck = ctx.thread_state.stuck_comments(max_age_s=900.0, limit=5)
+            for entry in stuck:
+                if not entry.body_text:
+                    continue  # no body stored, can't re-enqueue
+                ctx.thread_state.reset_to_seen(entry.comment_id)
+                enqueue_ingress(ctx, IngressSurface.GITHUB_DISCUSSION, {
+                    "source": "discussion",
+                    "text": entry.body_text,
+                    "from_agent": entry.author,
+                    "discussion_number": entry.discussion_number,
+                    "discussion_title": "",
+                    "comment_id": entry.comment_id,
+                })
+                ctx.thread_state.mark_enqueued(entry.comment_id)
+                operations.append(f"disc_requeue:{entry.comment_id[:12]}:#{entry.discussion_number}")
+                logger.info(
+                    "GENESIS: Re-enqueued stuck comment %s in #%d (was enqueued at %.0f)",
+                    entry.comment_id[:12], entry.discussion_number, entry.enqueued_at or 0,
+                )
+
 
 class AgentIntroHook(BasePhaseHook):
     """Drip-feed agent introductions to Discussions."""

@@ -421,8 +421,8 @@ class ThreadStateEngine:
             if existing is not None:
                 return None  # already ingested
 
-            # 10F: Store body_text for self-posts (Brain self-awareness)
-            stored_body = body if is_own else None
+            # Store body_text for ALL comments (needed for re-enqueue of stuck comments)
+            stored_body = body
             self._conn.execute(
                 """INSERT INTO comment_ledger
                    (comment_id, discussion_number, author, body_hash,
@@ -524,6 +524,33 @@ class ThreadStateEngine:
                 """UPDATE comment_ledger SET status = ?, replied_at = ?, reply_comment_id = ?
                    WHERE comment_id = ?""",
                 (CommentStatus.REPLIED, now, reply_comment_id, comment_id),
+            )
+            self._conn.commit()
+
+    def stuck_comments(self, max_age_s: float = 900.0, limit: int = 5) -> list[CommentEntry]:
+        """Comments enqueued but never replied to, older than max_age_s.
+
+        These fell through KARMA gates (capability, rate-limit, claim) and
+        need re-enqueue. Returns at most `limit` oldest stuck comments.
+        """
+        cutoff = time.time() - max_age_s
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT * FROM comment_ledger
+                   WHERE status = ? AND source != 'self'
+                     AND enqueued_at IS NOT NULL AND enqueued_at < ?
+                   ORDER BY enqueued_at ASC
+                   LIMIT ?""",
+                (CommentStatus.ENQUEUED, cutoff, limit),
+            ).fetchall()
+        return [self._row_to_comment(r) for r in rows]
+
+    def reset_to_seen(self, comment_id: str) -> None:
+        """Reset a stuck comment back to SEEN for re-enqueue."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE comment_ledger SET status = ?, enqueued_at = NULL WHERE comment_id = ?",
+                (CommentStatus.SEEN, comment_id),
             )
             self._conn.commit()
 
