@@ -94,7 +94,7 @@ class RegistrationIssueScannerHook(BasePhaseHook):
         import json
         import os
 
-        token = os.environ.get("GITHUB_TOKEN", "")
+        token = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("GH_TOKEN", "")
         if not token:
             return []
 
@@ -140,7 +140,7 @@ class RegistrationIssueScannerHook(BasePhaseHook):
         import json
         import os
 
-        token = os.environ.get("GITHUB_TOKEN", "")
+        token = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("GH_TOKEN", "")
         if not token:
             return
 
