@@ -71,17 +71,19 @@ class RegistrationIssueScannerHook(BasePhaseHook):
 
             # Discover in Pokedex
             if ctx.pokedex.get(agent_name) is None:
-                ctx.pokedex.discover(agent_name, source="github_issue")
+                ctx.pokedex.discover(agent_name)
 
             # Create immigration application
-            description = self._extract_description(issue)
-            app_id = ctx.immigration.submit_application(
+            from city.immigration import ApplicationReason
+            from city.visa import VisaClass
+
+            app = ctx.immigration.submit_application(
                 agent_name=agent_name,
-                visa_class="RESIDENT",
-                statement=description[:500],
+                reason=ApplicationReason.CITIZEN_APPLICATION,
+                requested_visa_class=VisaClass.RESIDENT,
             )
 
-            if app_id:
+            if app:
                 operations.append(f"issue_scanner:registration:{agent_name}:#{number}")
                 logger.info("ISSUE_SCANNER: Application created for %s from Issue #%d", agent_name, number)
 
