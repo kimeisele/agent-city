@@ -15,7 +15,7 @@ class MayorContextBridge:
 
     def build_phase_context(self, mayor: Mayor) -> PhaseContext:
         mayor._service_bridge.sync_legacy_services(mayor)
-        return PhaseContext(
+        ctx = PhaseContext(
             pokedex=mayor._pokedex,
             gateway=mayor._gateway,
             network=mayor._network,
@@ -28,6 +28,11 @@ class MayorContextBridge:
             last_audit_time=mayor._last_audit_time,
             recent_events=mayor._recent_events,
         )
+        # Triage items survive across MURALI phases (DHARMA sets, KARMA consumes)
+        ctx._triage_items = getattr(mayor, "_triage_items", [])  # type: ignore[attr-defined]
+        return ctx
 
     def sync_from_phase_context(self, mayor: Mayor, ctx: PhaseContext) -> None:
         mayor._last_audit_time = ctx.last_audit_time
+        # Sync triage items back (DHARMA may have added, KARMA may have consumed)
+        mayor._triage_items = getattr(ctx, "_triage_items", [])
