@@ -87,32 +87,36 @@ class ImmigrationProcessorHook(BasePhaseHook):
             immigration.move_to_council(app.application_id, vote_id)
             operations.append(f"immigration:council_pending:{app.agent_name}")
 
-            # Auto-vote if council exists (for bootstrap — real councils
-            # will vote through CouncilHandler in KARMA phase)
-            if ctx.council is not None:
-                seats = ctx.council.seats
-                if seats:
-                    # Council members vote based on community score
-                    yes_count = sum(
-                        1 for _ in seats.values()
-                        if app.community_score >= 0.3
-                    )
-                    no_count = len(seats) - yes_count
-                    tally = {"yes": yes_count, "no": no_count, "abstain": 0}
-                    approved_by_council = yes_count > no_count
-                    immigration.record_council_vote(
-                        app.application_id,
-                        approved=approved_by_council,
-                        vote_tally=tally,
-                    )
-                    if approved_by_council:
-                        operations.append(
-                            f"immigration:council_approved:{app.agent_name}"
-                        )
-                    else:
-                        operations.append(
-                            f"immigration:council_rejected:{app.agent_name}"
-                        )
+            # Auto-vote: council or bootstrap
+            seats = ctx.council.seats if ctx.council is not None else {}
+            if seats:
+                # Council members vote based on community score
+                yes_count = sum(
+                    1 for _ in seats.values()
+                    if app.community_score >= 0.3
+                )
+                no_count = len(seats) - yes_count
+                tally = {"yes": yes_count, "no": no_count, "abstain": 0}
+                approved_by_council = yes_count > no_count
+            else:
+                # Bootstrap: no council seats yet, auto-approve if review passed
+                tally = {"yes": 1, "no": 0, "abstain": 0}
+                approved_by_council = True
+                logger.info("IMMIGRATION: Bootstrap auto-approve for %s (no council seats)", app.agent_name)
+
+            immigration.record_council_vote(
+                app.application_id,
+                approved=approved_by_council,
+                vote_tally=tally,
+            )
+            if approved_by_council:
+                operations.append(
+                    f"immigration:council_approved:{app.agent_name}"
+                )
+            else:
+                operations.append(
+                    f"immigration:council_rejected:{app.agent_name}"
+                )
 
         # 3. Grant citizenship for COUNCIL_APPROVED
         council_approved = immigration.list_applications(
