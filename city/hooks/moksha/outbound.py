@@ -119,7 +119,9 @@ class MoltbookOutboundHook(BasePhaseHook):
         return 65
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.moltbook_bridge is not None and not ctx.offline_mode
+        # DISABLED: Automated Moltbook posting produces spam.
+        # Manual posts only until BrainVoice has fact-checking (#137).
+        return False
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         reflection = getattr(ctx, "_reflection", {})
