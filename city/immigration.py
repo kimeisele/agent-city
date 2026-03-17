@@ -664,6 +664,14 @@ class ImmigrationService:
         """Get application by ID."""
         return self._load_application(app_id)
 
+    def get_application_by_agent(self, agent_name: str) -> Optional[ImmigrationApplication]:
+        """Get most recent application for an agent (any status)."""
+        row = self._conn.execute(
+            "SELECT * FROM immigration_applications WHERE agent_name = ? ORDER BY applied_at DESC LIMIT 1",
+            (agent_name,),
+        ).fetchone()
+        return self._row_to_application(row) if row else None
+
     def list_applications(
         self, status: ApplicationStatus | None = None
     ) -> list[ImmigrationApplication]:
