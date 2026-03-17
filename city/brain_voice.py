@@ -191,7 +191,13 @@ class BrainVoice:
                 max_tokens=800,
                 temperature=0.7,
             )
-            text = response.get("content", "") if isinstance(response, dict) else str(response)
+            # LLMResponse has .content attribute; dicts have ["content"] key
+            if hasattr(response, "content"):
+                text = response.content
+            elif isinstance(response, dict):
+                text = response.get("content", "")
+            else:
+                text = str(response)
             title, content = self._parse_response(text)
             if title and content:
                 self._post_count += 1
