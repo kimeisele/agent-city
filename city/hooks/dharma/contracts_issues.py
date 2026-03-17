@@ -130,7 +130,8 @@ class CommunityTriageHook(BasePhaseHook):
             seed_threads=seed_threads,
         )
         if triage_items:
-            ctx._triage_items = triage_items  # type: ignore[attr-defined]
+            existing = getattr(ctx, "_triage_items", [])
+            ctx._triage_items = existing + triage_items  # type: ignore[attr-defined]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

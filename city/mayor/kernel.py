@@ -85,6 +85,7 @@ class Mayor:
     _offline_mode: bool = False
     _active_agents: set[str] = field(default_factory=set)
     _gateway_queue: list[dict] = field(default_factory=list)
+    _triage_items: list = field(default_factory=list)
 
     _registry: CityServiceRegistry = field(default_factory=CityServiceRegistry)
 
