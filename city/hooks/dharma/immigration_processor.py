@@ -90,7 +90,7 @@ class ImmigrationProcessorHook(BasePhaseHook):
             # Auto-vote if council exists (for bootstrap — real councils
             # will vote through CouncilHandler in KARMA phase)
             if ctx.council is not None:
-                seats = ctx.council.get_seats()
+                seats = ctx.council.seats
                 if seats:
                     # Council members vote based on community score
                     yes_count = sum(
