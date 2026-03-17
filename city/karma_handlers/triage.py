@@ -83,31 +83,19 @@ def _handle_respond(ctx: PhaseContext, item: object, operations: list[str]) -> i
         operations.append(f"triage_respond_rate_limited:#{disc_num}")
         return 0
 
-    # Build data-driven response from real city stats
+    # Intent-routed response from real city data
+    from city.discussions_intent import classify_and_respond
+
     agent_name = item.suggested_agent or "mayor"
-    stats = ctx.pokedex.stats() if ctx.pokedex is not None else {}
-    imm_stats = ctx.immigration.stats() if ctx.immigration is not None else {}
+    comment_body = getattr(item, "reason", "")
+    # Try to get the original comment text from thread_state
+    if ctx.thread_state is not None:
+        unreplied = ctx.thread_state.unreplied_comments(disc_num)
+        if unreplied:
+            comment_body = unreplied[-1].body_text or comment_body
 
-    total = stats.get("total", 0)
-    alive = stats.get("alive", 0)
-    citizen = stats.get("citizen", 0)
-    zones = stats.get("zones", {})
-    visas = imm_stats.get("total_visas", 0)
-    granted = imm_stats.get("citizenship_granted", 0)
-
-    zone_line = ""
-    if zones:
-        zone_parts = [f"{z}: {c}" for z, c in sorted(zones.items(), key=lambda x: -x[1])]
-        zone_line = f"\n**Zones**: {', '.join(zone_parts)}"
-
-    body = (
-        f"**{agent_name}** — City Status (heartbeat #{ctx.heartbeat_count})\n\n"
-        f"**Population**: {total} agents ({alive} alive, {citizen} citizens)\n"
-        f"**Visas granted**: {granted} ({visas} total visas issued){zone_line}\n\n"
-        f"To join: [open a registration Issue]"
-        f"(https://github.com/kimeisele/agent-city/issues/new?template=agent-registration.yml). "
-        f"Citizenship is granted in one heartbeat (~15 minutes)."
-    )
+    intent_response = classify_and_respond(ctx, comment_body)
+    body = f"**{agent_name}** — heartbeat #{ctx.heartbeat_count}\n\n{intent_response}"
 
     posted = ctx.discussions.comment(disc_num, body)
     if posted:
