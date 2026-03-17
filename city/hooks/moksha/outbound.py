@@ -258,13 +258,11 @@ class DiscussionsOutboundHook(BasePhaseHook):
                     posted_any = True
                     operations.append("disc_outbound:mission_crosspost")
 
-            # Pulse to welcome thread (regular heartbeat)
-            pulse_stats = reflection.get("city_stats", {})
-            pulsed = ctx.discussions.post_pulse(ctx.heartbeat_count, pulse_stats)
-            reflection["discussions_pulse_posted"] = pulsed
-            if pulsed:
-                posted_any = True
-                operations.append("disc_outbound:pulse")
+            # Pulse DISABLED: 700+ pulse reports poisoned thread #24,
+            # drowning external comments. Re-enable after seen≠processed fix.
+            # pulse_stats = reflection.get("city_stats", {})
+            # pulsed = ctx.discussions.post_pulse(ctx.heartbeat_count, pulse_stats)
+            reflection["discussions_pulse_posted"] = False
 
             if not posted_any:
                 operations.append("disc_outbound:skipped:no_governance_actions")
