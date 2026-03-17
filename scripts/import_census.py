@@ -106,10 +106,11 @@ def main() -> int:
     for name, profile in tier1[:15]:
         agent = pokedex.get(name)
         if agent:
-            jiva = agent.get("jiva") or agent.get("classification") or {}
-            element = jiva.get("element", "?")
-            zone = jiva.get("zone", "?")
-            guardian = jiva.get("guardian", "?")
+            c = agent.get("classification", {})
+            v = agent.get("vibration", {})
+            element = v.get("element", "?")
+            zone = agent.get("zone", "?")
+            guardian = c.get("guardian", "?")
             karma = profile.get("karma", 0)
             print(f"  {name}: {element}/{zone}/{guardian} (karma={karma})")
 
