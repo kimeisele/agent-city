@@ -131,7 +131,7 @@ query($owner:String!, $repo:String!, $limit:Int!) {
       nodes {
         number title createdAt
         author { login }
-        comments(last:10) {
+        comments(last:20) {
           nodes { id body author { login } createdAt lastEditedAt }
         }
       }
@@ -392,7 +392,7 @@ class DiscussionsBridge:
     @staticmethod
     def is_own_comment(author: str) -> bool:
         """Check if a comment author is our own bot (skip self-replies)."""
-        return author == _SKIP_OWN_USERNAME
+        return author in (_SKIP_OWN_USERNAME, "github-actions")
 
     # ── Internal GraphQL Posting Primitives ──────────────────────────
 
@@ -1199,16 +1199,17 @@ class DiscussionsBridge:
         return self._comment_on_discussion(target, body)
 
     def post_pulse(self, heartbeat: int, city_stats: dict) -> bool:
-        """Post a city pulse update to the welcome thread.
+        """Post a city pulse update to the city_log thread (NOT welcome).
 
-        Only called when delta > 0 (something happened this rotation).
+        Pulse reports in welcome thread drown out external comments
+        because scan only fetches last N comments per discussion.
         """
-        welcome_number = self._seed_thread_number("welcome")
-        if welcome_number is None:
+        log_number = self._seed_thread_number("city_log")
+        if log_number is None:
             return False
 
         body = self._build_pulse_body(heartbeat, city_stats)
-        return self._comment_on_discussion(welcome_number, body)
+        return self._comment_on_discussion(log_number, body)
 
     def cross_post_mission_results(self, results: list[dict]) -> int:
         """MOKSHA: Cross-post terminal mission results to 'Show and tell'.
