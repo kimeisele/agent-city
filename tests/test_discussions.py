@@ -488,10 +488,10 @@ def test_post_agent_action(mock_gql):
 @patch("city.discussions_bridge._gh_graphql")
 def test_post_pulse(mock_gql):
     bridge = _make_bridge()
-    bridge._seed_threads["welcome"] = 10
+    bridge._seed_threads["city_log"] = 41
 
     mock_gql.side_effect = [
-        _get_discussion_response("D_welcome", 10),
+        _get_discussion_response("D_city_log", 41),
         _add_comment_response("C_pulse"),
     ]
 
@@ -500,7 +500,7 @@ def test_post_pulse(mock_gql):
     assert body == "**Pulse #1** — 5 agents alive, 10 total, 3 events this cycle"
 
 
-def test_post_pulse_no_welcome():
+def test_post_pulse_no_city_log():
     bridge = _make_bridge()
     assert bridge.post_pulse(1, {}) is False
 

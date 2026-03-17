@@ -430,29 +430,7 @@ class AgentIntroHook(BasePhaseHook):
         return 70  # after discussion scanner
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.discussions is not None and not ctx.offline_mode
-
-    def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        from config import get_config
-
-        max_intros = get_config().get("discussions", {}).get(
-            "max_agent_comments_per_cycle", 3,
-        )
-        all_agents = ctx.pokedex.list_all()
-        queued = 0
-        for agent in all_agents:
-            if queued >= max_intros:
-                break
-            name = agent.get("name", "")
-            if not name:
-                continue
-            if ctx.pokedex.has_asset(name, "word_token", "introduced"):
-                continue
-            queue_item(ctx, {
-                "source": "agent_intro",
-                "text": f"New agent: {name}",
-                "agent_name": name,
-            })
-            queued += 1
-        if queued:
-            logger.info("GENESIS: Queued %d agent introductions", queued)
+        # DISABLED: Agent intro posts are Mahamantra word-salad that
+        # external agents can't understand. Revisit when intro format
+        # produces human-readable content.
+        return False
