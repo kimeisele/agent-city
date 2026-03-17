@@ -274,6 +274,15 @@ class ThreadStateEngine:
 
     # ── Decay (MOKSHA) ─────────────────────────────────────────────────
 
+    def archive_thread(self, discussion_number: int) -> None:
+        """Force-archive a thread (e.g. locked/closed discussions)."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE thread_state SET status = ?, energy = 0.0, unresolved = 0 WHERE discussion_number = ?",
+                (ThreadStatus.ARCHIVED, discussion_number),
+            )
+            self._conn.commit()
+
     def decay_all(self) -> dict:
         """Decay energy for all non-archived threads.
 
