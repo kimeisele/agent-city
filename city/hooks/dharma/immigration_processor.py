@@ -123,6 +123,8 @@ class ImmigrationProcessorHook(BasePhaseHook):
                 app.application_id, sponsor="council"
             )
             if visa:
+                # Upgrade Pokedex status: discovered → citizen
+                ctx.pokedex.register(app.agent_name)
                 operations.append(
                     f"immigration:citizenship_granted:{app.agent_name}:"
                     f"class={visa.visa_class.value}"
