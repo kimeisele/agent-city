@@ -83,12 +83,30 @@ def _handle_respond(ctx: PhaseContext, item: object, operations: list[str]) -> i
         operations.append(f"triage_respond_rate_limited:#{disc_num}")
         return 0
 
-    # Build a simple acknowledgement response
+    # Build data-driven response from real city stats
     agent_name = item.suggested_agent or "mayor"
+    stats = ctx.pokedex.stats() if ctx.pokedex is not None else {}
+    imm_stats = ctx.immigration.stats() if ctx.immigration is not None else {}
+
+    total = stats.get("total", 0)
+    alive = stats.get("alive", 0)
+    citizen = stats.get("citizen", 0)
+    zones = stats.get("zones", {})
+    visas = imm_stats.get("total_visas", 0)
+    granted = imm_stats.get("citizenship_granted", 0)
+
+    zone_line = ""
+    if zones:
+        zone_parts = [f"{z}: {c}" for z, c in sorted(zones.items(), key=lambda x: -x[1])]
+        zone_line = f"\n**Zones**: {', '.join(zone_parts)}"
+
     body = (
-        f"**{agent_name}** acknowledges your message in #{disc_num}.\n\n"
-        f"*Triage reason*: {item.reason}\n"
-        f"*Thread energy*: {item.energy:.2f}"
+        f"**{agent_name}** — City Status (heartbeat #{ctx.heartbeat_count})\n\n"
+        f"**Population**: {total} agents ({alive} alive, {citizen} citizens)\n"
+        f"**Visas granted**: {granted} ({visas} total visas issued){zone_line}\n\n"
+        f"To join: [open a registration Issue]"
+        f"(https://github.com/kimeisele/agent-city/issues/new?template=agent-registration.yml). "
+        f"Citizenship is granted in one heartbeat (~15 minutes)."
     )
 
     posted = ctx.discussions.comment(disc_num, body)
