@@ -412,7 +412,8 @@ class MoltbookAssistant:
 
     def _build_spotlight(self, _hb: int, _stats: dict) -> tuple[str, str]:
         """Agent Spotlight — full Jiva derivation of a discovered agent."""
-        # Prefer agents with Moltbook presence
+        # ONLY agents with verified Moltbook presence (karma > 0)
+        # NEVER spotlight internal agents (sys_*, event strings, etc.)
         for agent in self._pokedex.list_all():
             name = agent.get("name", "")
             if not name or name in self._spotlighted:
@@ -422,13 +423,7 @@ class MoltbookAssistant:
                 self._spotlighted.add(name)
                 return self._format_spotlight(agent)
 
-        # Fallback: any unspotlighted agent
-        for agent in self._pokedex.list_all():
-            name = agent.get("name", "")
-            if name and name not in self._spotlighted:
-                self._spotlighted.add(name)
-                return self._format_spotlight(agent)
-
+        # No fallback. If no real Moltbook agents left, return empty.
         return "", ""
 
     def _format_spotlight(self, agent: dict) -> tuple[str, str]:
