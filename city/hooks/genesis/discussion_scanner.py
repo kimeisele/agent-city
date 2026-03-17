@@ -434,3 +434,6 @@ class AgentIntroHook(BasePhaseHook):
         # external agents can't understand. Revisit when intro format
         # produces human-readable content.
         return False
+
+    def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
+        pass  # disabled
