@@ -287,6 +287,8 @@ class MoltbookAssistantHook(BasePhaseHook):
         return ctx.moltbook_assistant is not None and not ctx.offline_mode
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        followed = ctx.moltbook_assistant.on_genesis(operations)
+        # Feed ONLY real agent names — not operation strings from other hooks
+        discovered = [a["name"] for a in ctx.pokedex.list_by_status("discovered")]
+        followed = ctx.moltbook_assistant.on_genesis(discovered)
         for name in followed:
             operations.append(f"followed:{name}")

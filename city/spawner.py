@@ -116,6 +116,9 @@ class AgentSpawner:
 
             # Community agents go through immigration if service available
             if immigration is not None and not name.startswith("sys_"):
+                # Skip if agent already has an application (e.g. from IssueScanner)
+                if immigration.get_application_by_agent(name) is not None:
+                    continue
                 try:
                     from city.immigration import ApplicationReason
                     from city.visa import VisaClass
