@@ -698,6 +698,17 @@ def _parse_json_thought(
         logger.warning("Brain JSON decode failed: %s (raw: %s)", e, raw[:200])
         return None
 
+    # DeepSeek sometimes returns a JSON array — unwrap first dict element
+    if isinstance(data, list):
+        data = next((item for item in data if isinstance(item, dict)), None)
+        if data is None:
+            logger.warning("Brain JSON returned non-dict list: %s", raw[:200])
+            return None
+
+    if not isinstance(data, dict):
+        logger.warning("Brain JSON returned non-dict: %s", type(data).__name__)
+        return None
+
     # Normalize aliased keys
     normalized = _normalize_keys(data)
 

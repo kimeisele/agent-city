@@ -28,7 +28,7 @@ def _agent(name: str, zone: str = "karma", element: str = "agni",
     return {
         "name": name,
         "zone": zone,
-        "classification": {"zone": zone, "guardian": guardian},
+        "classification": {"guardian": guardian},
         "vibration": {"element": element},
         "moltbook": {"karma": karma, "follower_count": 0},
         "status": "citizen",
@@ -47,12 +47,12 @@ class FakePokedex:
 
     def list_by_zone(self, zone: str) -> list[dict]:
         return [a for a in self._agents.values()
-                if a.get("classification", {}).get("zone") == zone]
+                if a.get("zone") == zone]
 
     def stats(self) -> dict:
         zones: dict[str, int] = {}
         for a in self._agents.values():
-            z = a.get("classification", {}).get("zone", "unknown")
+            z = a.get("zone", "unknown")
             zones[z] = zones.get(z, 0) + 1
         return {
             "total": len(self._agents),

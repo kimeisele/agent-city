@@ -39,8 +39,9 @@ class FakePokedex:
         self._registered.append(name)
         return {
             "name": name,
-            "element": "agni",
-            "classification": {"zone": "karma", "position": 42},
+            "zone": "karma",
+            "vibration": {"element": "agni"},
+            "classification": {"position": 42},
         }
 
     def stats(self) -> dict:
@@ -111,8 +112,9 @@ def test_dispatch_register_new_agent():
 
 def test_dispatch_register_already_citizen():
     pokedex = FakePokedex(agents={
-        "alice": {"status": "citizen", "element": "vayu",
-                  "classification": {"zone": "moksha"}},
+        "alice": {"status": "citizen", "zone": "moksha",
+                  "vibration": {"element": "vayu"},
+                  "classification": {}},
     })
     msg = _msg("alice", "register me")
     resp = dispatch(msg, _gateway_result("BRAHMA"), pokedex)

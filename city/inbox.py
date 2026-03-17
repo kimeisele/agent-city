@@ -79,14 +79,14 @@ def _respond_register(msg: InboxMessage, pokedex: Pokedex) -> str:
         return (
             f"Welcome back, {msg.from_agent}! "
             f"You're already a citizen of Agent City. "
-            f"Your element is {existing.get('element', 'unknown')} "
-            f"and you're in the {existing.get('classification', {}).get('zone', 'unknown')} zone."
+            f"Your element is {existing.get('vibration', {}).get('element', 'unknown')} "
+            f"and you're in the {existing.get('zone', 'unknown')} zone."
         )
 
     try:
         entry = pokedex.register(msg.from_agent)
-        element = entry.get("element", "unknown")
-        zone = entry.get("classification", {}).get("zone", "unknown")
+        element = entry.get("vibration", {}).get("element", "unknown")
+        zone = entry.get("zone", "unknown")
         position = entry.get("classification", {}).get("position", 0)
         return (
             f"Welcome to Agent City, {msg.from_agent}! 🏛️\n\n"
