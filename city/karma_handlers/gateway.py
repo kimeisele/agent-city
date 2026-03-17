@@ -318,15 +318,17 @@ def _handle_discussion_item(
                 agent_spec = spec
             else:
                 logger.info(
-                    "KARMA: @%s blocked by tier gate for discussion #%d",
+                    "KARMA: @%s blocked by capability gate for #%d, falling back to general routing",
                     direct_agent, discussion_number,
                 )
         else:
             logger.debug(
-                "KARMA: @%s not in specs for discussion #%d",
+                "KARMA: @%s not in specs for discussion #%d, falling back",
                 direct_agent, discussion_number,
             )
-    else:
+
+    # General routing: no direct agent, or direct agent was blocked
+    if agent_name is None:
         intent = classify_discussion_intent(result)
         agent_name, agent_spec, routing_score = _route_discussion_to_agent(
             ctx, intent, all_specs, all_inventories, discussion_text=item.get("text", ""),
