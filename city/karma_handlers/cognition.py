@@ -173,20 +173,9 @@ def _route_to_cartridges(
 
                 if executed:
                     cognitive_count += 1
-                    if (
-                        ctx.discussions is not None
-                        and not ctx.offline_mode
-                        and action_post_count < max_action_posts
-                    ):
-                        spec = _get_agent_spec(ctx, agent_name)
-                        if spec is not None:
-                            cognitive_action["_operation"] = operation_name
-                            posted = ctx.discussions.post_agent_action(
-                                spec, cognitive_action, mission.id,
-                            )
-                            if posted:
-                                action_post_count += 1
-                                operations.append(f"disc_action:{agent_name}:{cognitive_action['function']}")
+                    # DISABLED: Agent action posts are Mahamantra word-salad
+                    # (e.g. "sys_auditor — Analysis: devotional service, regulations...")
+                    # Re-enable when compose_response produces human-readable output.
 
                 operations.append(
                     f"routed:{agent_name}:{mission.id}:score={result['score']:.2f}"
