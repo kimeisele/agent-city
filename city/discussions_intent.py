@@ -141,9 +141,17 @@ _TOPIC_HANDLERS = [
 def classify_and_respond(ctx: PhaseContext, comment_body: str) -> str:
     """Classify comment intent and generate data-driven response.
 
-    Uses substring matching against topic signals — NOT keyword equality.
-    Each signal is a PREFIX that matches word stems. Falls back to
-    general city status if no topic matches.
+    Uses topic signal matching — substring stems checked against comment body.
+    Deterministic, zero-LLM, zero-API-call.
+
+    Why NOT city/semantic.py: the semantic layer translates text through
+    Pancha Mahabhuta element transitions for agent-to-agent perspective.
+    It's not designed for human intent classification and produces
+    Mahamantra word-salad when used for that purpose.
+
+    Future upgrade: when Gateway-routed comments arrive (via Brain
+    comprehension), use the buddhi trinity_function (source/carrier/deliverer)
+    as a secondary signal for richer classification.
     """
     body_lower = comment_body.lower()
     for signals, handler in _TOPIC_HANDLERS:
