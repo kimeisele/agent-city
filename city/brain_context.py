@@ -290,6 +290,34 @@ def build_field_digest(ctx: object) -> str:
     except Exception:
         pass
 
+    # GATE 2: Pending Brain Missions — Brain sees its own open requests
+    try:
+        from city.brain_gates import pending_brain_missions
+        from city.brain_digest import digest_mission_result
+
+        brain_missions = pending_brain_missions(ctx)
+        for bm in brain_missions[:5]:
+            cells.append(digest_mission_result(
+                bm,
+                mission_id=bm.get("id", "?"),
+            ))
+    except Exception:
+        pass
+
+    # GATE 3: Terminal Brain Missions — Outcome feedback loop
+    try:
+        from city.brain_gates import terminal_brain_missions
+        from city.brain_digest import digest_mission_result as _digest_mr
+
+        terminal = terminal_brain_missions(ctx)
+        for tm in terminal[:5]:
+            cells.append(_digest_mr(
+                tm,
+                mission_id=tm.get("id", "?"),
+            ))
+    except Exception:
+        pass
+
     # 12D: Suppressed posts — Brain detects its own offline gaps on recovery
     try:
         from city.brain_digest import DigestCell
