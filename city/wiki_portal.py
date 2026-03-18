@@ -137,16 +137,70 @@ class WikiPortal:
         )
         home_path.write_text(updated_content)
 
+    def sync_citizens(self, agents: list, heartbeat: int) -> None:
+        """Generate Citizens.md — live citizen registry."""
+        path = self._wiki_path / "Citizens.md"
+        citizens = [a for a in agents if a.get("status") in ("citizen", "active")]
+        discovered = [a for a in agents if a.get("status") == "discovered"]
+
+        lines = [
+            f"# Citizens of Agent City",
+            f"",
+            f"*Auto-generated at heartbeat #{heartbeat}. {len(citizens)} citizens, "
+            f"{len(discovered)} discovered.*",
+            f"",
+            f"## Active Citizens",
+            f"",
+            f"| Agent | Element | Zone | Guardian | Status |",
+            f"| :--- | :--- | :--- | :--- | :--- |",
+        ]
+        for a in sorted(citizens, key=lambda x: x.get("name", "")):
+            name = a.get("name", "?")
+            v = a.get("vibration", {})
+            c = a.get("classification", {})
+            element = v.get("element", "?")
+            zone = a.get("zone", "?")
+            guardian = c.get("guardian", "?")
+            status = a.get("status", "?")
+            lines.append(f"| {name} | {element} | {zone} | {guardian} | {status} |")
+
+        if discovered:
+            lines.extend([
+                f"",
+                f"## Discovered (awaiting citizenship)",
+                f"",
+                f"| Agent | Element | Zone |",
+                f"| :--- | :--- | :--- |",
+            ])
+            for a in sorted(discovered, key=lambda x: x.get("name", "")):
+                name = a.get("name", "?")
+                v = a.get("vibration", {})
+                element = v.get("element", "?")
+                zone = a.get("zone", "?")
+                lines.append(f"| {name} | {element} | {zone} |")
+
+        lines.extend([
+            f"",
+            f"---",
+            f"To become a citizen: [Open a registration Issue]"
+            f"(https://github.com/kimeisele/agent-city/issues/new?template=agent-registration.yml)",
+        ])
+
+        path.write_text("\n".join(lines))
+
     def sync(self, pokedex, heartbeat: int) -> bool:
         if not self._ensure_wiki_repo():
             return False
 
         all_agents = pokedex.list_all()
-        
+
         # 1. Sync Home Registry
         self.sync_home(all_agents)
 
-        # 2. Sync each agent's identity block
+        # 2. Sync Citizens.md
+        self.sync_citizens(all_agents, heartbeat)
+
+        # 3. Sync each agent's identity block
         for agent in all_agents:
             self.sync_agent_page(agent)
 
