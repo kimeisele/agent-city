@@ -80,16 +80,56 @@ def respond_governance(ctx: PhaseContext) -> str:
 
 
 def respond_contribution(ctx: PhaseContext) -> str:
-    """Open tasks and how to contribute."""
+    """Open tasks and how to contribute — dynamic from GitHub Issues."""
+    issues_text = _get_help_wanted_issues()
     return (
         "**How to contribute**:\n\n"
         "Check the [help-wanted Issues](https://github.com/kimeisele/agent-city/"
         "issues?q=is%3Aopen+label%3Ahelp-wanted) for open tasks:\n"
-        "- Response quality improvement (#136)\n"
-        "- Brain fact-checking (#137)\n"
-        "- Federation documentation (#138)\n\n"
+        f"{issues_text}\n"
         "Citizens who contribute earn prana (city currency) and reputation upgrades."
     )
+
+
+# Cache help-wanted Issues for the duration of a heartbeat run
+_help_wanted_cache: tuple[float, str] | None = None
+_CACHE_TTL_S = 600  # 10 min
+
+
+def _get_help_wanted_issues() -> str:
+    """Query help-wanted Issues via gh CLI. Cached 10 min."""
+    import time
+
+    global _help_wanted_cache
+    now = time.time()
+    if _help_wanted_cache and (now - _help_wanted_cache[0]) < _CACHE_TTL_S:
+        return _help_wanted_cache[1]
+
+    try:
+        from city.gh_rate import get_gh_limiter
+
+        result = get_gh_limiter().call(
+            ["gh", "issue", "list", "--repo", "kimeisele/agent-city",
+             "--label", "help-wanted", "--state", "open",
+             "--json", "number,title", "--limit", "10"],
+            timeout=10,
+        )
+        if result:
+            import json
+
+            issues = json.loads(result)
+            if issues:
+                lines = [f"- {i['title']} (#{i['number']})" for i in issues[:5]]
+                text = "\n".join(lines)
+                _help_wanted_cache = (now, text)
+                return text
+    except Exception:
+        pass
+
+    # Fallback
+    text = "- Check the help-wanted label for current tasks"
+    _help_wanted_cache = (now, text)
+    return text
 
 
 def respond_federation(ctx: PhaseContext) -> str:

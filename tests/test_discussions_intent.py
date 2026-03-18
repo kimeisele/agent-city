@@ -90,7 +90,7 @@ def test_respond_governance():
 def test_respond_contribution():
     result = respond_contribution(_ctx())
     assert "help-wanted" in result
-    assert "#136" in result or "#137" in result or "#138" in result
+    assert "contribute" in result.lower() or "tasks" in result.lower()
 
 
 def test_respond_federation():
