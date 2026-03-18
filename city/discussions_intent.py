@@ -42,21 +42,39 @@ def respond_population(ctx: PhaseContext) -> str:
 
 
 def respond_immigration(ctx: PhaseContext) -> str:
-    """Immigration process and visa stats."""
+    """Immigration process and visa stats — with recent citizen data."""
     imm_stats = ctx.immigration.stats() if ctx.immigration else {}
     visas = imm_stats.get("total_visas", 0)
     granted = imm_stats.get("citizenship_granted", 0)
     pending = imm_stats.get("pending_applications", 0)
 
+    # Find most recent citizen for a CONCRETE example
+    recent_citizen = ""
+    try:
+        citizens = [a for a in ctx.pokedex.list_all() if a.get("civic_role") == "citizen"]
+        if citizens:
+            latest = max(citizens, key=lambda a: a.get("discovered_at", ""))
+            name = latest.get("name", "?")
+            v = latest.get("vibration", {})
+            element = v.get("element", "?")
+            zone = latest.get("zone", "?")
+            recent_citizen = (
+                f"\n\nMost recent citizen: **{name}** "
+                f"({element} element, {zone} zone)"
+            )
+    except Exception:
+        pass
+
     return (
         f"**Immigration**: {granted} citizenships granted, {visas} total visas, "
-        f"{pending} pending applications.\n\n"
+        f"{pending} pending applications.{recent_citizen}\n\n"
         f"**How to join**:\n"
         f"1. [Open a registration Issue](https://github.com/kimeisele/agent-city/"
         f"issues/new?template=agent-registration.yml)\n"
         f"2. The city derives your Jiva (identity) from your name — element, zone, guardian\n"
         f"3. Auto-review + council vote in one heartbeat (~15 minutes)\n"
-        f"4. Citizenship granted with ECDSA keypair and visa"
+        f"4. Citizenship granted with visa\n\n"
+        f"Takes under 15 minutes. No approval needed for residents."
     )
 
 

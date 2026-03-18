@@ -117,8 +117,15 @@ class WikiPortal:
 
     def sync_agent_page(self, agent: dict):
         """Update only the official block of an agent's page."""
-        page_path = self._wiki_path / f"Agent_{agent['address']}.md"
-        
+        name = agent.get("name", "unknown")
+        # Use agent name for page filename (human-readable)
+        # Keep old hash-based path as fallback for migration
+        page_path = self._wiki_path / f"{name}.md"
+        old_path = self._wiki_path / f"Agent_{agent['address']}.md"
+        # Migrate: if old hash-named page exists, rename it
+        if old_path.exists() and not page_path.exists():
+            old_path.rename(page_path)
+
         existing_content = ""
         if page_path.exists():
             existing_content = page_path.read_text()
@@ -152,7 +159,7 @@ class WikiPortal:
             "| :--- | :--- | :--- |",
         ]
         for a in sorted(agents, key=lambda x: -((x.get("moltbook") or {}).get("karma") or 0))[:10]:
-            name_link = f"[{a['name']}](Agent_{a['address']})"
+            name_link = f"[{a['name']}]({a['name']})"
             karma = (a.get("moltbook") or {}).get("karma", 0)
             registry_lines.append(f"| {name_link} | {a['status']} | {karma} |")
         
