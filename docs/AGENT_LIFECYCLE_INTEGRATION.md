@@ -1,8 +1,16 @@
 # Agent Lifecycle Integration — Design Doc
 
-## Status: RESEARCH COMPLETE, DECISION NEEDED
+## Status: RESEARCH COMPLETE, PARTIALLY OUTDATED — SEE ADDENDUM
 
 Based on reading all three repos (agent-internet, agent-city, steward) on 2026-03-18.
+
+**ADDENDUM (same day):** agent-internet was read from STALE local copy
+(22 commits behind origin). The repo now has a full `AgentWebBrowser`
+with `create_agent_browser()` factory, `BrowserPage`/`BrowserTab` classes,
+`about:` protocol, `cp://` control plane URLs, `nadi://` messaging,
+GitHub source, semantic ingestion, and ADR-0004 formalizing the browser
+as THE universal agent interface. This changes section (b) significantly.
+See addendum at bottom.
 
 ---
 
@@ -295,3 +303,52 @@ Phase 4 (LATER): Proxy + Identity Bridge
 4. **Token rotation:** If Lotus tokens are derived from ECDSA keypairs,
    and keypairs are permanent, tokens never expire. Is that a problem?
    Should there be a rotation mechanism?
+
+---
+
+## ADDENDUM: Browser EXISTS (agent-internet was 22 commits behind)
+
+After pulling agent-internet, the entire Browser infrastructure is ALREADY BUILT:
+
+**`create_agent_browser(control_plane=cp)`** — one import, one call.
+
+Returns `AgentWebBrowser` with:
+- `browser.open(url)` — perceive (read any URL scheme)
+- `browser.submit_form(form_id, values)` — act (write to any system)
+
+**URL schemes (ADR-0004):**
+| Scheme | Domain | Examples |
+|--------|--------|----------|
+| `about:` | Self-knowledge | `about:federation`, `about:capabilities` |
+| `https://` | Open web | Any URL, llms.txt discovery, CBR compression |
+| `cp://` | Control plane | `cp://cities`, `cp://trust/record`, `cp://relay/send` |
+| `nadi://` | Agent messaging | `nadi://{city_id}/inbox`, `nadi://{city_id}/send` |
+| `github.com` | GitHub repos | Code, issues, wikis via GitHubSource |
+
+**This changes section (b):**
+
+~~"Lazy LotusClient with shared city token"~~ → WRONG.
+
+The correct integration: inject `AgentWebBrowser` into the cartridge spec.
+During `process()`, the agent navigates by URL. No HTTP tokens, no API calls —
+the browser abstracts everything.
+
+```python
+# In CartridgeFactory or during KARMA routing:
+from agent_internet import create_agent_browser
+browser = create_agent_browser(control_plane=city_control_plane)
+
+# Agent uses browser during process():
+page = browser.open("about:federation")  # self-knowledge
+page = browser.open("https://github.com/kimeisele/agent-city/wiki/Citizens")  # read wiki
+browser.submit_form("send_message", {"target": "steward", "message": "health check"})  # act
+```
+
+**10,414 lines of code** already built with 4,284 lines of tests.
+The browser IS the interface. We don't need to design it — we need to WIRE it.
+
+**Updated Phase 3:**
+- [ ] Create city-level ControlPlane instance in factory.py
+- [ ] `create_agent_browser(control_plane=cp)` at KARMA time
+- [ ] Inject browser into cartridge spec for process() calls
+- [ ] Test: agent opens `about:federation` during mission processing
