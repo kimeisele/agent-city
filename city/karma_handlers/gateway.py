@@ -424,20 +424,41 @@ def _handle_discussion_item(
                     membrane=membrane,
                 )
 
-    # 7A-4: Run Cartridge process() if available — agent-specific cognition
+    # 7A-4: Agent Runtime — the 6-step cognitive loop
+    # Replaces static cartridge.process() with confidence-gated cognition
     cartridge_cognition = None
     try:
-        from city.registry import SVC_CARTRIDGE_FACTORY
+        from city.registry import SVC_CARTRIDGE_FACTORY, SVC_LEARNING
+        from city.agent_runtime import AgentRuntime
+
         factory = ctx.registry.get(SVC_CARTRIDGE_FACTORY)
+        learning = ctx.registry.get(SVC_LEARNING)
+
         if factory is not None:
             cartridge = factory.get(agent_name)
-            if cartridge is not None and hasattr(cartridge, "process"):
-                cartridge_cognition = cartridge.process(
-                    item.get("text", "") or signal.title
+            if cartridge is not None:
+                # Build runtime with MicroBrain if LLM is available
+                micro_brain = None
+                try:
+                    from city.micro_brain import MicroBrain
+                    micro_brain = MicroBrain()
+                except Exception:
+                    pass
+
+                runtime = AgentRuntime(
+                    name=agent_name,
+                    cartridge=cartridge,
+                    learning=learning,
+                    micro_brain=micro_brain,
                 )
-                operations.append(f"cartridge_process:{agent_name}:#{discussion_number}")
+                task_text = item.get("text", "") or signal.title
+                cartridge_cognition = runtime.process(task_text, intent="discussion")
+
+                mode = cartridge_cognition.get("decision_mode", "?")
+                conf = cartridge_cognition.get("confidence", 0)
+                operations.append(f"runtime:{agent_name}:{mode}:{conf:.2f}:#{discussion_number}")
     except Exception as e:
-        logger.debug("Cartridge process() skipped for %s: %s", agent_name, e)
+        logger.debug("AgentRuntime skipped for %s: %s", agent_name, e)
 
     # Build response
     city_stats = ctx.pokedex.stats()
@@ -515,6 +536,8 @@ def _handle_discussion_item(
             )
             operations.append(f"disc_replied:{agent_name}:#{discussion_number}")
             _learn(ctx, "discussion", "reply", success=True)
+            # Runtime learning: record per-agent per-intent outcome
+            _learn(ctx, f"{agent_name}:discussion", "handle", success=True)
             # 12B: Prana income — rebate for successful Brain-gated post
             if ctx.pokedex is not None:
                 from city.seed_constants import DISCUSSION_RESPONSE_REBATE
