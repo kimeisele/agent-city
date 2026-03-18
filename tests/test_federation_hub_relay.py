@@ -62,8 +62,10 @@ class TestFederationRelay:
             pushed = relay.push_to_hub()
 
         assert pushed == 2
-        mock_write.assert_called_once()
-        written_data = mock_write.call_args[0][1]
+        # Legacy push + per-peer mailbox pushes
+        assert mock_write.call_count >= 1
+        # First call is legacy nadi_inbox.json
+        written_data = mock_write.call_args_list[0][0][1]
         assert len(written_data) == 2
         assert json.loads(outbox.read_text()) == []
 
