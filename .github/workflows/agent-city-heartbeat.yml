@@ -64,6 +64,7 @@ jobs:
             data/bridge_state.json
             data/assistant_state.json
             data/council_state.json
+            data/campaigns_state.json
             data/venu_state.bin
             .vibe/
           key: agent-city-state-${{ github.run_id }}
@@ -126,6 +127,7 @@ jobs:
             data/bridge_state.json
             data/assistant_state.json
             data/council_state.json
+            data/campaigns_state.json
             data/venu_state.bin
             .vibe/
           key: agent-city-state-${{ github.run_id }}
