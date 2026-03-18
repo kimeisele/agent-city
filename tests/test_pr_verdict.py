@@ -78,7 +78,7 @@ class TestPRVerdictHook:
     def test_name_phase_priority(self):
         assert self.hook.name == "pr_verdict"
         assert self.hook.phase == "dharma"
-        assert self.hook.priority == 50
+        assert self.hook.priority == 55
 
     def test_should_run_requires_nadi_and_online(self):
         ctx = _make_ctx()

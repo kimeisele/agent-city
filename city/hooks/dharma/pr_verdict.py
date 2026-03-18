@@ -4,7 +4,7 @@ DHARMA Hook: PR Verdict Handler — Process Steward review verdicts from NADI.
 Reads pr_review_verdict messages from Federation NADI inbox.
 Executes the verdict: auto-merge, request council vote, post changes, or reject.
 
-Priority 50: mid-band governance, after immigration (12), before contracts (40).
+Priority 55: after MoltbookAssistant (50), before CommunityTriage (60).
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
@@ -57,7 +57,7 @@ class PRVerdictHook(BasePhaseHook):
 
     @property
     def priority(self) -> int:
-        return 50
+        return 55
 
     def should_run(self, ctx: PhaseContext) -> bool:
         return ctx.federation_nadi is not None and not ctx.offline_mode
