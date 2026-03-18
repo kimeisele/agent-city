@@ -151,40 +151,73 @@ def _route_to_cartridges(
             continue
 
         try:
-            if hasattr(cartridge, "process"):
+            # Use AgentRuntime if available — the 6-step cognitive loop
+            from city.agent_runtime import AgentRuntime
+            from city.registry import SVC_LEARNING
+
+            learning = ctx.registry.get(SVC_LEARNING)
+            micro_brain = None
+            try:
+                from city.micro_brain import MicroBrain
+                micro_brain = MicroBrain()
+            except Exception:
+                pass
+
+            runtime = AgentRuntime(
+                name=agent_name,
+                cartridge=cartridge,
+                learning=learning,
+                micro_brain=micro_brain,
+            )
+            runtime_result = runtime.process(mission.description, intent=f"mission:{mission.id}")
+            decision_mode = runtime_result.get("decision_mode", "?")
+
+            # Map runtime result to cognitive_action format for downstream
+            if decision_mode == "micro_brain" and runtime_result.get("action") == "respond":
+                # MicroBrain thought — use its response
+                cognitive_action = {
+                    "status": "cognized",
+                    "function": runtime_result.get("action", "respond"),
+                    "approach": runtime_result.get("reasoning", ""),
+                    "agent": agent_name,
+                    "input": mission.description,
+                    **runtime_result,
+                }
+            elif hasattr(cartridge, "process"):
                 cognitive_action = cartridge.process(mission.description)
+            else:
+                cognitive_action = {"status": "unknown"}
 
-                if cognitive_action.get("status") != "cognized":
-                    operations.append(f"routed_passive:{agent_name}:{mission.id}")
-                    continue
+            if cognitive_action.get("status") != "cognized":
+                operations.append(f"routed_passive:{agent_name}:{mission.id}")
+                continue
 
-                if cognitive_count >= max_cognitive_actions:
-                    operations.append(f"cognition_throttled:{agent_name}")
-                    continue
+            if cognitive_count >= max_cognitive_actions:
+                operations.append(f"cognition_throttled:{agent_name}")
+                continue
 
-                operation_name = _execute_cognitive_action(
-                    ctx, cognitive_action, mission, operations,
-                )
-                executed = operation_name is not None
-                _learn(
-                    ctx, f"cognition:{agent_name}",
-                    cognitive_action["function"], success=executed,
-                )
+            operation_name = _execute_cognitive_action(
+                ctx, cognitive_action, mission, operations,
+            )
+            executed = operation_name is not None
+            # Runtime learning: per-agent per-mission outcome
+            runtime.record_outcome(f"mission:{mission.id}", executed)
+            _learn(
+                ctx, f"cognition:{agent_name}",
+                cognitive_action["function"], success=executed,
+            )
 
-                if executed:
-                    cognitive_count += 1
-                    # DISABLED: Agent action posts are Mahamantra word-salad
-                    # (e.g. "sys_auditor — Analysis: devotional service, regulations...")
-                    # Re-enable when compose_response produces human-readable output.
+            if executed:
+                cognitive_count += 1
 
-                operations.append(
-                    f"routed:{agent_name}:{mission.id}:score={result['score']:.2f}"
-                    f":cognized={cognitive_action['function']}"
-                )
-                logger.info(
-                    "KARMA: Routed %s → %s (score=%.2f, function=%s, executed=%s)",
-                    mission.id, agent_name, result["score"], cognitive_action["function"], executed,
-                )
+            operations.append(
+                f"routed:{agent_name}:{mission.id}:score={result['score']:.2f}"
+                f":{decision_mode}:{cognitive_action.get('function', '?')}"
+            )
+            logger.info(
+                "KARMA: Routed %s → %s (score=%.2f, mode=%s, executed=%s)",
+                mission.id, agent_name, result["score"], decision_mode, executed,
+            )
         except Exception as e:
             logger.warning("KARMA: Agent %s failed for mission %s: %s", agent_name, mission.id, e)
 
