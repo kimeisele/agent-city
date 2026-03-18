@@ -27,7 +27,7 @@ def respond_population(ctx: PhaseContext) -> str:
     """City population and zone distribution."""
     stats = ctx.pokedex.stats() if ctx.pokedex else {}
     total = stats.get("total", 0)
-    active = stats.get("active", 0) + stats.get("citizen", 0)
+    active = stats.get("alive", 0)
     discovered = stats.get("discovered", 0)
     zones = stats.get("zones", {})
 
@@ -110,7 +110,7 @@ def respond_fallback(ctx: PhaseContext) -> str:
     stats = ctx.pokedex.stats() if ctx.pokedex else {}
     imm_stats = ctx.immigration.stats() if ctx.immigration else {}
     total = stats.get("total", 0)
-    active = stats.get("active", 0) + stats.get("citizen", 0)
+    active = stats.get("alive", 0)
     zones = stats.get("zones", {})
     granted = imm_stats.get("citizenship_granted", 0)
     zone_parts = [f"{z}: {c}" for z, c in sorted(zones.items(), key=lambda x: -x[1])]

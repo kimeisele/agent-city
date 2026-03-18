@@ -33,6 +33,8 @@ class FakePokedex:
             "total": 37,
             "active": 32,
             "citizen": 0,
+            "alive": 32,
+            "citizen_total": 32,
             "discovered": 5,
             "zones": {"engineering": 13, "research": 10, "discovery": 8, "governance": 6},
         }
