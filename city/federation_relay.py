@@ -91,16 +91,48 @@ class FederationRelay:
         )
 
         if success:
+            # Also write to per-peer mailboxes (new format, zero conflicts)
+            self._push_per_peer_mailboxes(local_messages)
+
             # Clear local outbox
             self._write_local(self._local_outbox, [])
             logger.info(
-                "FederationRelay: Pushed %d messages to Hub inbox (%d total on Hub)",
+                "FederationRelay: Pushed %d messages to Hub (%d legacy + per-peer)",
                 len(local_messages), len(merged),
             )
             return len(local_messages)
 
         logger.warning("FederationRelay: Push to Hub failed")
         return 0
+
+    def _push_per_peer_mailboxes(self, messages: list[dict]) -> None:
+        """Write messages to per-peer mailbox files on the Hub.
+
+        Each target gets its own file: nadi/agent-city_to_{target}.json
+        One writer per file → zero merge conflicts.
+        """
+        import uuid
+
+        by_target: dict[str, list[dict]] = {}
+        for m in messages:
+            target = m.get("target", "")
+            if not target or target == "*":
+                continue
+            if not m.get("id"):
+                m["id"] = str(uuid.uuid4())
+            by_target.setdefault(target, []).append(m)
+
+        for target, msgs in by_target.items():
+            mailbox = f"nadi/agent-city_to_{target}.json"
+            existing, sha = self._read_hub_file(mailbox)
+            if not sha:
+                continue  # Mailbox doesn't exist for this target yet
+            existing.extend(msgs)
+            if len(existing) > 144:
+                existing = existing[-144:]
+            if self._write_hub_file(mailbox, existing, sha=sha,
+                                    message=f"relay: agent-city → {target} ({len(msgs)} msgs)"):
+                logger.info("FederationRelay: per-peer push %d → %s", len(msgs), mailbox)
 
     # ── Pull: Hub outbox → local inbox ──────────────────────────────
 

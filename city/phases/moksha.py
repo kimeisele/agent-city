@@ -46,6 +46,7 @@ def _build_registry():
         WikiSyncHook,
     )
     from city.hooks.moksha.system_health import SystemHealthHook
+    from city.hooks.moksha.federation_relay_push import FederationRelayPushHook
 
     registry = PhaseHookRegistry()
     registry.register(ReflectionStatsHook())      # pri=5   stats foundation
@@ -64,6 +65,7 @@ def _build_registry():
     registry.register(SystemHealthHook())          # pri=68  12E: proactive diagnostics
     registry.register(DiscussionsOutboundHook())   # pri=70  discussions
     registry.register(WikiSyncHook())              # pri=75  wiki
+    registry.register(FederationRelayPushHook())   # pri=80  relay push to hub
 
     return registry
 
