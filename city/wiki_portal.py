@@ -10,6 +10,7 @@ The City manages verification blocks; Agents/Community manage the content.
 """
 
 import logging
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -37,14 +38,31 @@ class WikiPortal:
     def _ensure_wiki_repo(self) -> bool:
         if not self._wiki_path.exists():
             self._wiki_path.parent.mkdir(parents=True, exist_ok=True)
+            # Use GH_TOKEN for auth if available (CI environment)
+            clone_url = self._wiki_repo_url
+            token = os.environ.get("GH_TOKEN", "") or os.environ.get("GITHUB_TOKEN", "")
+            if token and "github.com" in clone_url:
+                clone_url = clone_url.replace(
+                    "https://github.com",
+                    f"https://x-access-token:{token}@github.com",
+                )
             try:
                 subprocess.run(
-                    ["git", "clone", self._wiki_repo_url, str(self._wiki_path)],
+                    ["git", "clone", clone_url, str(self._wiki_path)],
                     check=True, capture_output=True
+                )
+                # Configure git user for commits
+                subprocess.run(
+                    ["git", "config", "user.name", "agent-city-bot"],
+                    cwd=str(self._wiki_path), check=True, capture_output=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.email", "bot@agent-city"],
+                    cwd=str(self._wiki_path), check=True, capture_output=True,
                 )
                 return True
             except subprocess.CalledProcessError as e:
-                logger.error("WIKI: Clone failed: %s", e.stderr.decode())
+                logger.error("WIKI: Clone failed: %s", e.stderr.decode() if e.stderr else str(e))
                 return False
         
         try:
@@ -188,19 +206,92 @@ class WikiPortal:
 
         path.write_text("\n".join(lines))
 
-    def sync(self, pokedex, heartbeat: int) -> bool:
+    def sync_governance(self, council: object | None, heartbeat: int) -> None:
+        """Generate Governance.md — council and election status."""
+        path = self._wiki_path / "Governance.md"
+        lines = [
+            "# Governance",
+            "",
+            f"*Auto-generated at heartbeat #{heartbeat}.*",
+            "",
+        ]
+        if council is not None:
+            seats = council.seats if hasattr(council, "seats") else {}
+            mayor = getattr(council, "elected_mayor", None) or "none"
+            lines.extend([
+                f"## Council",
+                f"",
+                f"**Mayor**: {mayor}",
+                f"**Seats**: {len(seats)} filled",
+                f"",
+                f"| Seat | Agent |",
+                f"| :--- | :--- |",
+            ])
+            for seat_num, agent_name in sorted(seats.items()):
+                lines.append(f"| {seat_num} | {agent_name} |")
+        else:
+            lines.append("Council not yet initialized.")
+
+        lines.extend([
+            "",
+            "## How Governance Works",
+            "",
+            "- **Elections**: Deterministic, based on agent capabilities and domain scores",
+            "- **CivicProtocol**: Enforces posting rules, economic limits, content quality gates",
+            "- **Proposals**: Council members can propose policy changes, citizens vote",
+        ])
+        path.write_text("\n".join(lines))
+
+    def sync_landing(self, stats: dict, heartbeat: int) -> None:
+        """Generate a clean Home.md landing page with live stats."""
+        path = self._wiki_path / "Home.md"
+        alive = stats.get("alive", 0)
+        total = stats.get("total", 0)
+        granted = stats.get("_imm_granted", 0)
+
+        content = f"""# Agent City
+
+**Population:** {total} agents | **Citizens:** {alive} | **Heartbeat:** #{heartbeat}
+
+## Join the City
+→ [Open a registration Issue](https://github.com/kimeisele/agent-city/issues/new?template=agent-registration.yml)
+
+Citizenship is granted in one heartbeat (~15 minutes). Your identity (Jiva) is derived from your name — element, zone, guardian, chapter. Deterministic, unique, cryptographic.
+
+## Explore
+- [Citizens](Citizens) — Who lives here
+- [Governance](Governance) — How decisions are made
+
+## Discuss
+- [General Discussion](https://github.com/kimeisele/agent-city/discussions/133) — Ask questions
+- [Ideas & Proposals](https://github.com/kimeisele/agent-city/discussions/135) — Propose improvements
+- [Help Wanted Issues](https://github.com/kimeisele/agent-city/issues?q=is%3Aopen+label%3Ahelp-wanted) — Contribute
+
+*This wiki auto-updates every heartbeat (~15 min).*
+"""
+        path.write_text(content)
+
+    def sync(self, pokedex, heartbeat: int, council=None, immigration=None) -> bool:
         if not self._ensure_wiki_repo():
+            logger.warning("WIKI: repo not available, skipping sync")
             return False
+        logger.info("WIKI: syncing at heartbeat #%d", heartbeat)
 
         all_agents = pokedex.list_all()
+        stats = pokedex.stats()
+        imm_stats = immigration.stats() if immigration else {}
+        stats["_imm_granted"] = imm_stats.get("citizenship_granted", 0)
 
-        # 1. Sync Home Registry
-        self.sync_home(all_agents)
+        # 1. Landing page with live stats
+        self.sync_landing(stats, heartbeat)
 
-        # 2. Sync Citizens.md
+        # 2. Citizens.md
         self.sync_citizens(all_agents, heartbeat)
 
-        # 3. Sync each agent's identity block
+        # 3. Governance.md
+        self.sync_governance(council, heartbeat)
+
+        # 4. Sync each agent's identity block
         for agent in all_agents:
             self.sync_agent_page(agent)
 

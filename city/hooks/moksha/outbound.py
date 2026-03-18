@@ -297,7 +297,10 @@ class WikiSyncHook(BasePhaseHook):
         reflection = getattr(ctx, "_reflection", {})
         from city.registry import SVC_WIKI_PORTAL
         wiki = ctx.registry.get(SVC_WIKI_PORTAL)
-        wiki_synced = wiki.sync(ctx.pokedex, ctx.heartbeat_count)
+        wiki_synced = wiki.sync(
+            ctx.pokedex, ctx.heartbeat_count,
+            council=ctx.council, immigration=ctx.immigration,
+        )
         reflection["wiki_synced"] = wiki_synced
 
 
