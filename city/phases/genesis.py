@@ -44,6 +44,7 @@ def _build_registry():
     )
     from city.hooks.genesis.issue_scanner import RegistrationIssueScannerHook
     from city.hooks.genesis.federation_relay_pull import FederationRelayPullHook
+    from city.hooks.genesis.peer_discovery import PeerDiscoveryHook
     from city.hooks.genesis.heartbeat_observer_hook import HeartbeatObserverHook
 
     registry = PhaseHookRegistry()
@@ -57,6 +58,7 @@ def _build_registry():
     registry.register(FederationDirectivesHook())  # pri=35  directives
     registry.register(FederationRelayPullHook())      # pri=28  relay pull from hub
     registry.register(RegistrationIssueScannerHook())  # pri=55  github issues
+    registry.register(PeerDiscoveryHook())              # pri=58  peer discovery (daily)
     registry.register(DiscussionScannerHook())     # pri=60  discussions
     registry.register(AgentIntroHook())            # pri=70  intros
     registry.register(MoltbookAssistantHook())     # pri=80  assistant
