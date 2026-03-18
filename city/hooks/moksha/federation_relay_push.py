@@ -54,4 +54,4 @@ class FederationRelayPushHook(BasePhaseHook):
                 operations.append(f"relay_push:{pushed}")
                 logger.info("RELAY_PUSH: Pushed %d messages to Hub", pushed)
         except Exception as e:
-            logger.debug("RELAY_PUSH: Failed (non-fatal): %s", e)
+            logger.warning("RELAY_PUSH: Failed: %s", e)
