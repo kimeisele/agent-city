@@ -36,6 +36,22 @@ class WikiPortal:
         self._wiki_repo_url = wiki_repo_url
 
     def _ensure_wiki_repo(self) -> bool:
+        if self._wiki_path.exists():
+            # Path exists from cache but may be stale — try pull
+            try:
+                subprocess.run(
+                    ["git", "pull", "--rebase"],
+                    cwd=str(self._wiki_path),
+                    check=True, capture_output=True,
+                )
+                logger.info("WIKI: pulled latest from existing clone")
+                return True
+            except subprocess.CalledProcessError:
+                # Corrupt or auth failed — nuke and re-clone
+                import shutil
+                shutil.rmtree(self._wiki_path, ignore_errors=True)
+                logger.info("WIKI: nuked stale clone, re-cloning")
+
         if not self._wiki_path.exists():
             self._wiki_path.parent.mkdir(parents=True, exist_ok=True)
             # Use GH_TOKEN for auth if available (CI environment)
@@ -64,17 +80,7 @@ class WikiPortal:
             except subprocess.CalledProcessError as e:
                 logger.error("WIKI: Clone failed: %s", e.stderr.decode() if e.stderr else str(e))
                 return False
-        
-        try:
-            # Rebase to preserve local agent edits if any happened in the same cycle
-            subprocess.run(
-                ["git", "pull", "--rebase"],
-                cwd=str(self._wiki_path),
-                check=True, capture_output=True,
-            )
-            return True
-        except subprocess.CalledProcessError:
-            return False
+        return False  # should not reach here
 
     def _replace_block(
         self, content: str, start_marker: str,
