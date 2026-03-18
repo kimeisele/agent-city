@@ -1073,8 +1073,12 @@ class Pokedex:
         cur.execute("SELECT COUNT(*) as cnt FROM events")
         event_count = cur.fetchone()["cnt"]
 
+        # Computed fields: alive = active + citizen, citizen_total includes active
+        alive = counts.get("active", 0) + counts.get("citizen", 0)
         return {
             "total": sum(counts.values()),
+            "alive": alive,
+            "citizen_total": alive,  # active IS a promoted citizen
             **counts,
             "zones": zones,
             "events": event_count,
