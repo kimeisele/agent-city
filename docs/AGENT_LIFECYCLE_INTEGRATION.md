@@ -306,6 +306,55 @@ Phase 4 (LATER): Proxy + Identity Bridge
 
 ---
 
+## The 5-Repo Stack: Separation of Concerns
+
+```
+steward-protocol  = Substrate    (Primitives, Identity, NADI Protocol, MahaMantra VM)
+agent-world       = World Truth  (Registry, Policies, Constitution, Trust Levels)
+agent-city        = Local Runtime (Mayor, Council, Economy, Immigration, Discussions)
+agent-internet    = Public Membrane (Browser, Projection, Wiki/Graph, Search)
+steward           = Operator     (Federation Agent, Cross-Repo Orchestration, Healing)
+```
+
+### agent-world: Governance Authority (READ-ONLY constraint for agent-city)
+
+`config/world_registry.yaml` is the AUTHORITATIVE federation registry. It defines:
+- Which cities exist and their trust levels (`founding`, `verified`, `observed`)
+- Which agents have which roles (`world_architect`, `operator`, `substrate`)
+- Federation endpoints for each peer
+
+`config/world_policies.yaml` defines constraints that NO city can override:
+- `city_autonomy_limits` — no city may unilaterally exile another
+- `cross_city_visa_recognition` — CITIZEN visas from founding/verified cities
+  are recognized world-wide (trust_minimum: verified)
+- `federation_bandwidth_quota` — max 30% of shared message budget per hour
+- `federation_ci_required` — repos without PR-triggered CI get trust penalty
+- `federation_descriptor_required` — repos need `.well-known/agent-federation.json`
+
+**Impact on this design:**
+
+1. **PR Gate**: Before steward approves a PR, it must check world policies.
+   A PR that violates `federation_ci_required` (removes CI) needs world-level
+   approval, not just steward + council.
+
+2. **Browser Integration**: An agent-city citizen can browse `about:federation`,
+   but whether OTHER cities recognize that citizenship depends on agent-city's
+   `trust_level` in the world registry (currently `founding` = full recognition).
+
+3. **New Peer Onboarding**: A new repo joining the federation needs to be added
+   to BOTH `world_registry.yaml` (world-level) AND discovered by agent-city's
+   federation scanner (city-level). agent-world is the source of truth.
+
+4. **Authority Feed**: agent-world exports canonical surfaces that agent-internet
+   projects into the public browser. The wiki/graph the browser shows comes from
+   agent-world's authority, not from agent-city's local state.
+
+**For current work (PR Gate, Discussion Response, Wiki):** agent-world is a
+READ-ONLY input. We check policies, we don't write them. No code changes
+needed in agent-world.
+
+---
+
 ## ADDENDUM: Browser EXISTS (agent-internet was 22 commits behind)
 
 After pulling agent-internet, the entire Browser infrastructure is ALREADY BUILT:
