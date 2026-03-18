@@ -90,12 +90,25 @@ class BrainHealthHandler(BaseKarmaHandler):
                     _MAX_BRAIN_PRANA_PER_CYCLE,
                 )
         # Post high-confidence health thoughts to discussions
+        # GATE: Repetition check — deterministic Python, not prompt engineering
         if (
             health_thought.confidence >= 0.7
             and ctx.discussions is not None
             and not ctx.offline_mode
         ):
-            ctx.discussions.post_brain_thought(health_thought, ctx.heartbeat_count)
+            from city.brain_gates import check_repetition
+
+            verdict = check_repetition(
+                health_thought.action_hint, ctx.brain_memory,
+            )
+            if verdict.should_post:
+                ctx.discussions.post_brain_thought(
+                    health_thought, ctx.heartbeat_count,
+                )
+            else:
+                operations.append(
+                    f"brain_health:SUPPRESSED:{verdict.reason}"
+                )
         # Budget: health check counts as 1 brain call
         ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1
 
@@ -137,14 +150,25 @@ class BrainHealthHandler(BaseKarmaHandler):
                     _execute_critique_hint(ctx, critique, operations)
 
                 # Post high-confidence critiques to brainstream
+                # GATE: Repetition check — deterministic Python, not prompt engineering
                 if (
                     critique.confidence >= 0.6
                     and ctx.discussions is not None
                     and not ctx.offline_mode
                 ):
-                    ctx.discussions.post_brain_thought(
-                        critique, ctx.heartbeat_count,
+                    from city.brain_gates import check_repetition
+
+                    critique_verdict = check_repetition(
+                        critique.action_hint, ctx.brain_memory,
                     )
+                    if critique_verdict.should_post:
+                        ctx.discussions.post_brain_thought(
+                            critique, ctx.heartbeat_count,
+                        )
+                    else:
+                        operations.append(
+                            f"brain_critique:SUPPRESSED:{critique_verdict.reason}"
+                        )
 
 
 def _execute_critique_hint(
