@@ -128,7 +128,8 @@ def _collect_terminal_missions(ctx: PhaseContext) -> list[dict]:
         from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
 
         all_missions = ctx.sankalpa.registry.list_missions()
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to list missions: %s", e)
         return []
 
     terminal: list[dict] = []
@@ -161,12 +162,14 @@ def _close_resolved_issues(ctx: PhaseContext) -> int:
     """
     try:
         from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
-    except Exception:
+    except Exception as e:
+        logger.warning("MissionStatus import failed: %s", e)
         return 0
 
     try:
         all_missions = ctx.sankalpa.registry.list_missions()
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to list missions for hygiene: %s", e)
         return 0
 
     closed = 0
@@ -217,12 +220,14 @@ def _purge_stale_missions(ctx: PhaseContext) -> int:
     """
     try:
         from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
-    except Exception:
+    except Exception as e:
+        logger.warning("MissionStatus import failed (dedup): %s", e)
         return 0
 
     try:
         all_missions = ctx.sankalpa.registry.list_missions()
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to list missions for dedup: %s", e)
         return 0
 
     # Group active missions by name

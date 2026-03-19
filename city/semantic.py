@@ -208,7 +208,8 @@ def _basin_groups(meanings: list[str]) -> list[list[str]]:
         from vibe_core.mahamantra.substrate.encoding.semantic_index import get_index
 
         idx = get_index()
-    except Exception:
+    except Exception as e:
+        logger.warning("Semantic index unavailable: %s", e)
         return []
 
     # Filter meanings through concept extraction first
@@ -272,7 +273,8 @@ def _varga_quality(meanings: list[str]) -> str:
         from vibe_core.mahamantra.substrate.encoding.semantic_index import get_index
 
         idx = get_index()
-    except Exception:
+    except Exception as e:
+        logger.warning("Semantic lookup failed: %s", e)
         return ""
 
     varga_counts: dict[int, int] = {0: 0, 1: 0, 2: 0}
@@ -313,7 +315,8 @@ def translate(text: str) -> str | None:
         from vibe_core.mahamantra.substrate.encoding.maha_llm_kernel import resonate
 
         r = resonate(text, top_n=5)
-    except Exception:
+    except Exception as e:
+        logger.warning("Semantic operation failed: %s", e)
         return None
 
     # Extract English meanings (NO Sanskrit)
@@ -406,12 +409,14 @@ def translate_for_agent(text: str, spec: dict) -> str | None:
     """
     try:
         from vibe_core.mahamantra.substrate.encoding.maha_llm_kernel import resonate
-    except Exception:
+    except Exception as e:
+        logger.warning("Semantic operation failed: %s", e)
         return None
 
     try:
         r = resonate(text, top_n=5)
-    except Exception:
+    except Exception as e:
+        logger.warning("Semantic operation failed: %s", e)
         return None
 
     meanings = [w.meanings[0] for w in r.words if w.meanings and w.meanings[0]]
