@@ -76,11 +76,19 @@ class AgentRuntime:
 
         # Low confidence or novel: try MicroBrain (the 25th element)
         if self.micro_brain is not None and confidence < _HIGH_CONFIDENCE:
+            # Pass full spec so MicroBrain knows the guardian's teaching
+            spec = {}
+            if hasattr(self.cartridge, "__dict__"):
+                spec = {k: getattr(self.cartridge, k, "") for k in
+                        ("guardian", "role", "capability_protocol", "guardian_capabilities",
+                         "element", "element_capabilities", "guna", "style", "chapter_significance")
+                        if hasattr(self.cartridge, k)}
             thought = self.micro_brain.think(
                 agent_name=self.name,
                 agent_domain=domain,
                 task_text=task_text,
                 capabilities=capabilities,
+                spec=spec,
             )
             if thought.action != "skip" and thought.confidence > 0.3:
                 result = {
