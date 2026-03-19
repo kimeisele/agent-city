@@ -29,7 +29,7 @@ concurrency:
 jobs:
   heartbeat:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout agent-city
@@ -97,7 +97,7 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: |
-          CYCLES=${{ github.event.inputs.cycles || '4' }}
+          CYCLES=${{ github.event.inputs.cycles || '1' }}
           OFFLINE=${{ github.event.inputs.offline || 'false' }}
           CMD="python scripts/heartbeat.py --cycles $CYCLES -v --governance --federation"
           if [ "$OFFLINE" = "true" ]; then
