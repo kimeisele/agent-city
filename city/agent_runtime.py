@@ -24,9 +24,23 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger("AGENT_CITY.AGENT_RUNTIME")
 
-# Confidence thresholds for the decision gate
-_HIGH_CONFIDENCE = 0.7   # Above: trust deterministic handler
-_LOW_CONFIDENCE = 0.3    # Below: definitely use MicroBrain
+# Default confidence thresholds
+_DEFAULT_HIGH = 0.7
+_DEFAULT_LOW = 0.3
+
+# Guardian capability_protocol → confidence bias
+# enforce-agents ACT faster (lower threshold to go deterministic)
+# parse-agents OBSERVE longer (higher threshold, more MicroBrain thinking)
+# infer-agents ANALYZE (balanced)
+# route-agents DELEGATE (moderate, lean toward action)
+# validate-agents CHECK (balanced)
+_PROTOCOL_CONFIDENCE_BIAS: dict[str, tuple[float, float]] = {
+    "enforce": (0.55, 0.2),   # Act fast. Low bar for deterministic. Warriors.
+    "route": (0.6, 0.25),     # Lean toward action. Connectors.
+    "infer": (0.7, 0.3),      # Balanced. Default thinkers.
+    "validate": (0.7, 0.35),  # Careful. Need more evidence before acting.
+    "parse": (0.8, 0.4),      # Observe longest. Highest bar for deterministic.
+}
 
 
 @dataclass
@@ -63,19 +77,27 @@ class AgentRuntime:
         # 1. PERCEIVE
         domain = getattr(self.cartridge, "domain", "general")
         capabilities = getattr(self.cartridge, "capabilities", [])
+        protocol = getattr(self.cartridge, "capability_protocol", "infer")
 
-        # 2. DECIDE — confidence gate
+        # Guardian-derived confidence thresholds
+        # enforce-agents ACT fast (0.55). parse-agents OBSERVE long (0.8).
+        # This is the 24 elements making the decision, not the LLM.
+        high_threshold, low_threshold = _PROTOCOL_CONFIDENCE_BIAS.get(
+            protocol, (_DEFAULT_HIGH, _DEFAULT_LOW)
+        )
+
+        # 2. DECIDE — confidence gate (guardian-biased)
         confidence_key = f"{self.name}:{intent}"
         confidence = 0.5
         if hasattr(self.learning, "get_confidence"):
             confidence = self.learning.get_confidence(confidence_key, "handle")
 
         # High confidence: deterministic handler (the 24 elements)
-        if confidence >= _HIGH_CONFIDENCE:
+        if confidence >= high_threshold:
             return self._deterministic(task_text, intent, confidence)
 
         # Low confidence or novel: try MicroBrain (the 25th element)
-        if self.micro_brain is not None and confidence < _HIGH_CONFIDENCE:
+        if self.micro_brain is not None and confidence < high_threshold:
             # Pass full spec so MicroBrain knows the guardian's teaching
             spec = {}
             if hasattr(self.cartridge, "__dict__"):
