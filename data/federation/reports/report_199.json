@@ -1,0 +1,138 @@
+{
+  "heartbeat": 199,
+  "timestamp": 1773941708.028794,
+  "population": 54,
+  "alive": 54,
+  "dead": 0,
+  "elected_mayor": "Cornelius-Trinity",
+  "council_seats": 6,
+  "open_proposals": 0,
+  "chain_valid": true,
+  "recent_actions": [
+    "governance_eval:rules=3"
+  ],
+  "contract_status": {
+    "total": 4,
+    "passing": 0,
+    "failing": 0
+  },
+  "mission_results": [
+    {
+      "id": "mission_code_health",
+      "name": "Maintain Code Health",
+      "status": "active",
+      "owner": "dharma",
+      "priority": "HIGH"
+    },
+    {
+      "id": "disc_135_180",
+      "name": "Discussion: #135",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_134_180",
+      "name": "Discussion: #134",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_133_180",
+      "name": "Discussion: #133",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_45_180",
+      "name": "Discussion: #45",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_44_180",
+      "name": "Discussion: #44",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_43_180",
+      "name": "Discussion: #43",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_41_180",
+      "name": "Discussion: #41",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_26_180",
+      "name": "Discussion: #26",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_266_181",
+      "name": "IssueHeal: #266",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "heal_tests_pass_181",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_267_185",
+      "name": "IssueHeal: #267",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_269_189",
+      "name": "IssueHeal: #269",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_270_193",
+      "name": "IssueHeal: #270",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_271_197",
+      "name": "IssueHeal: #271",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    }
+  ],
+  "directive_acks": [],
+  "pr_results": [],
+  "active_campaigns": [
+    {
+      "id": "internet-adaptation",
+      "title": "Internet adaptation",
+      "north_star": "Continuously adapt the city to relevant new protocols, tools, and standards while keeping execution bounded and the heartbeat healthy.",
+      "status": "active",
+      "last_gap_summary": [],
+      "last_evaluated_heartbeat": 0
+    }
+  ]
+}
