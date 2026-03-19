@@ -46,18 +46,20 @@ class MayorExecutionBridge:
     """Owns MURALI phase routing and execution semantics for Mayor."""
 
     def run_heartbeat(self, mayor: Mayor) -> HeartbeatResult:
+        """Execute one heartbeat = FULL MURALI cycle.
+
+        GENESIS → DHARMA → KARMA → MOKSHA in sequence. Causal order:
+        perceive → evaluate → act → persist. Not one phase per cycle.
+        """
         start_time = time.time()
         self._advance_venu()
 
-        department = mayor._heartbeat_count % QUARTERS
-        dept_name = DEPARTMENT_NAMES[department]
-
-        logger.info("Mayor heartbeat #%d — department %s", mayor._heartbeat_count, dept_name)
+        logger.info("Mayor heartbeat #%d — full MURALI cycle", mayor._heartbeat_count)
 
         result: HeartbeatResult = {
             "heartbeat": mayor._heartbeat_count,
-            "department": dept_name,
-            "department_idx": department,
+            "department": "MURALI",
+            "department_idx": 0,
             "timestamp": start_time,
             "discovered": [],
             "governance_actions": [],
@@ -66,9 +68,16 @@ class MayorExecutionBridge:
         }
 
         ctx = mayor._build_ctx()
-        self._emit_phase_transition(mayor, dept_name)
-        self._dispatch_phase(mayor, ctx, department, result)
-        mayor._sync_from_ctx(ctx)
+
+        # MURALI: all 4 phases in causal order
+        for dept_idx in range(QUARTERS):
+            dept_name = DEPARTMENT_NAMES[dept_idx]
+            self._emit_phase_transition(mayor, dept_name)
+            self._dispatch_phase(mayor, ctx, dept_idx, result)
+            mayor._sync_from_ctx(ctx)
+            # Re-build ctx to carry state from previous phase
+            ctx = mayor._build_ctx()
+
         return result
 
     def _advance_venu(self) -> None:
