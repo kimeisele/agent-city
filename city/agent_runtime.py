@@ -83,14 +83,20 @@ class AgentRuntime:
                 capabilities=capabilities,
             )
             if thought.action != "skip" and thought.confidence > 0.3:
-                return {
+                result = {
                     "agent_name": self.name,
                     "response_text": thought.response_text,
                     "action": thought.action,
                     "reasoning": thought.reasoning,
+                    "target": thought.target,
+                    "detail": thought.detail,
                     "decision_mode": "micro_brain",
                     "confidence": thought.confidence,
                 }
+                # Non-respond actions → execute through BrainAction pipeline
+                if thought.action != "respond":
+                    result["brain_action"] = self._to_brain_action(thought)
+                return result
 
         # Fallback: deterministic (always works, no LLM needed)
         return self._deterministic(task_text, intent, confidence)
@@ -111,6 +117,36 @@ class AgentRuntime:
         result["decision_mode"] = "deterministic"
         result["confidence"] = confidence
         return result
+
+    @staticmethod
+    def _to_brain_action(thought: object) -> object | None:
+        """Convert MicroThought to BrainAction for IntentExecutor dispatch.
+
+        Maps MicroBrain action verbs to ActionVerb enum.
+        Returns None if the action doesn't map to a known verb.
+        """
+        try:
+            from city.brain_action import ActionVerb, BrainAction
+
+            verb_map = {
+                "create_mission": ActionVerb.CREATE_MISSION,
+                "flag_bottleneck": ActionVerb.FLAG_BOTTLENECK,
+                "investigate": ActionVerb.INVESTIGATE,
+                "check_health": ActionVerb.CHECK_HEALTH,
+                "escalate": ActionVerb.ESCALATE,
+                "assign_agent": ActionVerb.ASSIGN_AGENT,
+            }
+            verb = verb_map.get(thought.action)
+            if verb is None:
+                return None
+            return BrainAction(
+                verb=verb,
+                target=thought.target,
+                detail=thought.detail or thought.reasoning,
+                source_confidence=thought.confidence,
+            )
+        except Exception:
+            return None
 
     def record_outcome(self, intent: str, success: bool) -> float:
         """Step 5+6: Learn from action outcome.

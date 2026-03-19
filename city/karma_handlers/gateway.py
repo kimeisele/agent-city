@@ -457,6 +457,22 @@ def _handle_discussion_item(
                 mode = cartridge_cognition.get("decision_mode", "?")
                 conf = cartridge_cognition.get("confidence", 0)
                 operations.append(f"runtime:{agent_name}:{mode}:{conf:.2f}:#{discussion_number}")
+
+                # Execute non-respond actions through IntentExecutor
+                brain_action = cartridge_cognition.get("brain_action")
+                if brain_action is not None:
+                    from city.registry import SVC_EXECUTOR
+                    executor = ctx.registry.get(SVC_EXECUTOR)
+                    if executor is not None:
+                        exec_result = executor.execute_brain_action(
+                            ctx, brain_action, ctx.attention,
+                            agent=agent_name, discussion=discussion_number,
+                        )
+                        operations.append(f"runtime_action:{agent_name}:{brain_action.verb}:{exec_result}")
+                        logger.info(
+                            "RUNTIME ACTION: %s → %s (target=%s) → %s",
+                            agent_name, brain_action.verb, brain_action.target, exec_result,
+                        )
     except Exception as e:
         logger.debug("AgentRuntime skipped for %s: %s", agent_name, e)
 

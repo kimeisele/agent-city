@@ -38,10 +38,12 @@ _MAX_TOKENS = 256  # Tiny output — one decision, not an essay
 class MicroThought:
     """Structured output from a micro-cognition call."""
 
-    action: str  # what to do: "respond", "create_mission", "escalate", "skip"
+    action: str  # what to do: "respond", "create_mission", "escalate", "skip", etc.
     reasoning: str  # why (1-2 sentences)
     response_text: str  # the actual response if action=respond
     confidence: float  # 0.0-1.0
+    target: str = ""  # what/who this is about (for non-respond actions)
+    detail: str = ""  # task description (for create_mission)
     agent_name: str = ""
 
     @classmethod
@@ -51,6 +53,8 @@ class MicroThought:
             reasoning=data.get("reasoning", ""),
             response_text=data.get("response_text", ""),
             confidence=float(data.get("confidence", 0.5)),
+            target=data.get("target", ""),
+            detail=data.get("detail", ""),
             agent_name=agent_name,
         )
 
@@ -106,10 +110,20 @@ class MicroBrain:
             f"You are {agent_name}, a {agent_domain} agent in Agent City.\n"
             f"Capabilities: {', '.join(capabilities) if capabilities else 'general'}.\n"
             f"{city_context}\n\n"
-            f"Given a task, decide what to do. Respond with JSON:\n"
-            f'{{"action": "respond|create_mission|escalate|skip", '
-            f'"reasoning": "1-2 sentences", '
+            f"Given a task, decide what to do. You have these ACTIONS:\n"
+            f"- respond: answer the question directly\n"
+            f"- create_mission: create a task for someone to work on (include target and detail)\n"
+            f"- flag_bottleneck: report a problem you noticed (include target)\n"
+            f"- investigate: you need more information before acting\n"
+            f"- check_health: evaluate system health\n"
+            f"- escalate: this is beyond your capability, pass it up\n"
+            f"- skip: nothing to do\n\n"
+            f"Respond with JSON:\n"
+            f'{{"action": "respond|create_mission|flag_bottleneck|investigate|check_health|escalate|skip", '
+            f'"reasoning": "1-2 sentences why", '
             f'"response_text": "your response if action=respond", '
+            f'"target": "what/who this is about if action!=respond", '
+            f'"detail": "task description if action=create_mission", '
             f'"confidence": 0.0-1.0}}'
         )
 
