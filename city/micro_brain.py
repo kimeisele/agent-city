@@ -85,6 +85,56 @@ def _build_tool_signatures(capabilities: list | tuple = ()) -> str:
     return "\n".join(lines)
 
 
+# ── Guardian-Aware Prompt ─────────────────────────────────────────────
+
+def _build_guardian_prompt(spec: dict) -> str:
+    """Build guardian-aware identity prompt from AgentSpec.
+
+    The guardian is NOT the agent's personality. The guardian is the
+    AUTHORITY the agent serves under. Parashurama is not the agent —
+    Parashurama is the MASTER whose teaching shapes how the agent
+    approaches problems.
+
+    4 Sampradayas (lineages) structure the 16 guardians across 4 quarters:
+    - Genesis (DISCOVERY): Vyasa, Brahma, Narada, Shambhu — perceive, create, communicate
+    - Dharma (GOVERNANCE): Prithu, Kumaras, Kapila, Manu — validate, analyze, legislate
+    - Karma (ENGINEERING): Parashurama, Prahlada, Janaka, Bhishma — execute, extend, commit
+    - Moksha (RESEARCH): Nrisimha, Bali, Shuka, Yamaraja — protect, release, observe, audit
+    """
+    guardian = spec.get("guardian", "")
+    role = spec.get("role", "")
+    protocol = spec.get("capability_protocol", "")
+    guardian_caps = spec.get("guardian_capabilities", [])
+    element = spec.get("element", "")
+    element_caps = spec.get("element_capabilities", [])
+    guna = spec.get("guna", "")
+    style = spec.get("style", "")
+    chapter_sig = spec.get("chapter_significance", "")
+
+    if not guardian:
+        return ""
+
+    lines = [
+        f"You serve under Guardian {guardian.title()}. "
+        f"His teaching: {role}. "
+        f"Your duty follows his example.\n",
+    ]
+
+    if protocol:
+        lines.append(f"Your approach: {protocol} — you {', '.join(guardian_caps) if guardian_caps else protocol}.\n")
+
+    if element and element_caps:
+        lines.append(f"Your element: {element} — you {', '.join(element_caps)}.\n")
+
+    if guna and style:
+        lines.append(f"Your temperament: {guna} ({style}).\n")
+
+    if chapter_sig:
+        lines.append(f"Your wisdom: {chapter_sig}.\n")
+
+    return "".join(lines) + "\n"
+
+
 # ── MicroThought ─────────────────────────────────────────────────────
 
 @dataclass
@@ -152,15 +202,18 @@ class MicroBrain:
         task_text: str,
         capabilities: list | tuple = (),
         city_context: str = "",
+        spec: dict | None = None,
     ) -> MicroThought:
-        """One thought. One decision. Lean tool signatures."""
+        """One thought. One decision. Guardian-aware cognition."""
         if not self._ensure_provider():
             return MicroThought.fallback(agent_name)
 
         tool_sigs = _build_tool_signatures(capabilities)
+        guardian_prompt = _build_guardian_prompt(spec) if spec else ""
 
         system_prompt = (
             f"You are {agent_name}, a {agent_domain} agent in Agent City.\n"
+            f"{guardian_prompt}"
             f"{city_context}\n\n"
             f"Available actions:\n{tool_sigs}\n\n"
             f"Given the task, choose ONE action. Reply ONLY with JSON:\n"
