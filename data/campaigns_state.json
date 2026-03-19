@@ -1,1 +1,41 @@
-{"campaigns": [{"id": "internet-adaptation", "title": "Internet adaptation", "north_star": "Continuously adapt the city to relevant new protocols, tools, and standards while keeping execution bounded and the heartbeat healthy.", "status": "active", "heartbeat_interval": 4, "max_active_missions": 3, "derived_issue_numbers": [172], "derived_mission_ids": [], "last_evaluated_heartbeat": 283}]}
+{
+  "campaigns": [
+    {
+      "id": "internet-adaptation",
+      "title": "Internet adaptation",
+      "north_star": "Continuously adapt the city to relevant new protocols, tools, and standards while keeping execution bounded and the heartbeat healthy.",
+      "success_signals": [
+        {
+          "kind": "heartbeat_healthy",
+          "target": true,
+          "description": "heartbeat should remain healthy while adapting"
+        },
+        {
+          "kind": "chain_valid",
+          "target": true,
+          "description": "city chain should stay valid during adaptation"
+        },
+        {
+          "kind": "active_missions_at_most",
+          "target": 3,
+          "description": "keep active work bounded so strategy does not dissolve into thrash"
+        }
+      ],
+      "heartbeat_interval": 4,
+      "max_active_missions": 1,
+      "status": "active",
+      "owner": "mayor",
+      "derived_mission_ids": [
+        "issue_273_201"
+      ],
+      "derived_issue_numbers": [
+        273
+      ],
+      "last_evaluated_heartbeat": 201,
+      "last_compiled_heartbeat": 201,
+      "last_gap_summary": [
+        "keep active work bounded so strategy does not dissolve into thrash"
+      ]
+    }
+  ]
+}
