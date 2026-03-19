@@ -25,7 +25,7 @@ def test_execution_bridge_routes_genesis(monkeypatch):
 
     result = MayorExecutionBridge().run_heartbeat(mayor)
 
-    assert result["department"] == "GENESIS"
+    assert result["department"] == "MURALI"
     assert result["department_idx"] == 0
     assert result["discovered"] == ["AgentA"]
     assert synced == [ctx]
@@ -48,7 +48,7 @@ def test_execution_bridge_runs_moksha_self_diagnostics(monkeypatch):
 
     result = MayorExecutionBridge().run_heartbeat(mayor)
 
-    assert result["department"] == "MOKSHA"
+    assert result["department"] == "MURALI"
     assert result["reflection"]["chain_valid"] is True
     assert result["reflection"]["immune_heals"] == 2
     immune.run_self_diagnostics.assert_called_once()
@@ -61,7 +61,7 @@ def test_heartbeat_updates_persisted_totals():
         def __init__(self):
             self._execution = SimpleNamespace(
                 run_heartbeat=lambda mayor: {
-                    "department": "KARMA",
+                    "department": "MURALI",
                     "governance_actions": ["gov:1", "gov:2"],
                     "operations": ["op:1", "op:2", "op:3"],
                     "reflection": {},

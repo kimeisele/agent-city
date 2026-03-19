@@ -26,13 +26,13 @@
       "status": "active",
       "owner": "mayor",
       "derived_mission_ids": [
-        "issue_273_201"
+        "issue_283_204"
       ],
       "derived_issue_numbers": [
-        273
+        283
       ],
-      "last_evaluated_heartbeat": 201,
-      "last_compiled_heartbeat": 201,
+      "last_evaluated_heartbeat": 204,
+      "last_compiled_heartbeat": 204,
       "last_gap_summary": [
         "keep active work bounded so strategy does not dissolve into thrash"
       ]

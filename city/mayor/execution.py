@@ -69,14 +69,15 @@ class MayorExecutionBridge:
 
         ctx = mayor._build_ctx()
 
-        # MURALI: all 4 phases in causal order
+        # MURALI: all 4 phases in causal order, SAME ctx flows through.
+        # Data from GENESIS (discovered agents, directives) is visible in DHARMA.
+        # Triage items from DHARMA are visible in KARMA.
+        # Everything is visible in MOKSHA for reflection.
         for dept_idx in range(QUARTERS):
             dept_name = DEPARTMENT_NAMES[dept_idx]
             self._emit_phase_transition(mayor, dept_name)
             self._dispatch_phase(mayor, ctx, dept_idx, result)
             mayor._sync_from_ctx(ctx)
-            # Re-build ctx to carry state from previous phase
-            ctx = mayor._build_ctx()
 
         return result
 

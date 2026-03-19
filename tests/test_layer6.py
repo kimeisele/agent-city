@@ -283,7 +283,7 @@ def test_execute_register_agent():
 
         # Run GENESIS (heartbeat 0)
         result = mayor.heartbeat()
-        assert result["department"] == "GENESIS"
+        assert result["department"] == "MURALI"
 
         # Agent should be registered
         agent = pokedex.get("FederatedAgent")
@@ -445,7 +445,7 @@ def test_genesis_processes_directives():
             }))
 
         result = mayor.heartbeat()
-        assert result["department"] == "GENESIS"
+        assert result["department"] == "MURALI"
 
         # Both agents registered
         assert pokedex.get("AgentA") is not None
@@ -471,7 +471,7 @@ def test_moksha_sends_report():
         # Advance to MOKSHA (heartbeat 3)
         results = mayor.run_cycle(4)
         moksha = results[3]
-        assert moksha["department"] == "MOKSHA"
+        assert moksha["department"] == "MURALI"
         assert moksha["reflection"].get("federation_report_sent") is True
 
         # Report saved locally
@@ -508,7 +508,7 @@ def test_full_rotation_with_federation():
 
         # GENESIS: directive processed
         genesis = results[0]
-        assert genesis["department"] == "GENESIS"
+        assert genesis["department"] == "MURALI"
         assert any("directive:register_agent:True" in d for d in genesis["discovered"])
 
         # Agent registered
@@ -516,15 +516,15 @@ def test_full_rotation_with_federation():
 
         # DHARMA: governance ran
         dharma = results[1]
-        assert dharma["department"] == "DHARMA"
+        assert dharma["department"] == "MURALI"
 
         # KARMA: operations ran
         karma = results[2]
-        assert karma["department"] == "KARMA"
+        assert karma["department"] == "MURALI"
 
         # MOKSHA: report sent
         moksha = results[3]
-        assert moksha["department"] == "MOKSHA"
+        assert moksha["department"] == "MURALI"
         assert moksha["reflection"]["federation_report_sent"] is True
 
         # Report includes the newly registered citizen
@@ -1045,7 +1045,7 @@ def test_create_mission_directive_creates_mission_and_proposal():
 
         # Run GENESIS
         result = mayor.heartbeat()
-        assert result["department"] == "GENESIS"
+        assert result["department"] == "MURALI"
 
         # ── Verify Mission Created ──
         missions = sankalpa.registry.missions
@@ -1133,7 +1133,7 @@ def test_city_report_includes_real_mission_outcomes():
         # Advance to MOKSHA (heartbeat 3)
         results = mayor.run_cycle(4)
         moksha = results[3]
-        assert moksha["department"] == "MOKSHA"
+        assert moksha["department"] == "MURALI"
         assert moksha["reflection"].get("federation_report_sent") is True
 
         # ── Verify Report Contains Mission Results ──
@@ -1209,7 +1209,7 @@ def test_moltbook_post_includes_mission_outcomes():
         # Run full MURALI rotation → MOKSHA posts to Moltbook
         results = mayor.run_cycle(4)
         moksha = results[3]
-        assert moksha["department"] == "MOKSHA"
+        assert moksha["department"] == "MURALI"
 
         # ── Verify Moltbook Post Includes Mission Data ──
         client = bridge._client
@@ -1489,7 +1489,7 @@ def test_federation_nadi_genesis_integration():
 
         # Run GENESIS
         result = mayor.heartbeat()
-        assert result["department"] == "GENESIS"
+        assert result["department"] == "MURALI"
         assert any("fed_nadi:" in d for d in result["discovered"])
     finally:
         shutil.rmtree(tmp)
@@ -1510,7 +1510,7 @@ def test_federation_nadi_moksha_flush():
         # Run full MURALI rotation → MOKSHA should flush
         results = mayor.run_cycle(4)
         moksha = results[3]
-        assert moksha["department"] == "MOKSHA"
+        assert moksha["department"] == "MURALI"
 
         # Outbox file should exist with city_report message
         if fed_nadi.outbox_path.exists():
