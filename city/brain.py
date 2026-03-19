@@ -694,9 +694,19 @@ def _parse_json_thought(
             if cleaned.rstrip().endswith("```"):
                 cleaned = cleaned.rstrip()[:-3].rstrip()
         data = json.loads(cleaned)
-    except (json.JSONDecodeError, TypeError) as e:
-        logger.warning("Brain JSON decode failed: %s (raw: %s)", e, raw[:200])
-        return None
+    except (json.JSONDecodeError, TypeError):
+        # Fallback: extract first JSON object from the text
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start >= 0 and end > start:
+            try:
+                data = json.loads(raw[start:end])
+            except (json.JSONDecodeError, TypeError) as e2:
+                logger.warning("Brain JSON decode failed: %s (raw: %s)", e2, raw[:200])
+                return None
+        else:
+            logger.warning("Brain JSON: no JSON object found (raw: %s)", raw[:200])
+            return None
 
     # DeepSeek sometimes returns a JSON array — unwrap first dict element
     if isinstance(data, list):
