@@ -700,8 +700,14 @@ def _parse_json_thought(
 
     # DeepSeek sometimes returns a JSON array — unwrap first dict element
     if isinstance(data, list):
-        data = next((item for item in data if isinstance(item, dict)), None)
-        if data is None:
+        dict_item = next((item for item in data if isinstance(item, dict)), None)
+        if dict_item is not None:
+            data = dict_item
+        elif data and isinstance(data[0], (int, float)):
+            # Bare number in array (e.g. [2025.04]) — wrap as confidence
+            logger.debug("Brain returned bare number list %s — wrapping", data[:3])
+            data = {"confidence": data[0], "intent": "observe", "reasoning": "numeric response"}
+        else:
             logger.warning("Brain JSON returned non-dict list: %s", raw[:200])
             return None
 

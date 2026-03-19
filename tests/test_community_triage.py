@@ -65,9 +65,10 @@ def test_triage_escalation_highest_priority():
 
     items = triage_threads(engine, _mock_pokedex())
     assert len(items) >= 2
-    # Escalation should be first (priority 2.0)
-    assert items[0].action == TriageAction.ESCALATE
+    # Stuck thread gets RESPOND (retry with MicroBrain) instead of ESCALATE (give up)
+    assert items[0].action == TriageAction.RESPOND
     assert items[0].discussion_number == 42
+    assert "MicroBrain" in items[0].reason or "Retry" in items[0].reason
 
 
 def test_triage_respects_max_actions():
