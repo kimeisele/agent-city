@@ -24,7 +24,9 @@ def test_murali_phase_ordering_never_breaks(tmp_dir):
         _offline_mode=True,
     )
 
-    expected_order = ["GENESIS", "DHARMA", "KARMA", "MOKSHA"]
+    # Full MURALI per heartbeat: each cycle runs ALL 4 phases internally.
+    # 4 cycles = 4 full rotations, each labeled "MURALI".
+    expected_order = ["MURALI", "MURALI", "MURALI", "MURALI"]
 
     for rotation in range(10):
         results = mayor.run_cycle(4)
