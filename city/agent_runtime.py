@@ -74,10 +74,26 @@ class AgentRuntime:
         """
         self._call_count += 1
 
-        # 1. PERCEIVE
+        # 1. PERCEIVE — extract context + browse URLs if present
         domain = getattr(self.cartridge, "domain", "general")
         capabilities = getattr(self.cartridge, "capabilities", [])
         protocol = getattr(self.cartridge, "capability_protocol", "infer")
+
+        # Browser as 6th sense: if task contains URLs, READ them
+        browser_context = ""
+        try:
+            from city.browser_factory import extract_urls, browse_url
+
+            urls = extract_urls(task_text)
+            if urls:
+                page_data = browse_url(urls[0])
+                if page_data:
+                    browser_context = (
+                        f"\n[Browsed {page_data['url']}]: "
+                        f"{page_data['title']} — {page_data['content_text'][:300]}"
+                    )
+        except Exception:
+            pass
 
         # Guardian-derived confidence thresholds
         # enforce-agents ACT fast (0.55). parse-agents OBSERVE long (0.8).
@@ -110,6 +126,7 @@ class AgentRuntime:
                 agent_domain=domain,
                 task_text=task_text,
                 capabilities=capabilities,
+                city_context=browser_context,
                 spec=spec,
             )
             if thought.action != "skip" and thought.confidence > 0.3:
