@@ -70,13 +70,14 @@ class MayorExecutionBridge:
         ctx = mayor._build_ctx()
 
         # MURALI: all 4 phases in causal order
+        # Rebuild ctx between phases (hooks expect clean state) but
+        # sync cross-phase data through Mayor (triage_items, gateway_queue, etc.)
         for dept_idx in range(QUARTERS):
             dept_name = DEPARTMENT_NAMES[dept_idx]
             self._emit_phase_transition(mayor, dept_name)
             self._dispatch_phase(mayor, ctx, dept_idx, result)
             mayor._sync_from_ctx(ctx)
-            # Re-build ctx to carry state from previous phase
-            ctx = mayor._build_ctx()
+            ctx = mayor._build_ctx()  # Fresh ctx, but Mayor carries state
 
         return result
 

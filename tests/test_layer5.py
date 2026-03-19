@@ -346,7 +346,7 @@ def test_mayor_no_council_backward_compatible():
     mayor, _ = _make_mayor(tmpdir)
     results = mayor.run_cycle(4)
     assert len(results) == 4
-    assert [r["department"] for r in results] == ["GENESIS", "DHARMA", "KARMA", "MOKSHA"]
+    assert [r["department"] for r in results] == ["MURALI", "MURALI", "MURALI", "MURALI"]
     shutil.rmtree(tmpdir)
 
 
@@ -368,7 +368,7 @@ def test_mayor_runs_election_in_dharma():
     # Run GENESIS + DHARMA
     results = mayor.run_cycle(2)
     dharma = results[1]
-    assert dharma["department"] == "DHARMA"
+    assert dharma["department"] == "MURALI"
 
     # Council should have elected members
     assert council.member_count > 0
@@ -439,7 +439,7 @@ def test_full_rotation_with_council():
     results = mayor.run_cycle(4)
 
     departments = [r["department"] for r in results]
-    assert departments == ["GENESIS", "DHARMA", "KARMA", "MOKSHA"]
+    assert departments == ["MURALI", "MURALI", "MURALI", "MURALI"]
 
     # DHARMA: election ran
     dharma = results[1]
@@ -654,7 +654,7 @@ def test_census_seed_from_file():
     result2 = mayor.run_cycle(4)
     # heartbeat 1=DHARMA, 2=KARMA, 3=MOKSHA, 4=GENESIS
     genesis2 = result2[3]
-    assert genesis2["department"] == "GENESIS"
+    assert genesis2["department"] == "MURALI"
     assert "Agent1" in genesis2["discovered"]
 
     shutil.rmtree(tmpdir)
