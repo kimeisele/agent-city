@@ -154,7 +154,24 @@ def _compose_response(
     9A: Returns None if brain_thought is None — fail closed.
     The semantic translation layer is NOT an LLM; it must not post alone.
     """
-    # 9A: Fail Closed — no Brain cognition means no post
+    # MicroBrain bypass: if the agent already THOUGHT and has a response,
+    # use it directly. The MicroBrain IS the cognition — it doesn't need
+    # the CityBrain compose pipeline.
+    if (
+        cartridge_cognition is not None
+        and cartridge_cognition.get("decision_mode") == "micro_brain"
+        and cartridge_cognition.get("response_text")
+    ):
+        agent_name = spec.get("name", "Unknown")
+        response_text = cartridge_cognition["response_text"]
+        logger.info(
+            "COMPOSE: MicroBrain response from %s (confidence=%.2f)",
+            agent_name,
+            cartridge_cognition.get("confidence", 0),
+        )
+        return f"**{agent_name}** — {response_text}"
+
+    # 9A: Fail Closed — no Brain cognition AND no MicroBrain means no post
     if brain_thought is None:
         logger.debug(
             "COMPOSE: Suppressed post for %s — Brain offline (fail closed)",
