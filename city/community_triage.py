@@ -72,16 +72,20 @@ def triage_threads(
     items: list[TriageItem] = []
     seed_numbers = set((seed_threads or {}).values())
 
-    # 1. Repetition alerts → ESCALATE (highest priority)
+    # 1. Repetition alerts → RESPOND with MicroBrain (not ESCALATE forever)
+    # Old behavior: escalate = give up. New behavior: try the new cognitive
+    # path (MicroBrain + AgentRuntime). If that also fails, THEN escalate.
     alerts = thread_state.repetition_alerts()
     for snap in alerts:
+        # Give MicroBrain a chance on stuck threads instead of giving up
         items.append(TriageItem(
-            action=TriageAction.ESCALATE,
+            action=TriageAction.RESPOND,
             discussion_number=snap.discussion_number,
             title=snap.title,
             energy=snap.energy,
-            priority=2.0,  # Highest — system is ignoring user
-            reason=f"Repeated {snap.human_comment_count}x without adequate response",
+            priority=1.5,  # High but below original 2.0 escalation
+            reason=f"Retry with MicroBrain — {snap.human_comment_count} unanswered (was: escalate)",
+            suggested_agent="mayor",
         ))
 
     # 2. Unresolved threads → RESPOND (high priority)
