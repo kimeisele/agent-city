@@ -122,23 +122,18 @@ class AgentRuntime:
     def _to_brain_action(thought: object) -> object | None:
         """Convert MicroThought to BrainAction for IntentExecutor dispatch.
 
-        Maps MicroBrain action verbs to ActionVerb enum.
-        Returns None if the action doesn't map to a known verb.
+        Uses ActionVerb enum directly — no hardcoded map. If the action
+        string IS a valid ActionVerb value, it becomes a BrainAction.
         """
         try:
             from city.brain_action import ActionVerb, BrainAction
 
-            verb_map = {
-                "create_mission": ActionVerb.CREATE_MISSION,
-                "flag_bottleneck": ActionVerb.FLAG_BOTTLENECK,
-                "investigate": ActionVerb.INVESTIGATE,
-                "check_health": ActionVerb.CHECK_HEALTH,
-                "escalate": ActionVerb.ESCALATE,
-                "assign_agent": ActionVerb.ASSIGN_AGENT,
-            }
-            verb = verb_map.get(thought.action)
-            if verb is None:
-                return None
+            # ActionVerb values ARE the action strings (StrEnum)
+            try:
+                verb = ActionVerb(thought.action)
+            except ValueError:
+                return None  # Not a known verb (e.g. "respond", "skip")
+
             return BrainAction(
                 verb=verb,
                 target=thought.target,

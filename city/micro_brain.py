@@ -1,14 +1,12 @@
 """
-MICRO BRAIN — Per-Agent Cognition at $0.00001/call.
+MICRO BRAIN — Per-Agent Cognition via Lean Tool Signatures.
 
-NOT the CityBrain. CityBrain is the shared city organ for critical
-decisions (health, reflection, comprehension). Expensive. Full context.
+Uses the SAME pattern as steward's brain-in-a-jar: lean tool signatures
+injected into system prompt, LLM returns JSON with tool name + params.
 
-MicroBrain is per-agent, per-task. Cheapest available model.
-Short context. One decision per call. JSON structured output.
-
-Uses the SAME provider infrastructure as CityBrain (OpenRouter via
-ServiceRegistry) but with a cheaper model and tiny token budget.
+Tools are generated from ActionVerb enum, filtered by the agent's
+capabilities and auth tier. No hardcoded verb maps. The ActionVerb
+enum IS the source of truth.
 
 Cost: ~$0.00001/call with Mistral Nemo. $0.01/day for 10 agents.
 
@@ -24,34 +22,89 @@ from dataclasses import dataclass
 
 logger = logging.getLogger("AGENT_CITY.MICRO_BRAIN")
 
-# Cheapest usable models on OpenRouter (sorted by cost)
-_CHEAP_MODELS = [
-    "mistralai/mistral-nemo",       # $0.02/M prompt — good JSON output
-    "meta-llama/llama-3.1-8b-instruct",  # $0.02/M — solid reasoning
-    "deepseek/deepseek-chat",       # $0.14/M — fallback, best quality
-]
+_MAX_TOKENS = 256
 
-_MAX_TOKENS = 256  # Tiny output — one decision, not an essay
 
+# ── Tool Signature Generation (from ActionVerb, not hardcoded) ────────
+
+def _build_tool_signatures(capabilities: list | tuple = ()) -> str:
+    """Generate lean tool signatures from ActionVerb enum.
+
+    Like steward's lean_tool_signatures() but for agent actions.
+    Filters by auth tier: PUBLIC always, CITIZEN if agent has capabilities.
+    """
+    from city.brain_action import ActionVerb, AuthTier, _VERB_AUTH
+
+    lines = ["respond(response_text)"]  # respond is always available
+
+    cap_set = set(capabilities) if capabilities else set()
+
+    # Map capability_protocol layers to verbs
+    # parse → read-only verbs, validate → detect verbs, etc.
+    _PROTOCOL_VERBS = {
+        "parse": [ActionVerb.RUN_STATUS],
+        "validate": [ActionVerb.FLAG_BOTTLENECK, ActionVerb.CHECK_HEALTH],
+        "infer": [ActionVerb.INVESTIGATE, ActionVerb.CREATE_MISSION],
+        "route": [ActionVerb.ASSIGN_AGENT, ActionVerb.ESCALATE],
+        "enforce": [ActionVerb.RETRACT, ActionVerb.QUARANTINE],
+    }
+
+    for verb in ActionVerb:
+        auth = _VERB_AUTH.get(verb, AuthTier.CITIZEN)
+
+        # PUBLIC verbs always available
+        if auth == AuthTier.PUBLIC:
+            lines.append(f"{verb.value}(target)")
+            continue
+
+        # CITIZEN verbs: check if agent has relevant capabilities
+        if auth == AuthTier.CITIZEN:
+            # Agent needs at least one capability that maps to this verb's protocol
+            verb_available = False
+            for protocol, verbs in _PROTOCOL_VERBS.items():
+                if verb in verbs and protocol in cap_set:
+                    verb_available = True
+                    break
+            # Also allow if agent has the verb name directly in capabilities
+            if verb.value in cap_set:
+                verb_available = True
+            # Default: allow infer-level verbs for all agents (investigate, create_mission)
+            if verb in (ActionVerb.INVESTIGATE, ActionVerb.CREATE_MISSION):
+                verb_available = True
+
+            if verb_available:
+                if verb == ActionVerb.CREATE_MISSION:
+                    lines.append(f"{verb.value}(target, detail)")
+                elif verb == ActionVerb.ASSIGN_AGENT:
+                    lines.append(f"{verb.value}(target, detail)")
+                else:
+                    lines.append(f"{verb.value}(target)")
+
+        # OPERATOR verbs: never available to city agents (only steward)
+
+    return "\n".join(lines)
+
+
+# ── MicroThought ─────────────────────────────────────────────────────
 
 @dataclass
 class MicroThought:
     """Structured output from a micro-cognition call."""
 
-    action: str  # what to do: "respond", "create_mission", "escalate", "skip", etc.
-    reasoning: str  # why (1-2 sentences)
-    response_text: str  # the actual response if action=respond
-    confidence: float  # 0.0-1.0
-    target: str = ""  # what/who this is about (for non-respond actions)
-    detail: str = ""  # task description (for create_mission)
+    action: str
+    reasoning: str
+    response_text: str
+    confidence: float
+    target: str = ""
+    detail: str = ""
     agent_name: str = ""
 
     @classmethod
     def from_dict(cls, data: dict, agent_name: str = "") -> MicroThought:
         return cls(
-            action=data.get("action", "skip"),
+            action=data.get("action", data.get("tool", "skip")),
             reasoning=data.get("reasoning", ""),
-            response_text=data.get("response_text", ""),
+            response_text=data.get("response_text", data.get("text", "")),
             confidence=float(data.get("confidence", 0.5)),
             target=data.get("target", ""),
             detail=data.get("detail", ""),
@@ -64,11 +117,13 @@ class MicroThought:
                    response_text="", confidence=0.0, agent_name=agent_name)
 
 
-class MicroBrain:
-    """Per-agent micro-cognition. One thought per task."""
+# ── MicroBrain ───────────────────────────────────────────────────────
 
-    def __init__(self, model: str = "") -> None:
-        self._model = model or _CHEAP_MODELS[0]
+class MicroBrain:
+    """Per-agent micro-cognition via lean tool signatures."""
+
+    def __init__(self, model: str = "mistralai/mistral-nemo") -> None:
+        self._model = model
         self._provider: object | None = None
         self._available: bool | None = None
 
@@ -98,33 +153,20 @@ class MicroBrain:
         capabilities: list | tuple = (),
         city_context: str = "",
     ) -> MicroThought:
-        """One thought. One decision. ~$0.00001.
-
-        Returns MicroThought with action decision. Falls back to
-        MicroThought.fallback() if LLM unavailable.
-        """
+        """One thought. One decision. Lean tool signatures."""
         if not self._ensure_provider():
             return MicroThought.fallback(agent_name)
 
+        tool_sigs = _build_tool_signatures(capabilities)
+
         system_prompt = (
             f"You are {agent_name}, a {agent_domain} agent in Agent City.\n"
-            f"Capabilities: {', '.join(capabilities) if capabilities else 'general'}.\n"
             f"{city_context}\n\n"
-            f"Given a task, decide what to do. You have these ACTIONS:\n"
-            f"- respond: answer the question directly\n"
-            f"- create_mission: create a task for someone to work on (include target and detail)\n"
-            f"- flag_bottleneck: report a problem you noticed (include target)\n"
-            f"- investigate: you need more information before acting\n"
-            f"- check_health: evaluate system health\n"
-            f"- escalate: this is beyond your capability, pass it up\n"
-            f"- skip: nothing to do\n\n"
-            f"Respond with JSON:\n"
-            f'{{"action": "respond|create_mission|flag_bottleneck|investigate|check_health|escalate|skip", '
-            f'"reasoning": "1-2 sentences why", '
-            f'"response_text": "your response if action=respond", '
-            f'"target": "what/who this is about if action!=respond", '
-            f'"detail": "task description if action=create_mission", '
-            f'"confidence": 0.0-1.0}}'
+            f"Available actions:\n{tool_sigs}\n\n"
+            f"Given the task, choose ONE action. Reply ONLY with JSON:\n"
+            f'{{"action": "<action_name>", "reasoning": "why", '
+            f'"response_text": "if respond", "target": "if not respond", '
+            f'"detail": "if create_mission/assign_agent", "confidence": 0.0-1.0}}'
         )
 
         try:
@@ -138,7 +180,6 @@ class MicroBrain:
                 model=self._model,
             )
 
-            # Parse LLMResponse
             text = getattr(result, "content", "") if hasattr(result, "content") else str(result)
             data = self._parse_json(text)
             if data:
@@ -156,7 +197,7 @@ class MicroBrain:
 
     @staticmethod
     def _parse_json(text: str) -> dict | None:
-        """Extract JSON from LLM response. Handles markdown fences."""
+        """Extract JSON from LLM response."""
         text = text.strip()
         if text.startswith("```"):
             lines = text.split("\n")
@@ -167,7 +208,6 @@ class MicroBrain:
                 data = data[0]
             return data if isinstance(data, dict) else None
         except json.JSONDecodeError:
-            # Try to find JSON object in text
             start = text.find("{")
             end = text.rfind("}") + 1
             if start >= 0 and end > start:
