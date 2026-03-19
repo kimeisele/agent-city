@@ -196,21 +196,13 @@ def _compose_response(
     # Identity line
     parts = [f"**{name}** — {role} ({domain})"]
 
-    # 8A: Semantic translation — systemwide layer (city/semantic.py)
-    # Produces agent-perspective-colored reading of the discussion text.
-    # Falls back to spec-derived line if translation unavailable.
-    semantic_reading = None
-    if signal.body:
-        try:
-            from city.semantic import translate_for_agent
-
-            semantic_reading = translate_for_agent(signal.body, spec)
-        except Exception:
-            pass
-
-    if semantic_reading:
-        parts.append(f"\n**{frame}**: {semantic_reading}")
-    elif protocol and element:
+    # Semantic translation (translate_for_agent) REMOVED from external surfaces.
+    # It produces Mahamantra resonance output ("devotional service, regulations
+    # of the scriptures") which is for INTERNAL agent-to-agent communication,
+    # not for Discussion comments that humans and external agents read.
+    # MicroBrain responses go through the compose gate above (line ~157).
+    # This path uses clean spec-derived text only.
+    if protocol and element:
         parts.append(
             f"\n**{frame}**: `{element}` · `{protocol}`"
             f" — I can {verb} this from the {domain} perspective."
