@@ -226,28 +226,30 @@ class Thought:
         return d
 
     def format_for_post(self) -> str:
-        """Format thought as structured text for discussion posting.
+        """Format thought as human-readable prose for discussion posting.
 
-        Transparent: shows what the Brain actually produced. If this
-        looks bad, the fix is in the Brain's internals, not in hiding fields.
+        The comprehension text IS the response body — presented as clean prose,
+        not a labelled dump. Metadata (intent, domain, concepts) is summarized
+        in a compact footer so the post reads naturally.
         """
         lines: list[str] = []
-        if self.kind != ThoughtKind.COMPREHENSION:
-            lines.append(f"**Kind**: {self.kind.value}")
+
+        # Lead with comprehension as prose (the main content)
         if self.comprehension:
-            lines.append(f"**Comprehension**: {self.comprehension}")
-        if self.key_concepts:
-            lines.append(f"**Concepts**: {', '.join(self.key_concepts)}")
-        lines.append(
-            f"**Intent**: {self.intent.value} "
-            f"(confidence: {self.confidence:.0%})"
-        )
+            lines.append(self.comprehension)
+
+        # Compact metadata footer
+        meta: list[str] = []
         if self.domain_relevance:
-            lines.append(f"**Domain**: {self.domain_relevance}")
+            meta.append(self.domain_relevance)
+        if self.key_concepts:
+            meta.append(", ".join(self.key_concepts))
+        if meta:
+            lines.append(f"\n*{' · '.join(meta)}*")
+
         if self.action_hint:
-            lines.append(f"**Action**: {self.action_hint}")
-        if self.evidence:
-            lines.append(f"**Evidence**: {'; '.join(self.evidence)}")
+            lines.append(f"\n> **Suggested action**: {self.action_hint}")
+
         return "\n".join(lines)
 
 
@@ -736,7 +738,14 @@ def _parse_json_thought(
 
     try:
         # Extract with defaults
-        comprehension = str(normalized.get("comprehension", ""))[:800]
+        raw_comp = normalized.get("comprehension", "")
+        if isinstance(raw_comp, dict):
+            # LLM sometimes returns comprehension as a nested dict
+            # (e.g. {'summary': '...', 'domain': '...'}). Flatten to prose.
+            parts = [str(v) for v in raw_comp.values() if v]
+            comprehension = ". ".join(parts)[:800]
+        else:
+            comprehension = str(raw_comp)[:800]
         raw_intent = str(normalized.get("intent", "observe"))
         intent = _normalize_intent(raw_intent)
         domain_relevance = str(normalized.get("domain_relevance", ""))[:200]

@@ -308,13 +308,13 @@ def test_karma_executes_heal_on_failing_contract():
     executor = HealExecutor(_cwd=tmpdir, _dry_run=True)
     mayor = _make_mayor(tmpdir, _contracts=contracts, _executor=executor)
 
-    # Run GENESIS + DHARMA (contracts checked) + KARMA (heal attempted)
-    results = mayor.run_cycle(3)
+    # Run one MURALI heartbeat (all phases in one)
+    results = mayor.run_cycle(1)
 
-    karma = results[2]
-    assert karma["department"] == "KARMA"
+    murali = results[0]
+    assert murali["department"] == "MURALI"
 
-    heal_ops = [o for o in karma["operations"] if o.startswith("heal:")]
+    heal_ops = [o for o in murali["operations"] if o.startswith("heal:")]
     assert len(heal_ops) >= 1
     assert "ruff_clean" in heal_ops[0]
 
@@ -350,11 +350,11 @@ def test_karma_creates_pr_after_fix():
     executor = HealExecutor(_cwd=tmpdir, _dry_run=True)
     mayor = _make_mayor(tmpdir, _contracts=contracts, _executor=executor)
 
-    results = mayor.run_cycle(3)
-    karma = results[2]
+    results = mayor.run_cycle(1)
+    result = results[0]
 
     # Should have both heal and pr_created operations
-    pr_ops = [o for o in karma["operations"] if o.startswith("pr_created:")]
+    pr_ops = [o for o in result["operations"] if o.startswith("pr_created:")]
     assert len(pr_ops) >= 1
 
     shutil.rmtree(tmpdir)
@@ -386,11 +386,11 @@ def test_karma_no_executor_backward_compatible():
     # No executor wired — backward compatible
     mayor = _make_mayor(tmpdir, _contracts=contracts)
 
-    results = mayor.run_cycle(3)
-    karma = results[2]
+    results = mayor.run_cycle(1)
+    result = results[0]
 
     # No heal operations
-    heal_ops = [o for o in karma["operations"] if o.startswith("heal:")]
+    heal_ops = [o for o in result["operations"] if o.startswith("heal:")]
     assert len(heal_ops) == 0
 
     shutil.rmtree(tmpdir)
@@ -432,26 +432,23 @@ def test_full_rotation_heal_cycle():
         _sankalpa=sankalpa,
     )
 
-    results = mayor.run_cycle(4)
+    results = mayor.run_cycle(1)
 
-    # DHARMA: contract detected as failing
-    dharma = results[1]
-    assert dharma["department"] == "DHARMA"
-    contract_ops = [a for a in dharma["governance_actions"] if "contract_failing" in a]
+    # MURALI: contract detected as failing
+    murali = results[0]
+    assert murali["department"] == "MURALI"
+    contract_ops = [a for a in murali["governance_actions"] if "contract_failing" in a]
     assert len(contract_ops) >= 1
 
-    # KARMA: heal attempted (CellularHealer invoked in dry_run → success)
-    karma = results[2]
-    assert karma["department"] == "KARMA"
-    heal_ops = [o for o in karma["operations"] if o.startswith("heal:")]
+    # MURALI: heal attempted (CellularHealer invoked in dry_run → success)
+    heal_ops = [o for o in murali["operations"] if o.startswith("heal:")]
     assert len(heal_ops) >= 1
     assert "audit_clean" in heal_ops[0]
     # In dry_run mode, CellularHealer reports success (remedies available)
     assert "cellular_heal" in heal_ops[0] or "escalate" in heal_ops[0]
 
-    # MOKSHA: reflection runs
-    moksha = results[3]
-    assert moksha["department"] == "MOKSHA"
+    # MURALI: reflection runs (included in same result)
+    assert murali["department"] == "MURALI"
 
     shutil.rmtree(tmpdir)
 
