@@ -285,13 +285,13 @@ def test_contracts_checked_in_dharma():
 
     mayor = _make_mayor(tmpdir, _contracts=contracts)
 
-    # Run GENESIS + DHARMA
-    results = mayor.run_cycle(2)
-    dharma = results[1]
-    assert dharma["department"] == "DHARMA"
+    # Run one MURALI heartbeat (all phases in one)
+    results = mayor.run_cycle(1)
+    murali = results[0]
+    assert murali["department"] == "MURALI"
 
     # Should have contract failing action
-    contract_actions = [a for a in dharma["governance_actions"] if "contract_failing" in a]
+    contract_actions = [a for a in murali["governance_actions"] if "contract_failing" in a]
     assert len(contract_actions) >= 1
     assert "test_contract" in contract_actions[0]
 
@@ -344,10 +344,10 @@ def test_sankalpa_evaluated_in_karma():
 
     mayor = _make_mayor(tmpdir, _sankalpa=sankalpa)
 
-    # Run full rotation (GENESIS, DHARMA, KARMA, MOKSHA)
-    results = mayor.run_cycle(4)
-    karma = results[2]
-    assert karma["department"] == "KARMA"
+    # Run one MURALI heartbeat (all phases in one)
+    results = mayor.run_cycle(1)
+    murali = results[0]
+    assert murali["department"] == "MURALI"
     # Sankalpa was called (may or may not generate intents depending on missions)
     # No crash = success
 
@@ -403,10 +403,10 @@ def test_backward_compatible_mayor():
 
     assert len(results) == 4
     departments = [r["department"] for r in results]
-    assert departments == ["GENESIS", "DHARMA", "KARMA", "MOKSHA"]
+    assert departments == ["MURALI", "MURALI", "MURALI", "MURALI"]
 
-    # MOKSHA reflection still has chain_valid
-    moksha = results[3]
+    # MOKSHA reflection still has chain_valid (now in every MURALI result)
+    moksha = results[0]
     assert "chain_valid" in moksha["reflection"]
 
     shutil.rmtree(tmpdir)
@@ -427,14 +427,14 @@ def test_audit_runs_in_moksha():
 
     mayor = _make_mayor(tmpdir, _audit=mock_audit)
 
-    # Run full rotation to get to MOKSHA
-    results = mayor.run_cycle(4)
-    moksha = results[3]
+    # One heartbeat = full MURALI (includes MOKSHA phase where audit runs)
+    results = mayor.run_cycle(1)
+    result = results[0]
 
-    assert moksha["department"] == "MOKSHA"
+    assert result["department"] == "MURALI"
     mock_audit.run_all.assert_called_once()
-    assert "audit" in moksha["reflection"]
-    assert moksha["reflection"]["audit"]["total"] == 2
+    assert "audit" in result["reflection"]
+    assert result["reflection"]["audit"]["total"] == 2
 
     shutil.rmtree(tmpdir)
 
@@ -588,16 +588,15 @@ def test_full_layer3_governance_cycle():
 
     assert len(results) == 4
     departments = [r["department"] for r in results]
-    assert departments == ["GENESIS", "DHARMA", "KARMA", "MOKSHA"]
+    assert departments == ["MURALI", "MURALI", "MURALI", "MURALI"]
 
-    # DHARMA: no contract failures
-    dharma = results[1]
-    contract_failures = [a for a in dharma["governance_actions"] if "contract_failing" in a]
+    # MURALI result: no contract failures
+    murali = results[0]
+    contract_failures = [a for a in murali["governance_actions"] if "contract_failing" in a]
     assert len(contract_failures) == 0
 
-    # MOKSHA: audit ran, reflection recorded
-    moksha = results[3]
-    assert "audit" in moksha["reflection"]
+    # MURALI result: audit ran, reflection recorded
+    assert "audit" in murali["reflection"]
     assert reflection.get_stats().executions_analyzed == 4
 
     shutil.rmtree(tmpdir)
@@ -632,9 +631,9 @@ def test_governance_feedback_loop():
     assert len(heal_missions) >= 1
 
     # Rotation 2 — sankalpa.think() in KARMA sees the mission
-    results2 = mayor.run_cycle(4)
-    karma2 = results2[2]
-    assert karma2["department"] == "KARMA"
+    results2 = mayor.run_cycle(1)
+    murali2 = results2[0]
+    assert murali2["department"] == "MURALI"
     # Mission exists and sankalpa was evaluated
     all_missions = sankalpa.registry.get_all_missions()
     assert len(all_missions) > 0
@@ -674,12 +673,12 @@ def test_layer3_backward_compatible():
     results = mayor.run_cycle(4)
 
     assert len(results) == 4
-    assert results[0]["department"] == "GENESIS"
-    assert results[3]["reflection"]["chain_valid"] is True
+    assert results[0]["department"] == "MURALI"
+    assert results[0]["reflection"]["chain_valid"] is True
 
-    # KARMA processed the enqueue
-    karma = results[2]
-    non_venu_ops = [o for o in karma["operations"] if not o.startswith("venu_tick:")]
+    # MURALI processed the enqueue (operations in single heartbeat result)
+    murali = results[0]
+    non_venu_ops = [o for o in murali["operations"] if not o.startswith("venu_tick:")]
     assert any(op.startswith("processed:AgentA:") for op in non_venu_ops)
 
     shutil.rmtree(tmpdir)

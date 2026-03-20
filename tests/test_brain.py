@@ -166,13 +166,10 @@ class TestThought:
             confidence=0.9,
         )
         post = t.format_for_post()
-        assert "**Comprehension**:" in post
+        # Comprehension is now prose (no label prefix)
         assert "Agent routing needs reform" in post
-        assert "**Concepts**:" in post
         assert "routing" in post
-        assert "**Intent**: propose" in post
-        assert "90%" in post
-        assert "**Domain**: governance" in post
+        assert "governance" in post
 
     def test_format_for_post_empty_concepts(self):
         t = Thought(
@@ -183,8 +180,8 @@ class TestThought:
             confidence=0.5,
         )
         post = t.format_for_post()
-        assert "**Concepts**" not in post
-        assert "**Domain**" not in post
+        # No metadata when fields are empty
+        assert "governance" not in post
 
 
 # ── Protocol Tests ────────────────────────────────────────────────────
@@ -528,10 +525,9 @@ class TestIntegration:
             signal, result, spec, stats,
             brain_thought=thought,
         )
-        assert "Comprehension" in response.body
         assert "agent coordination" in response.body
-        assert "**Intent**: propose" in response.body
-        assert "80%" in response.body
+        assert "governance" in response.body
+        assert "coordination" in response.body
 
     def test_thought_roundtrip_serialization(self):
         """Thought -> to_dict() -> JSON -> parse back."""
@@ -623,20 +619,19 @@ class TestThoughtKind:
             evidence=("3 agents dead", "breaker tripped"),
         )
         post = t.format_for_post()
-        assert "**Kind**: health_check" in post
-        assert "**Action**: flag_bottleneck:immune" in post
-        assert "**Evidence**:" in post
-        assert "3 agents dead" in post
+        assert "System healthy" in post
+        assert "flag_bottleneck:immune" in post
+        assert "infrastructure" in post
 
-    def test_format_for_post_comprehension_no_kind_line(self):
-        """COMPREHENSION kind should not show Kind line (backward compat)."""
+    def test_format_for_post_comprehension_minimal(self):
+        """Minimal thought produces clean prose output."""
         t = Thought(
             comprehension="test",
             intent=BrainIntent.OBSERVE,
             confidence=0.5,
         )
         post = t.format_for_post()
-        assert "**Kind**" not in post
+        assert "test" in post
 
 
 class TestExpandedJsonParsing:

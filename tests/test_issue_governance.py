@@ -256,11 +256,11 @@ def test_mayor_full_rotation_with_issue_governance():
             _registry=reg,
         )
 
-        results = mayor.run_cycle(4)
-        assert len(results) == 4
-        # DHARMA should have called metabolize_issues
-        dharma = results[1]
-        assert dharma["department"] == "DHARMA"
+        results = mayor.run_cycle(1)
+        assert len(results) == 1
+        # MURALI heartbeat includes metabolize_issues (formerly in DHARMA)
+        murali = results[0]
+        assert murali["department"] == "MURALI"
     finally:
         shutil.rmtree(tmp)
 
