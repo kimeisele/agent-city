@@ -428,15 +428,17 @@ class ThreadStateEngine:
                 (comment_id,),
             ).fetchone()
             if existing is not None:
-                # Already ingested. But if SEEN (not REPLIED) and stuck > 3 cycles,
-                # re-enqueue for processing. This fixes #131: seen ≠ processed.
+                # Already ingested. Re-process if not yet REPLIED and old enough.
+                # Covers both SEEN (never picked up) and ENQUEUED (picked up
+                # but response never posted — gateway gate, rate limit, etc.).
                 existing_status = existing[1] if len(existing) > 1 else "unknown"
                 existing_seen = existing[2] if len(existing) > 2 else 0
-                if existing_status == CommentStatus.SEEN and (now - existing_seen) > 900:
-                    # Stuck > 15 min without being processed → re-enqueue
+                unreplied = existing_status in (CommentStatus.SEEN, CommentStatus.ENQUEUED)
+                if unreplied and (now - existing_seen) > 900:
+                    # Stuck > 15 min without reply → re-enqueue
                     self._conn.execute(
-                        "UPDATE comment_ledger SET seen_at = ? WHERE comment_id = ?",
-                        (now, comment_id),
+                        "UPDATE comment_ledger SET status = ?, seen_at = ? WHERE comment_id = ?",
+                        (CommentStatus.SEEN, now, comment_id),
                     )
                     self._conn.commit()
                     return CommentEntry(
@@ -447,7 +449,7 @@ class ThreadStateEngine:
                         source=source,
                         status=CommentStatus.SEEN,
                     )
-                return None  # already processed or recently seen
+                return None  # already REPLIED or recently seen/enqueued
 
             # Store body_text for ALL comments (needed for re-enqueue of stuck comments)
             stored_body = body
