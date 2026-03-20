@@ -86,6 +86,11 @@ MISSION_REQUIREMENTS: dict[str, MissionRequirement] = {
         "preferred": ["report", "communicate"],
         "min_tier": "contributor",
     },
+    "brain_bottleneck_": {
+        "required": ["validate"],
+        "preferred": ["audit", "observe", "transform"],
+        "min_tier": "contributor",
+    },
 }
 
 DEFAULT_REQUIREMENT: MissionRequirement = {
@@ -112,6 +117,7 @@ _PREFIX_DOMAIN: dict[str, str] = {
     "signal_": "DISCOVERY",
     "fed_": "DISCOVERY",
     "disc_": "DISCOVERY",
+    "brain_bottleneck_": "GOVERNANCE",
 }
 
 # Mission prefix → preferred capability protocol (for scoring)
@@ -124,6 +130,7 @@ _PREFIX_PROTOCOL: dict[str, str] = {
     "signal_": "parse",
     "fed_": "route",
     "disc_": "parse",
+    "brain_bottleneck_": "validate",
 }
 
 
