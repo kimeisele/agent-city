@@ -417,6 +417,13 @@ class DiscussionScannerHook(BasePhaseHook):
                     # No mentions → general discussion enqueue
                     enqueue_ingress(ctx, IngressSurface.GITHUB_DISCUSSION, enqueue_base)
 
+                # Track enqueued discussion numbers for DHARMA triage exclusion.
+                # Triage must not steal threads that Gateway will process with
+                # AgentRuntime+MicroBrain+Browser (full cognitive pipeline).
+                if not hasattr(ctx, "_gateway_disc_nums"):
+                    ctx._gateway_disc_nums = set()  # type: ignore[attr-defined]
+                ctx._gateway_disc_nums.add(signal["number"])  # type: ignore[attr-defined]
+
                 # Mark as enqueued in ledger
                 if ctx.thread_state is not None and comment_id:
                     ctx.thread_state.mark_enqueued(comment_id)
@@ -437,6 +444,9 @@ class DiscussionScannerHook(BasePhaseHook):
                     "comment_id": entry.comment_id,
                 })
                 ctx.thread_state.mark_enqueued(entry.comment_id)
+                if not hasattr(ctx, "_gateway_disc_nums"):
+                    ctx._gateway_disc_nums = set()  # type: ignore[attr-defined]
+                ctx._gateway_disc_nums.add(entry.discussion_number)  # type: ignore[attr-defined]
                 operations.append(f"disc_requeue:{entry.comment_id[:12]}:#{entry.discussion_number}")
                 logger.info(
                     "GENESIS: Re-enqueued stuck comment %s in #%d (was enqueued at %.0f)",

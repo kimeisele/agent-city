@@ -54,6 +54,7 @@ def triage_threads(
     *,
     max_actions: int = 5,
     seed_threads: dict[str, int] | None = None,
+    exclude_threads: set[int] | None = None,
 ) -> list[TriageItem]:
     """Plan community actions for this DHARMA cycle.
 
@@ -65,18 +66,23 @@ def triage_threads(
         pokedex: Pokedex instance (for agent matching)
         max_actions: Max triage items to return (budget)
         seed_threads: Known seed thread numbers to exclude from triage
+        exclude_threads: Discussion numbers already queued for Gateway
+            (have AgentRuntime+Browser — Triage must not steal them)
 
     Returns:
         List of TriageItem, sorted by priority (highest first).
     """
     items: list[TriageItem] = []
     seed_numbers = set((seed_threads or {}).values())
+    skip_numbers = (exclude_threads or set()) | seed_numbers
 
     # 1. Repetition alerts → RESPOND with MicroBrain (not ESCALATE forever)
     # Old behavior: escalate = give up. New behavior: try the new cognitive
     # path (MicroBrain + AgentRuntime). If that also fails, THEN escalate.
     alerts = thread_state.repetition_alerts()
     for snap in alerts:
+        if snap.discussion_number in skip_numbers:
+            continue
         # Give MicroBrain a chance on stuck threads instead of giving up
         items.append(TriageItem(
             action=TriageAction.RESPOND,
@@ -91,8 +97,8 @@ def triage_threads(
     # 2. Unresolved threads → RESPOND (high priority)
     needing = thread_state.threads_needing_response()
     for snap in needing:
-        if snap.discussion_number in seed_numbers:
-            continue  # Don't auto-respond to seed threads
+        if snap.discussion_number in skip_numbers:
+            continue  # Don't triage threads queued for Gateway or seed threads
         agent = _match_agent_for_thread(snap, pokedex)
         items.append(TriageItem(
             action=TriageAction.RESPOND,
