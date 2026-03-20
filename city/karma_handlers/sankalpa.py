@@ -257,17 +257,9 @@ def _execute_code_mission(ctx: PhaseContext, mission: object) -> bool:
                     "KARMA: Exec mission %s → PR created by %s: %s",
                     mission.id, agent_name or "mayor", pr.pr_url,
                 )
-                # 7B-3: Cross-post agent PR to Moltbook
-                if agent_name and ctx.moltbook_bridge is not None:
-                    try:
-                        ctx.moltbook_bridge.post_agent_update(
-                            agent_name=agent_name,
-                            action=f"created PR for {fix.contract_name}",
-                            detail=fix.message or "",
-                            pr_url=pr.pr_url or "",
-                        )
-                    except Exception:
-                        pass
+                # 7B-3: Cross-post DISABLED — "[Agent] X: action" posts
+                # got flagged as spam on Moltbook. PR achievements should
+                # flow through MoltbookOutboundHook's insight pipeline.
                 return True
             if fix.success:
                 logger.info("KARMA: Exec mission %s fixed (no PR needed)", mission.id)

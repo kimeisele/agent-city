@@ -42,6 +42,13 @@ jobs:
           path: steward-protocol
           token: ${{ secrets.FEDERATION_PAT }}
 
+      - name: Checkout agent-internet
+        uses: actions/checkout@v4
+        with:
+          repository: kimeisele/agent-internet
+          path: agent-internet
+          token: ${{ secrets.FEDERATION_PAT }}
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -50,6 +57,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -e "steward-protocol[providers]"
+          pip install -e "agent-internet"
           pip install -e .
 
       - name: Restore state
