@@ -31,7 +31,7 @@ def test_corrupted_mayor_state_survives(tmp_dir):
             _state_path=state_path, _offline_mode=True,
         )
         result = mayor.heartbeat()
-        assert result["department"] in ("GENESIS", "DHARMA", "KARMA", "MOKSHA")
+        assert result["department"] == "MURALI"
     except json.JSONDecodeError:
         pytest.fail(
             "VULNERABILITY: Corrupted state file crashes Mayor! "

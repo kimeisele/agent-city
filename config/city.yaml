@@ -68,7 +68,7 @@ discussions:
   report_every_n_moksha: 4
   max_agent_comments_per_cycle: 5
   response_cooldown_s: 600
-  skip_own_username: "github-actions[bot]"
+  skip_own_username: "kimeisele"
   max_action_posts_per_cycle: 1
   pulse_every_n_moksha: 2
 

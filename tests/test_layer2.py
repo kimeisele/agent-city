@@ -257,7 +257,7 @@ def test_network_stats():
 
 
 def test_mayor_heartbeat_cycle():
-    """Mayor runs 4 heartbeats = 1 full MURALI rotation."""
+    """Each heartbeat runs a FULL MURALI cycle (all 4 phases)."""
     from city.gateway import CityGateway
     from city.mayor import Mayor
     from city.network import CityNetwork
@@ -281,8 +281,9 @@ def test_mayor_heartbeat_cycle():
     results = mayor.run_cycle(4)
 
     assert len(results) == 4
+    # Post-MURALI: each heartbeat is a full cycle, department is always "MURALI"
     departments = [r["department"] for r in results]
-    assert departments == ["GENESIS", "DHARMA", "KARMA", "MOKSHA"]
+    assert departments == ["MURALI", "MURALI", "MURALI", "MURALI"]
 
     # Each result has the right fields
     for r in results:
@@ -295,7 +296,7 @@ def test_mayor_heartbeat_cycle():
 
 
 def test_mayor_enqueue_and_process():
-    """Mayor processes gateway queue during KARMA phase."""
+    """Mayor processes gateway queue during KARMA phase within a MURALI heartbeat."""
     from city.gateway import CityGateway
     from city.mayor import Mayor
     from city.network import CityNetwork
@@ -320,12 +321,13 @@ def test_mayor_enqueue_and_process():
     mayor.enqueue("TestAgent", "Hello world")
     mayor.enqueue("OtherAgent", "Process this")
 
-    # Run until KARMA phase (index 2)
-    results = mayor.run_cycle(3)  # GENESIS, DHARMA, KARMA
-    karma_result = results[2]
-    assert karma_result["department"] == "KARMA"
-    # 2 gateway ops + optional venu_tick/brain ops from VenuOrchestrator/Brain
-    ops = karma_result["operations"]
+    # One heartbeat = full MURALI (GENESIS→DHARMA→KARMA→MOKSHA)
+    # KARMA phase within the heartbeat processes the gateway queue
+    results = mayor.run_cycle(1)
+    result = results[0]
+    assert result["department"] == "MURALI"
+    # 2 gateway ops processed during the KARMA phase of this heartbeat
+    ops = result["operations"]
     gateway_ops = [o for o in ops if o.startswith("processed:")]
     assert len(gateway_ops) == 2
 
@@ -359,10 +361,10 @@ def test_mayor_metabolism():
         _offline_mode=True,
     )
 
-    # Run GENESIS + DHARMA
-    results = mayor.run_cycle(2)
-    dharma = results[1]
-    assert dharma["department"] == "DHARMA"
+    # Run one MURALI heartbeat (all phases in one)
+    results = mayor.run_cycle(1)
+    murali = results[0]
+    assert murali["department"] == "MURALI"
 
     # Cell should have lost prana (inactive agent)
     cell_after = pdx.get_cell("Ronin")

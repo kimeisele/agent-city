@@ -391,8 +391,12 @@ class DiscussionsBridge:
 
     @staticmethod
     def is_own_comment(author: str) -> bool:
-        """Check if a comment author is our own bot (skip self-replies)."""
-        return author in (_SKIP_OWN_USERNAME, "github-actions")
+        """Check if a comment author is our own bot (skip self-replies).
+
+        When using a PAT (e.g. kimeisele), comments are posted under that
+        username, not github-actions[bot]. Both must be recognized as 'own'.
+        """
+        return author in (_SKIP_OWN_USERNAME, "github-actions", "kimeisele")
 
     # ── Internal GraphQL Posting Primitives ──────────────────────────
 

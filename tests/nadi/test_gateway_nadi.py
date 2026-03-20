@@ -240,13 +240,13 @@ def test_mayor_with_nadi():
         # Enqueue a message before KARMA phase
         mayor.enqueue("test", "process this", from_agent="tester")
 
-        # Run full rotation
-        results = mayor.run_cycle(4)
-        assert len(results) == 4
+        # Run one MURALI heartbeat (all phases in one)
+        results = mayor.run_cycle(1)
+        assert len(results) == 1
 
-        # KARMA (heartbeat 2) should have processed the queued item
-        karma = results[2]
-        assert karma["department"] == "KARMA"
+        # MURALI heartbeat processes the queued item
+        murali = results[0]
+        assert murali["department"] == "MURALI"
     finally:
         shutil.rmtree(tmp)
 
