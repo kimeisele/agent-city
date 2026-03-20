@@ -124,10 +124,16 @@ class CommunityTriageHook(BasePhaseHook):
         if ctx.discussions is not None and hasattr(ctx.discussions, "_seed_threads"):
             seed_threads = ctx.discussions._seed_threads
 
+        # Threads enqueued by GENESIS for Gateway processing (AgentRuntime+Browser).
+        # Triage must NOT steal these — Gateway has the full cognitive pipeline,
+        # Triage has templates. If both respond, we get duplicate template spam.
+        gateway_disc_nums: set[int] = getattr(ctx, "_gateway_disc_nums", set())
+
         triage_items = triage_threads(
             ctx.thread_state,
             ctx.pokedex,
             seed_threads=seed_threads,
+            exclude_threads=gateway_disc_nums,
         )
         if triage_items:
             existing = getattr(ctx, "_triage_items", [])
