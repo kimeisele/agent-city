@@ -30,9 +30,13 @@ class MayorContextBridge:
         )
         # Triage items survive across MURALI phases (DHARMA sets, KARMA consumes)
         ctx._triage_items = getattr(mayor, "_triage_items", [])  # type: ignore[attr-defined]
+        # Gateway discussion numbers survive GENESIS→DHARMA (triage exclusion)
+        ctx._gateway_disc_nums = getattr(mayor, "_gateway_disc_nums", set())  # type: ignore[attr-defined]
         return ctx
 
     def sync_from_phase_context(self, mayor: Mayor, ctx: PhaseContext) -> None:
         mayor._last_audit_time = ctx.last_audit_time
         # Sync triage items back (DHARMA may have added, KARMA may have consumed)
         mayor._triage_items = getattr(ctx, "_triage_items", [])
+        # Sync gateway disc nums (GENESIS sets, DHARMA reads for triage exclusion)
+        mayor._gateway_disc_nums = getattr(ctx, "_gateway_disc_nums", set())
