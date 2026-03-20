@@ -89,6 +89,10 @@ class BrainHealthHandler(BaseKarmaHandler):
                     ctx.brain_memory.total_prana_spent,
                     _MAX_BRAIN_PRANA_PER_CYCLE,
                 )
+        # Execute health action_hints via IntentExecutor (same as critique path)
+        if health_thought.action_hint:
+            _execute_health_hint(ctx, health_thought, operations)
+
         # Post high-confidence health thoughts to discussions
         # GATE: Repetition check — deterministic Python, not prompt engineering
         if (
@@ -169,6 +173,72 @@ class BrainHealthHandler(BaseKarmaHandler):
                         operations.append(
                             f"brain_critique:SUPPRESSED:{critique_verdict.reason}"
                         )
+
+
+def _execute_health_hint(
+    ctx: PhaseContext,
+    health_thought: object,
+    operations: list[str],
+) -> None:
+    """Execute Brain health action_hints — Brain sees problem, Brain acts.
+
+    Mirrors _execute_critique_hint but for health_check thoughts.
+    The Brain is authorized to act on anomalies it detects in system health.
+    """
+    from city.brain_action import parse_action_hint
+
+    hint = getattr(health_thought, "action_hint", "")
+    if not hint:
+        return
+
+    try:
+        confidence = float(getattr(health_thought, "confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    action = parse_action_hint(hint, confidence=confidence)
+
+    if action is None:
+        operations.append(f"health_hint_unknown:{hint[:40]}")
+        return
+
+    # Enforcement verbs require minimum confidence
+    if action.is_enforcement and not action.confidence_sufficient:
+        operations.append(
+            f"health_hint_low_confidence:{action.verb.value}"
+            f":conf={confidence:.2f}"
+        )
+        logger.info(
+            "BRAIN HEALTH: %s rejected — confidence %.2f below threshold",
+            action.verb.value, confidence,
+        )
+        return
+
+    # Dispatch via CityIntentExecutor (unified path)
+    from city.registry import SVC_ATTENTION, SVC_INTENT_EXECUTOR
+
+    executor = ctx.registry.get(SVC_INTENT_EXECUTOR) if ctx.registry else None
+    attention = ctx.registry.get(SVC_ATTENTION) if ctx.registry else None
+
+    if executor is not None:
+        from city.membrane import internal_membrane_snapshot
+
+        evidence = getattr(health_thought, "evidence", "") or ""
+        if isinstance(evidence, (list, tuple)):
+            evidence = "; ".join(str(e) for e in evidence[:3])
+        intent = action.to_city_intent(
+            source="health_check",
+            detail=str(evidence)[:60],
+            membrane=internal_membrane_snapshot(),
+        )
+        handler_name = attention.route(intent.signal) if attention else None
+        result = executor.execute(ctx, intent, handler_name)
+        operations.append(f"health_action:{action.verb.value}:{result}")
+        logger.info(
+            "BRAIN HEALTH ACTION: %s → %s (confidence=%.2f)",
+            action.verb.value, result, confidence,
+        )
+    else:
+        operations.append(f"health_hint_unhandled:{action.verb.value}")
 
 
 def _execute_critique_hint(

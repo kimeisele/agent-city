@@ -56,6 +56,27 @@ class HealthCheckBuilder:
             mayor = snapshot.council_summary.get("mayor", "none")
             seats = snapshot.council_summary.get("seats_filled", 0)
             lines.append(f"Council: mayor={mayor}, {seats} seats filled.")
+        if snapshot.discussion_activity:
+            da = snapshot.discussion_activity
+            lines.append(
+                f"Discussions: {da.get('total_seen', 0)} seen, "
+                f"{da.get('unreplied', 0)} unreplied."
+            )
+        if snapshot.thread_stats:
+            ts = snapshot.thread_stats
+            lines.append(
+                f"Threads: {ts.get('human_comments', 0)} human comments, "
+                f"{ts.get('agent_responses', 0)} agent responses, "
+                f"{ts.get('unresolved', 0)} unresolved."
+            )
+        if snapshot.active_missions:
+            active = [m for m in snapshot.active_missions if m.get("status") != "completed"]
+            if active:
+                mission_summaries = [
+                    f"{m.get('name', m.get('id', '?'))}({m.get('status', '?')})"
+                    for m in active[:5]
+                ]
+                lines.append(f"Active missions: {', '.join(mission_summaries)}.")
         if snapshot.active_campaigns:
             summaries = []
             for campaign in snapshot.active_campaigns[:3]:
@@ -76,9 +97,21 @@ class HealthCheckBuilder:
             "Evaluate the system's health. What is working correctly? "
             "What is failing or degrading, and what is the root cause — "
             "not just the symptom? Are there patterns in the failures? "
-            "How confident are you in this diagnosis? If a specific action "
-            "would improve the situation, name it precisely. What evidence "
-            "supports your assessment?"
+            "How confident are you in this diagnosis?\n\n"
+            "IMPORTANT — action_hint vocabulary (use EXACTLY these formats):\n"
+            "- \"observe\" — no action needed, system is healthy\n"
+            "- \"flag_bottleneck:<domain>\" — a domain is stuck or degrading\n"
+            "- \"investigate:<topic>\" — something needs a deeper look\n"
+            "- \"create_mission:<description>\" — a concrete problem exists that "
+            "an agent should fix. Use this when you see anomalies like: "
+            "spam loops (response_count >> human_count), unresolved threads "
+            "with no agent activity, broken contracts, dead agents that "
+            "should be alive, or any clear actionable problem.\n\n"
+            "You MUST set action_hint to one of the above. Do NOT just observe "
+            "when there is a clear problem — ACT by emitting create_mission "
+            "with a specific description of what needs to be done. "
+            "Set confidence >= 0.7 when the evidence is clear.\n\n"
+            "What evidence supports your assessment?"
         )
 
     def build_user_message(self, ctx: PromptContext) -> str:
