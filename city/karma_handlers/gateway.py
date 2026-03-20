@@ -572,16 +572,11 @@ def _handle_discussion_item(
                 except Exception:
                     pass
 
-            # 7B-3: Cross-post to Moltbook — agent visible on both platforms
-            if ctx.moltbook_bridge is not None:
-                try:
-                    ctx.moltbook_bridge.post_agent_update(
-                        agent_name=agent_name,
-                        action=f"responded to discussion #{discussion_number}",
-                        detail=response.body[:200],
-                    )
-                except Exception as e:
-                    logger.debug("Moltbook cross-post skipped: %s", e)
+            # 7B-3: Cross-post DISABLED — activity logs are spam, not content.
+            # Every Discussion response was being posted as "[Agent] X: responded
+            # to discussion #Y" which has zero value for Moltbook readers and got
+            # flagged as spam. Real Moltbook content comes from MoltbookOutboundHook
+            # (BrainVoice insights, spotlights) — not from activity cross-posts.
         else:
             operations.append(f"disc_post_failed:#{discussion_number}")
             _learn(ctx, "discussion", "reply", success=False)

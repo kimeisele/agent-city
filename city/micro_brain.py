@@ -172,14 +172,34 @@ class MicroThought:
 class MicroBrain:
     """Per-agent micro-cognition via lean tool signatures."""
 
-    def __init__(self, model: str = "mistralai/mistral-nemo") -> None:
-        self._model = model
+    # Fallback model when ProviderChamber unavailable.
+    # Chamber rotates its own models (free: Gemini Flash, Mistral, Groq).
+    _FALLBACK_MODEL = "mistralai/mistral-nemo"
+
+    def __init__(self, model: str | None = None) -> None:
+        self._model = model or self._FALLBACK_MODEL
         self._provider: object | None = None
+        self._chamber: object | None = None
         self._available: bool | None = None
 
     def _ensure_provider(self) -> bool:
         if self._available is not None:
             return self._available
+
+        # Priority 1: ProviderChamber — free-tier rotation (Gemini, Mistral, Groq)
+        try:
+            from steward.provider import build_chamber
+
+            chamber = build_chamber()
+            if len(chamber) > 0:
+                self._chamber = chamber
+                self._available = True
+                logger.info("MicroBrain: ProviderChamber active (%d cells)", len(chamber))
+                return True
+        except Exception as e:
+            logger.debug("MicroBrain: ProviderChamber not available: %s", e)
+
+        # Priority 2: ServiceRegistry single provider + fallback model
         try:
             from vibe_core.di import ServiceRegistry
             from vibe_core.runtime.providers.base import LLMProvider, NoOpProvider
@@ -223,15 +243,24 @@ class MicroBrain:
         )
 
         try:
-            result = self._provider.invoke(
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": task_text},
-                ],
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": task_text},
+            ]
+            invoke_kwargs = dict(
+                messages=messages,
                 max_tokens=_MAX_TOKENS,
                 temperature=0.3,
-                model=self._model,
             )
+
+            if self._chamber is not None:
+                # Chamber picks provider by prana order, uses cell's own model
+                result = self._chamber.invoke(**invoke_kwargs)
+            else:
+                result = self._provider.invoke(
+                    **invoke_kwargs,
+                    model=self._model,
+                )
 
             text = getattr(result, "content", "") if hasattr(result, "content") else str(result)
             data = self._parse_json(text)
