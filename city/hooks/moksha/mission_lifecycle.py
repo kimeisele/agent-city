@@ -19,6 +19,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("AGENT_CITY.HOOKS.MOKSHA.MISSIONS")
 
+# Max heartbeats a mission can stay active with owner=mayor before being abandoned.
+# Breaks the Awareness Gate deadlock: brain creates mission → no agent executes →
+# mission blocks new ones forever. 10 HBs ≈ 2.5 hours at 15-min intervals.
+_MISSION_TTL_HEARTBEATS = 10
+
 
 class PRLifecycleHook(BasePhaseHook):
     """Collect PR results + check CI status, auto-merge, close stale."""
@@ -213,10 +218,15 @@ def _close_resolved_issues(ctx: PhaseContext) -> int:
 
 
 def _purge_stale_missions(ctx: PhaseContext) -> int:
-    """Purge duplicate missions — keep only the latest per contract/source.
+    """Purge duplicate and stale missions.
 
-    Prevents mission spiral: same failing contract creating new mission every heartbeat.
-    For each unique mission name, keep the one with highest heartbeat suffix, abandon rest.
+    Two hygiene passes:
+    1. Dedup: same failing contract creating new mission every heartbeat —
+       keep only the latest per unique mission name, abandon rest.
+    2. TTL: missions stuck on active with owner=mayor for more than
+       _MISSION_TTL_HEARTBEATS get abandoned. This breaks the Awareness Gate
+       deadlock where brain-created missions block new ones forever because
+       no agent executes them.
     """
     try:
         from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
@@ -238,17 +248,11 @@ def _purge_stale_missions(ctx: PhaseContext) -> int:
         by_name.setdefault(m.name, []).append(m)
 
     purged = 0
+
+    # Pass 1: Dedup — keep only newest per name
     for name, missions in by_name.items():
         if len(missions) <= 1:
             continue
-
-        # Sort by ID suffix (heartbeat number) — keep highest
-        def _heartbeat_suffix(m):
-            parts = m.id.rsplit("_", 1)
-            try:
-                return int(parts[-1])
-            except (ValueError, IndexError):
-                return 0
 
         missions.sort(key=_heartbeat_suffix, reverse=True)
         # Keep first (newest), abandon rest
@@ -257,9 +261,40 @@ def _purge_stale_missions(ctx: PhaseContext) -> int:
             ctx.sankalpa.registry.add_mission(m)
             purged += 1
 
+    # Pass 2: TTL — abandon missions stuck too long without agent execution.
+    # Only targets unassigned missions (owner=mayor/dharma) to avoid killing
+    # missions that an agent is actively working on.
+    current_hb = ctx.heartbeat_count
+    for m in all_missions:
+        if m.status != MissionStatus.ACTIVE:
+            continue
+        if getattr(m, "owner", "") not in ("mayor", "dharma"):
+            continue
+        created_hb = _heartbeat_suffix(m)
+        if created_hb <= 0:
+            continue
+        age = current_hb - created_hb
+        if age >= _MISSION_TTL_HEARTBEATS:
+            m.status = MissionStatus.ABANDONED
+            ctx.sankalpa.registry.add_mission(m)
+            purged += 1
+            logger.info(
+                "MOKSHA: Abandoned stale mission %s (age=%d heartbeats, owner=%s)",
+                m.id, age, getattr(m, "owner", "?"),
+            )
+
     if purged:
-        logger.info("MOKSHA: Purged %d stale duplicate missions", purged)
+        logger.info("MOKSHA: Purged %d stale/expired missions", purged)
     return purged
+
+
+def _heartbeat_suffix(m: object) -> int:
+    """Extract the heartbeat number from a mission ID suffix."""
+    parts = getattr(m, "id", "").rsplit("_", 1)
+    try:
+        return int(parts[-1])
+    except (ValueError, IndexError):
+        return 0
 
 
 def _mint_mission_rewards(ctx: PhaseContext, terminal_missions: list[dict]) -> list[dict]:
