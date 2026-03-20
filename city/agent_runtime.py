@@ -80,11 +80,14 @@ class AgentRuntime:
         protocol = getattr(self.cartridge, "capability_protocol", "infer")
 
         # Browser as 6th sense: if task contains URLs, READ them
+        # Filter: never browse our own repo URLs (templates contain these)
         browser_context = ""
         try:
             from city.browser_factory import extract_urls, browse_url
 
-            urls = extract_urls(task_text)
+            _OWN_URLS = ("kimeisele/agent-city/issues", "kimeisele/agent-city/discussions")
+            urls = [u for u in extract_urls(task_text)
+                    if not any(own in u for own in _OWN_URLS)]
             if urls:
                 page_data = browse_url(urls[0])
                 if page_data:
