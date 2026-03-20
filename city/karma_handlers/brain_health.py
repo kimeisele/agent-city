@@ -213,6 +213,34 @@ def _execute_health_hint(
         )
         return
 
+    # Awareness gate: skip if an active mission already covers this target.
+    # Deterministic check (element 24) — do NOT rely on LLM to avoid duplicates.
+    from city.brain_action import ActionVerb
+
+    if action.verb == ActionVerb.CREATE_MISSION and ctx.sankalpa is not None:
+        target_text = (action.target or action.detail or "").lower()
+        if target_text and hasattr(ctx.sankalpa, "registry"):
+            try:
+                active = ctx.sankalpa.registry.get_active_missions()
+                for m in active:
+                    m_desc = (getattr(m, "description", "") or "").lower()
+                    m_name = (getattr(m, "name", "") or "").lower()
+                    # Match if the first 30 chars of the target appear in
+                    # an existing mission's description or name
+                    if target_text[:30] in m_desc or target_text[:30] in m_name:
+                        operations.append(
+                            f"health_action:SKIP_DUPLICATE:{action.verb.value}"
+                            f":{getattr(m, 'id', '?')}"
+                        )
+                        logger.info(
+                            "BRAIN HEALTH: skipped duplicate mission for '%s' "
+                            "(existing: %s)",
+                            target_text[:50], getattr(m, "id", "?"),
+                        )
+                        return
+            except Exception as e:
+                logger.debug("Awareness gate check failed: %s", e)
+
     # Dispatch via CityIntentExecutor (unified path)
     from city.registry import SVC_ATTENTION, SVC_INTENT_EXECUTOR
 
