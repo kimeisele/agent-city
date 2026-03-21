@@ -74,6 +74,7 @@ jobs:
             data/council_state.json
             data/campaigns_state.json
             data/venu_state.bin
+            data/synapses/
             .vibe/
           key: agent-city-state-${{ github.run_id }}
           restore-keys: |
@@ -138,5 +139,6 @@ jobs:
             data/council_state.json
             data/campaigns_state.json
             data/venu_state.bin
+            data/synapses/
             .vibe/
           key: agent-city-state-${{ github.run_id }}
