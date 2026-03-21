@@ -133,18 +133,25 @@ def _route_to_cartridges(
         if mission.id.startswith(("issue_", "exec_")):
             continue
 
-        result = route_mission(
-            mission, all_specs, ctx.active_agents,
-            all_inventories, router=router,
-        )
-
-        if result["blocked"]:
-            operations.append(f"route_blocked:{mission.id}:no_qualified_agent")
-            logger.info(
-                "KARMA: Mission %s blocked — %d agents failed capability gate",
-                mission.id, result["blocked_count"],
+        # Initiative missions route directly to their owner (Svadharma: the agent
+        # who created the mission IS the qualified agent by definition).
+        if mission.id.startswith("initiative_") and mission.owner in ctx.active_agents:
+            agent_name = mission.owner
+            result = {"agent_name": agent_name, "blocked": False, "score": 1.0}
+            logger.debug("KARMA: Initiative %s → owner %s (direct)", mission.id, agent_name)
+        else:
+            result = route_mission(
+                mission, all_specs, ctx.active_agents,
+                all_inventories, router=router,
             )
-            continue
+
+            if result["blocked"]:
+                operations.append(f"route_blocked:{mission.id}:no_qualified_agent")
+                logger.info(
+                    "KARMA: Mission %s blocked — %d agents failed capability gate",
+                    mission.id, result["blocked_count"],
+                )
+                continue
 
         agent_name = result["agent_name"]
         if agent_name is None:
