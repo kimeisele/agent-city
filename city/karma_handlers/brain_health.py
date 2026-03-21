@@ -213,11 +213,33 @@ def _execute_health_hint(
         )
         return
 
+    # ── Scope gate: reject missions that require code changes ──────
+    # Agents can respond/investigate/check_health but CANNOT write code,
+    # run ruff, fix tests, or create PRs.  Those need the Steward (NADI).
+    # Downgrade to flag_bottleneck so the problem is logged, not lost.
+    from city.brain_action import ActionVerb
+
+    _CODE_FIX_KEYWORDS = (
+        "ruff", "tests_pass", "test_pass", "lint", "contract",
+        "code_health", "fix code", "repair code", "refactor",
+    )
+    if action.verb == ActionVerb.CREATE_MISSION:
+        target = action.target or ""
+        if any(kw in target.lower() for kw in _CODE_FIX_KEYWORDS):
+            operations.append(
+                f"health_action:SCOPE_REJECT:create_mission→flag_bottleneck"
+                f":{target[:60]}"
+            )
+            logger.info(
+                "BRAIN HEALTH: downgraded create_mission to flag_bottleneck "
+                "— target requires code changes agents cannot perform: %s",
+                target[:80],
+            )
+            return
+
     # Awareness gate: skip if an active brain-health mission already exists.
     # Brain health always creates disc_0_* missions (no discussion context).
     # Deterministic check (element 24) — do NOT rely on LLM to avoid duplicates.
-    from city.brain_action import ActionVerb
-
     if action.verb == ActionVerb.CREATE_MISSION and ctx.sankalpa is not None:
         if hasattr(ctx.sankalpa, "registry"):
             try:
@@ -317,6 +339,27 @@ def _execute_critique_hint(
         })
         ctx._rejected_actions = rejected  # type: ignore[attr-defined]
         return
+
+    # Scope gate: reject missions that require code changes (same as health hints)
+    from city.brain_action import ActionVerb
+
+    _CODE_FIX_KEYWORDS = (
+        "ruff", "tests_pass", "test_pass", "lint", "contract",
+        "code_health", "fix code", "repair code", "refactor",
+    )
+    if action.verb == ActionVerb.CREATE_MISSION:
+        target = action.target or ""
+        if any(kw in target.lower() for kw in _CODE_FIX_KEYWORDS):
+            operations.append(
+                f"critique_action:SCOPE_REJECT:create_mission→flag_bottleneck"
+                f":{target[:60]}"
+            )
+            logger.info(
+                "BRAIN: downgraded create_mission to flag_bottleneck "
+                "— target requires code changes: %s",
+                target[:80],
+            )
+            return
 
     # Schritt 6B: Unified dispatch via CityIntentExecutor
     from city.registry import SVC_ATTENTION, SVC_INTENT_EXECUTOR
