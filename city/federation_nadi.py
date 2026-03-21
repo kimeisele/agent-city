@@ -1,11 +1,11 @@
 """
 FEDERATION NADI — Inter-Repo Message Bridge.
 
-File-based Nadi channel for steward-protocol ↔ agent-city communication.
+File-based Nadi channel for steward ↔ agent-city communication.
 Uses existing federation transport (git commit + CI workflow).
 
-Outbox: data/federation/nadi_outbox.json — agent-city writes, steward-protocol reads
-Inbox:  data/federation/nadi_inbox.json  — steward-protocol writes, agent-city reads
+Outbox: data/federation/nadi_outbox.json — agent-city writes, steward reads
+Inbox:  data/federation/nadi_inbox.json  — steward writes, agent-city reads
 
 Message format: NadiMessage-compatible JSON with priority, TTL, operations.
 Preserves Nadi semantics: 144 buffer, 24s TTL, 4 priority levels.
@@ -41,7 +41,7 @@ class FederationMessage:
     """Cross-repo Nadi message. JSON-serializable."""
 
     source: str  # Sender endpoint (e.g., "karma", "moksha", "genesis")
-    target: str  # Receiver endpoint (e.g., "steward-protocol", "agent-city")
+    target: str  # Receiver endpoint (e.g., "steward", "agent-city")
     operation: str  # NadiOp value (e.g., "process", "send", "commit")
     payload: dict  # Message data
     priority: int = RAJAS
@@ -88,7 +88,7 @@ class FederationNadi:
     """
 
     _federation_dir: Path = field(default=Path("data/federation"))
-    _default_target: str = field(default="steward-protocol")
+    _default_target: str = field(default="steward")
     _outbox: list[FederationMessage] = field(default_factory=list)
     _processed_ids: dict[str, None] = field(default_factory=dict)  # ordered dedup (FIFO eviction)
     _city_id: str = field(default="")
