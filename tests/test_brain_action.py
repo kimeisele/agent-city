@@ -291,3 +291,103 @@ class TestRejectedActionsFeedback:
         _execute_critique_hint(ctx, critique, ops)
 
         assert len(ctx._rejected_actions) == 0
+
+
+# ── SCOPE_REJECT → NADI Escalation Tests (Campaign C) ────────────────
+
+
+class TestScopeRejectNadiEscalation:
+    """When Scope Gate rejects a code-fix mission, NADI must escalate to Steward."""
+
+    def test_health_hint_scope_reject_emits_nadi(self):
+        """Health hint with ruff target → SCOPE_REJECT + NADI emit."""
+        from unittest.mock import MagicMock, call
+        from city.karma_handlers.brain_health import _execute_health_hint
+
+        ctx = MagicMock()
+        ctx.heartbeat_count = 42
+        nadi_mock = MagicMock()
+        ctx.federation_nadi = nadi_mock
+
+        health_thought = MagicMock()
+        health_thought.action_hint = "create_mission:fix ruff_clean contract"
+        health_thought.confidence = 0.9
+
+        ops: list[str] = []
+        _execute_health_hint(ctx, health_thought, ops)
+
+        # Should have SCOPE_REJECT in operations
+        assert any("SCOPE_REJECT" in op for op in ops), f"Expected SCOPE_REJECT in {ops}"
+
+        # Should have emitted NADI message
+        nadi_mock.emit.assert_called_once()
+        call_kwargs = nadi_mock.emit.call_args
+        assert call_kwargs.kwargs.get("operation") or call_kwargs[1].get("operation", "") == "bottleneck_escalation"
+
+    def test_critique_hint_scope_reject_emits_nadi(self):
+        """Critique hint with tests_pass target → SCOPE_REJECT + NADI emit."""
+        from unittest.mock import MagicMock
+        from city.karma_handlers.brain_health import _execute_critique_hint
+
+        ctx = MagicMock()
+        ctx._rejected_actions = []
+        ctx.heartbeat_count = 7
+        nadi_mock = MagicMock()
+        ctx.federation_nadi = nadi_mock
+
+        critique = MagicMock()
+        critique.action_hint = "create_mission:tests_pass failing"
+        critique.confidence = 0.9
+        critique.evidence = "tests broken"
+
+        ops: list[str] = []
+        _execute_critique_hint(ctx, critique, ops)
+
+        assert any("SCOPE_REJECT" in op for op in ops)
+        nadi_mock.emit.assert_called_once()
+        kw = nadi_mock.emit.call_args[1]
+        assert kw["operation"] == "bottleneck_escalation"
+        assert kw["payload"]["source"] == "brain_critique"
+        assert kw["payload"]["requested_action"] == "fix"
+
+    def test_scope_reject_graceful_without_nadi(self):
+        """SCOPE_REJECT still works if federation_nadi is None."""
+        from unittest.mock import MagicMock
+        from city.karma_handlers.brain_health import _execute_health_hint
+
+        ctx = MagicMock()
+        ctx.federation_nadi = None
+
+        health_thought = MagicMock()
+        health_thought.action_hint = "create_mission:fix ruff contract"
+        health_thought.confidence = 0.9
+
+        ops: list[str] = []
+        # Should not raise
+        _execute_health_hint(ctx, health_thought, ops)
+        assert any("SCOPE_REJECT" in op for op in ops)
+
+    def test_non_code_mission_no_nadi_emit(self):
+        """Non-code missions should NOT trigger NADI escalation."""
+        from unittest.mock import MagicMock
+        from city.karma_handlers.brain_health import _execute_health_hint
+
+        ctx = MagicMock()
+        nadi_mock = MagicMock()
+        ctx.federation_nadi = nadi_mock
+        ctx.registry = MagicMock()
+        ctx.registry.get.return_value = None  # no executor
+        ctx.sankalpa = None
+
+        health_thought = MagicMock()
+        health_thought.action_hint = "create_mission:investigate agent wellness"
+        health_thought.confidence = 0.9
+
+        ops: list[str] = []
+        _execute_health_hint(ctx, health_thought, ops)
+
+        # Should NOT have SCOPE_REJECT
+        assert not any("SCOPE_REJECT" in op for op in ops)
+        # Should NOT have emitted NADI
+        nadi_mock.emit.assert_not_called()
+
