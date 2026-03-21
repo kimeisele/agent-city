@@ -117,6 +117,10 @@ def _route_to_cartridges(
     except Exception:
         return
 
+    # Sort: initiative missions first (agent-created work before external work),
+    # then by priority (HIGH before MEDIUM before LOW).
+    active.sort(key=lambda m: (0 if m.id.startswith("initiative_") else 1, getattr(m.priority, 'value', 99)))
+
     autonomy_cfg = get_config().get("autonomy", {})
     max_cognitive_actions = autonomy_cfg.get("max_actions_per_cycle", 3)
     cognitive_count = 0
