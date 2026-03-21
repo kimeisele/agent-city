@@ -235,6 +235,8 @@ def _execute_health_hint(
                 "— target requires code changes agents cannot perform: %s",
                 target[:80],
             )
+            # ── Wire to Steward via NADI ────────────────────────────
+            _escalate_bottleneck_to_steward(ctx, target, "brain_health")
             return
 
     # Awareness gate: skip if an active brain-health mission already exists.
@@ -359,6 +361,8 @@ def _execute_critique_hint(
                 "— target requires code changes: %s",
                 target[:80],
             )
+            # ── Wire to Steward via NADI ────────────────────────────
+            _escalate_bottleneck_to_steward(ctx, target, "brain_critique")
             return
 
     # Schritt 6B: Unified dispatch via CityIntentExecutor
@@ -381,3 +385,40 @@ def _execute_critique_hint(
         operations.append(f"critique_action:{action.verb.value}:{result}")
     else:
         operations.append(f"critique_hint_unhandled:{action.verb.value}")
+
+
+# ── Steward escalation via Federation NADI ──────────────────────────
+
+
+def _escalate_bottleneck_to_steward(
+    ctx: PhaseContext, target: str, source: str,
+) -> None:
+    """Emit a bottleneck_escalation message to the Steward via NADI.
+
+    Called when the Scope Gate rejects a code-fix mission that agents
+    cannot perform.  The Steward (federation super-agent) has the
+    AutonomyEngine to actually fix code, run ruff, and create PRs.
+    """
+    nadi = ctx.federation_nadi
+    if nadi is None or not hasattr(nadi, "emit"):
+        logger.warning(
+            "BRAIN HEALTH: cannot escalate bottleneck — federation_nadi unavailable"
+        )
+        return
+
+    nadi.emit(
+        source=source,
+        operation="bottleneck_escalation",
+        payload={
+            "target": target[:120],
+            "source": source,
+            "evidence": "failing contracts — scope gate rejected code-fix mission",
+            "requested_action": "fix",
+            "heartbeat": getattr(ctx, "heartbeat_count", 0),
+        },
+        priority=2,  # SATTVA — important, not critical
+    )
+    logger.info(
+        "BRAIN HEALTH: escalated bottleneck to Steward via NADI — %s",
+        target[:80],
+    )

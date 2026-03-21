@@ -388,10 +388,10 @@ class TestCrossRepoCompatibility:
                     "priority", "correlation_id", "timestamp", "ttl_s"}
         assert required.issubset(set(msg.keys())), f"Missing: {required - set(msg.keys())}"
 
-    def test_outbox_target_is_steward_protocol(self, nadi):
+    def test_outbox_target_is_steward(self, nadi):
         self._write_outbox_as_agent_city(nadi)
         data = json.loads(nadi.outbox_path.read_text())
-        assert data[0]["target"] == "steward-protocol"
+        assert data[0]["target"] == "steward"
 
     def test_outbox_payload_has_heartbeat(self, nadi):
         self._write_outbox_as_agent_city(nadi)
@@ -415,7 +415,7 @@ class TestCrossRepoCompatibility:
         for entry in data:
             msg = FederationMessage.from_dict(entry)
             assert msg.source == "moksha"
-            assert msg.target == "steward-protocol"
+            assert msg.target == "steward"
             assert msg.is_expired is False
             assert isinstance(msg.payload, dict)
 
