@@ -481,8 +481,11 @@ def _build_federation(ctx: BuildContext) -> object:
 
 def _build_federation_nadi(ctx: BuildContext) -> object | None:
     from city.federation_nadi import FederationNadi
+    from city.node_identity import ensure_node_identity
 
     fed_nadi_dir = ctx.db_path.parent / "federation"
+    node_keys = ensure_node_identity(fed_nadi_dir)
+    logger.info("Node identity: %s", node_keys.get("node_id", "?"))
     nadi = FederationNadi(_federation_dir=fed_nadi_dir)
     stats = nadi.stats()
     logger.info(

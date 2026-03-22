@@ -493,7 +493,7 @@ class Pokedex:
                 jiva.cell.prana,
                 jiva.cell.age,
                 1 if jiva.cell.is_alive else 0,
-                classify_prana_class(jiva.cell.prana),
+                "immortal" if "template" in name else classify_prana_class(jiva.cell.prana),
             ),
         )
         self._record_event(name, "discover", None, "discovered", json.dumps(moltbook_profile or {}))
@@ -2185,6 +2185,13 @@ class Pokedex:
         Transaction safety: SQLite staged first, bank transfer attempted,
         SQLite committed only if bank succeeds. Rollback on bank failure.
         """
+        # Short-circuit bounty claims to avoid taking payment from the claimer
+        cur = self._conn.cursor()
+        cur.execute("SELECT asset_type FROM marketplace_orders WHERE id = ?", (order_id,))
+        row = cur.fetchone()
+        if row and row["asset_type"] == "bounty":
+            return self.fill_bounty_order(order_id, buyer, heartbeat)
+
         from city.seed_constants import TRADE_COMMISSION_PERCENT
 
         with self._lock:

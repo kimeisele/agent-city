@@ -99,12 +99,19 @@ class FederationNadi:
             self._city_id = self._load_city_id()
 
     def _load_city_id(self) -> str:
-        """Load city_id from peer.json — the federation identity."""
+        """Load federation identity from peer.json.
+
+        Prefers node_id (deterministic DID) over city_id for cryptographic
+        identity binding.  Falls back to city_id/slug for backward compat.
+        """
         peer_path = self._federation_dir / "peer.json"
         if peer_path.exists():
             try:
                 data = json.loads(peer_path.read_text())
                 identity = data.get("identity", {})
+                node_id = identity.get("node_id", "")
+                if node_id:
+                    return node_id
                 return identity.get("city_id", "") or identity.get("slug", "")
             except (json.JSONDecodeError, OSError):
                 pass

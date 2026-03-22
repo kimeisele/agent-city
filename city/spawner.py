@@ -213,6 +213,14 @@ class AgentSpawner:
                 )
                 logger.info("Migrated %s to claim_level=1 (contributor)", name)
 
+            # Migrate existing templates to immortal
+            if "template" in name and agent.get("prana_class") != "immortal":
+                with self._pokedex._lock:
+                    cur = self._pokedex._conn.cursor()
+                    cur.execute("UPDATE agents SET prana_class = 'immortal' WHERE name = ?", (name,))
+                    self._pokedex._conn.commit()
+                logger.info("Migrated template %s to prana_class=immortal", name)
+
             # Generate cartridge if not already cached
             if self._cartridge_factory is not None:
                 self._cartridge_factory.generate(name)
