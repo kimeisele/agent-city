@@ -184,8 +184,11 @@ def _route_to_cartridges(
             decision_mode = runtime_result.get("decision_mode", "?")
 
             # Map runtime result to cognitive_action format for downstream
-            if decision_mode == "micro_brain" and runtime_result.get("action") == "respond":
-                # MicroBrain thought — use its response
+            micro_brain_acted = decision_mode == "micro_brain" and runtime_result.get("action")
+            is_initiative = mission.id.startswith("initiative_")
+            if micro_brain_acted and (runtime_result.get("action") == "respond" or is_initiative):
+                # MicroBrain thought — for initiative missions, ANY action counts as cognized
+                # (the agent took initiative, reasoned, and chose — that's success)
                 cognitive_action = {
                     "status": "cognized",
                     "function": runtime_result.get("action", "respond"),
