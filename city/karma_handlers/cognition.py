@@ -157,6 +157,17 @@ def _route_to_cartridges(
         if agent_name is None:
             continue
 
+        # ── Prana Gate: agent must afford the mission ──────────────────
+        # Deterministic economic check. No LLM. Agents with low prana
+        # skip expensive work → natural load distribution.
+        from city.seed_constants import METABOLIC_COST
+        _MISSION_PRANA_COST = METABOLIC_COST * 2  # 6 prana per mission attempt
+        agent_prana = _get_agent_prana(ctx, agent_name)
+        if agent_prana < _MISSION_PRANA_COST:
+            operations.append(f"prana_gate:{agent_name}:balance={agent_prana}<{_MISSION_PRANA_COST}")
+            logger.debug("KARMA: %s skipped %s — prana %d < %d", agent_name, mission.id, agent_prana, _MISSION_PRANA_COST)
+            continue
+
         cartridge = loader.get(agent_name)
         if cartridge is None:
             continue
@@ -231,8 +242,19 @@ def _route_to_cartridges(
                 cognitive_action["function"], success=executed,
             )
 
+            # ── Prana Reward: work pays ───────────────────────────────
+            # Success = full reward. Failure = participation credit.
+            # Initiative success gets extra bonus (eigeninitiative).
+            from city.seed_constants import MISSION_COMPLETION_PRANA, MISSION_FAILED_PRANA
             if executed:
+                reward = MISSION_COMPLETION_PRANA  # 27
+                if is_initiative:
+                    reward += MISSION_COMPLETION_PRANA // 2  # +13 initiative bonus = 40
+                _credit_agent_prana(ctx, agent_name, reward)
+                operations.append(f"prana_reward:{agent_name}:+{reward}")
                 cognitive_count += 1
+            else:
+                _credit_agent_prana(ctx, agent_name, MISSION_FAILED_PRANA)  # 3
 
             operations.append(
                 f"routed:{agent_name}:{mission.id}:score={result['score']:.2f}"
@@ -400,3 +422,19 @@ def _get_agent_spec(ctx: PhaseContext, agent_name: str) -> dict | None:
     if factory is None:
         return None
     return factory.get_spec(agent_name)
+
+
+def _get_agent_prana(ctx: PhaseContext, agent_name: str) -> int:
+    """Get agent's prana balance from CivicBank."""
+    try:
+        return ctx.pokedex._bank.get_balance(agent_name)
+    except Exception:
+        return 0
+
+
+def _credit_agent_prana(ctx: PhaseContext, agent_name: str, amount: int) -> None:
+    """Credit prana to agent via CivicBank."""
+    try:
+        ctx.pokedex._bank.credit(agent_name, amount)
+    except Exception:
+        pass
