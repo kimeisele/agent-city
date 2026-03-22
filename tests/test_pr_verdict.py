@@ -28,6 +28,8 @@ def _make_ctx(*, has_council: bool = True, mayor: str = "sys_vyasa") -> MagicMoc
     ctx.offline_mode = False
     ctx.federation_nadi = MagicMock()
     ctx.heartbeat_count = 100
+    ctx._federation_messages = []
+    ctx.recent_events = []
 
     if has_council:
         ctx.council = MagicMock()
@@ -82,6 +84,7 @@ class TestPRVerdictHook:
 
     def test_should_run_requires_nadi_and_online(self):
         ctx = _make_ctx()
+        ctx._federation_messages = [_make_verdict_message("approve")]
         assert self.hook.should_run(ctx) is True
 
         ctx.federation_nadi = None
@@ -96,7 +99,7 @@ class TestPRVerdictHook:
         """Approve + non-core → comment + merge."""
         mock_gh.return_value = "merged"
         ctx = _make_ctx()
-        ctx.federation_nadi.receive.return_value = [
+        ctx._federation_messages = [
             _make_verdict_message("approve", pr_number=10, touches_core=False),
         ]
         ops: list[str] = []
@@ -116,7 +119,7 @@ class TestPRVerdictHook:
         """Approve + core files → comment + council proposal, NO merge."""
         mock_gh.return_value = "ok"
         ctx = _make_ctx(has_council=True, mayor="sys_vyasa")
-        ctx.federation_nadi.receive.return_value = [
+        ctx._federation_messages = [
             _make_verdict_message("approve", pr_number=20, touches_core=True, title="Big refactor"),
         ]
         ops: list[str] = []
@@ -146,7 +149,7 @@ class TestPRVerdictHook:
         """Request changes → comment with reason."""
         mock_gh.return_value = "ok"
         ctx = _make_ctx()
-        ctx.federation_nadi.receive.return_value = [
+        ctx._federation_messages = [
             _make_verdict_message("request_changes", pr_number=30, reason="Needs tests"),
         ]
         ops: list[str] = []
@@ -164,7 +167,7 @@ class TestPRVerdictHook:
         """Reject → close PR with comment."""
         mock_gh.return_value = "ok"
         ctx = _make_ctx()
-        ctx.federation_nadi.receive.return_value = [
+        ctx._federation_messages = [
             _make_verdict_message("reject", pr_number=40, reason="Violates governance"),
         ]
         ops: list[str] = []
@@ -180,7 +183,7 @@ class TestPRVerdictHook:
     def test_non_verdict_messages_ignored(self):
         """Non-verdict NADI messages are silently skipped."""
         ctx = _make_ctx()
-        ctx.federation_nadi.receive.return_value = [_make_non_verdict_message()]
+        ctx._federation_messages = [_make_non_verdict_message()]
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -196,7 +199,7 @@ class TestPRVerdictHook:
             operation="pr_review_verdict",
             payload={"verdict": "approve", "reason": "ok"},
         )
-        ctx.federation_nadi.receive.return_value = [msg]
+        ctx._federation_messages = [msg]
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -207,7 +210,7 @@ class TestPRVerdictHook:
         """Approve + core + no council → comment only, no proposal."""
         mock_gh.return_value = "ok"
         ctx = _make_ctx(has_council=False)
-        ctx.federation_nadi.receive.return_value = [
+        ctx._federation_messages = [
             _make_verdict_message("approve", pr_number=50, touches_core=True),
         ]
         ops: list[str] = []
@@ -224,7 +227,7 @@ class TestPRVerdictHook:
         # First call (comment) succeeds, second (merge) fails
         mock_gh.side_effect = ["ok", None]
         ctx = _make_ctx()
-        ctx.federation_nadi.receive.return_value = [
+        ctx._federation_messages = [
             _make_verdict_message("approve", pr_number=60, touches_core=False),
         ]
         ops: list[str] = []
@@ -232,3 +235,25 @@ class TestPRVerdictHook:
         self.hook.execute(ctx, ops)
 
         assert "pr_verdict:merge_failed:#60" in ops
+
+    def test_compliance_report_recorded(self):
+        ctx = _make_ctx()
+        ctx._federation_messages = [
+            FederationMessage(
+                source="steward",
+                target="agent-city",
+                operation="compliance_report",
+                payload={
+                    "status": "warning",
+                    "subject": "federation trust drift",
+                    "source": "legislator",
+                },
+            ),
+        ]
+        ops: list[str] = []
+
+        self.hook.execute(ctx, ops)
+
+        assert ops == ["compliance_report:warning:federation trust drift"]
+        assert ctx._compliance_reports[0]["subject"] == "federation trust drift"
+        assert ctx.recent_events[-1]["operation"] == "compliance_report"
