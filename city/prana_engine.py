@@ -147,20 +147,27 @@ class PranaEngine:
             self._active_status.pop(name, None)
             self._dirty.discard(name)
 
-    def metabolize_batch(self, active_agents: set[str] | None = None) -> list[str]:
+    def metabolize_batch(
+        self,
+        active_agents: set[str] | None = None,
+        domain_costs: dict[str, int] | None = None,
+    ) -> list[str]:
         """Run one metabolic cycle on all agents in memory.
 
         Pure memory operations — no SQL. Returns list of dormant agent names
         (prana exhausted or age exceeded).
 
         Steps:
-          1. Deduct metabolic cost per prana_class
-          2. Add energy for active agents
-          3. Increment cycle counter
-          4. Detect dormant: prana <= 0 or age exceeded
-          5. Mark ALL touched agents as dirty
+          1. Deduct metabolic cost (domain-differentiated if domain_costs given)
+          2. Increment cycle counter
+          3. Detect dormant: prana <= 0 or age exceeded
+          4. Mark ALL touched agents as dirty
+
+        No free active bonus. Agents earn prana through work (KARMA phase rewards).
+        Dharma differentiates: engineering costs more than research. Svadharma.
         """
         active_agents = active_agents or set()
+        domain_costs = domain_costs or {}
         dormant: list[str] = []
         default_cost = self._class_configs.get("standard", {}).get("metabolic_cost", 3)
         default_max_age = self._class_configs.get("standard", {}).get("max_age", 432)
@@ -169,16 +176,15 @@ class PranaEngine:
             for name in list(self._prana.keys()):
                 pc = self._class.get(name, "standard")
                 cls_cfg = self._class_configs.get(pc, {})
-                cost = cls_cfg.get("metabolic_cost", default_cost)
+                base_cost = cls_cfg.get("metabolic_cost", default_cost)
                 max_age = cls_cfg.get("max_age", default_max_age)
+
+                # Domain-differentiated cost (Svadharma metabolism)
+                cost = domain_costs.get(name, base_cost)
 
                 # Deduct metabolic cost
                 if cost > 0:
                     self._prana[name] -= cost
-
-                # Add energy for active agents
-                if name in active_agents:
-                    self._prana[name] += 10
 
                 # Increment cycle
                 self._cycle[name] += 1

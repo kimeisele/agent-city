@@ -60,12 +60,16 @@ class MetabolizeHook(BasePhaseHook):
         return 5
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        # Populate active_agents BEFORE metabolize — feeds +10 prana bonus.
+        # Populate active_agents BEFORE metabolize.
         from city.registry import SVC_SPAWNER
 
         spawner = ctx.registry.get(SVC_SPAWNER)
         if spawner is not None:
             spawner.mark_citizens_active(ctx.active_agents)
+
+        # Build domain-differentiated metabolic costs (Svadharma metabolism).
+        # Engineering agents cost more (production), research/discovery cost less (contemplation).
+        domain_costs = _build_domain_costs(ctx)
 
         # Metabolize all living agents
         # Stufe 2: PranaEngine in-memory hot path when available
@@ -76,7 +80,10 @@ class MetabolizeHook(BasePhaseHook):
 
         _t0 = time.monotonic()
         if engine is not None and engine.booted:
-            dormant_names = engine.metabolize_batch(active_agents=ctx.active_agents)
+            dormant_names = engine.metabolize_batch(
+                active_agents=ctx.active_agents,
+                domain_costs=domain_costs,
+            )
             engine.flush(ctx.pokedex._conn)
             dead = []
             for name in dormant_names:
@@ -200,6 +207,31 @@ class ZoneHealthHook(BasePhaseHook):
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
+
+# ── Domain-differentiated metabolism (Svadharma) ─────────────────────
+# Engineering agents produce → higher metabolic cost (must work to survive).
+# Research/Discovery agents contemplate → lower cost (can think longer).
+# Governance agents administer → middle ground.
+_DOMAIN_METABOLIC_COST: dict[str, int] = {
+    "DISCOVERY": 2,    # Wanderer, light
+    "RESEARCH": 2,     # Contemplation, light
+    "GOVERNANCE": 3,   # Administration, medium
+    "ENGINEERING": 4,  # Production, heavy
+}
+
+
+def _build_domain_costs(ctx: PhaseContext) -> dict[str, int]:
+    """Map agent names to domain-specific metabolic costs."""
+    all_specs = ctx.all_specs
+    if not all_specs:
+        return {}
+    costs: dict[str, int] = {}
+    for name, spec in all_specs.items():
+        domain = spec.get("domain", "")
+        if domain in _DOMAIN_METABOLIC_COST:
+            costs[name] = _DOMAIN_METABOLIC_COST[domain]
+    return costs
 
 
 def _hibernate_low_prana(ctx: PhaseContext, threshold: int) -> list[str]:
