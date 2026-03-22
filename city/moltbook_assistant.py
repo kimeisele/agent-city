@@ -144,6 +144,8 @@ class MoltbookAssistant:
 
         Jiva-driven invite ranking + state-driven series selection.
         Pure planning — zero API calls.
+        
+        SPAM GATE: if _select_series() returns empty, skip posting.
         """
         self._invite_queue.clear()
         self._planned_series = ""
@@ -154,12 +156,16 @@ class MoltbookAssistant:
         # Select content series based on city state
         now = time.time()
         if now - self._last_post_time >= _POST_COOLDOWN_S:
-            self._planned_series = self._select_series()
+            series = self._select_series()
+            if series:  # Empty string = spam prevention gate
+                self._planned_series = series
+            else:
+                logger.warning("DHARMA: posting blocked by spam prevention gate")
 
         logger.info(
             "PLAN: %d invites queued, series=%s",
             len(self._invite_queue),
-            self._planned_series or "(cooldown)",
+            self._planned_series or "(cooldown/blocked)",
         )
 
     def on_karma(self, heartbeat_count: int, city_stats: dict) -> dict:
@@ -225,22 +231,22 @@ class MoltbookAssistant:
 
         First post ALWAYS sovereignty_brief (BrainVoice origin story).
         Then state-driven selection, then round-robin.
+        
+        DISABLED: spotlight (template spam), zone_report until quality gates added
         """
         # First post ever → sovereignty brief in m/general
         if self._ops.get("posts", 0) == 0:
             return "sovereignty_brief"
 
         stats = self._pokedex.stats()
-        citizens = stats.get("citizen", 0)
         zones = stats.get("zones", {})
-
-        if citizens < 5:
-            return "spotlight"
 
         if zones:
             pops = list(zones.values())
             if pops and max(pops) > 3 * min(pops) + 1:
-                return "zone_report"
+                # DISABLED: return "zone_report"
+                logger.info("CONTENT: zone_report disabled (template spam prevention)")
+                return ""
 
         self._series_cursor = (self._series_cursor + 1) % len(SERIES)
         return SERIES[self._series_cursor]
