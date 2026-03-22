@@ -237,6 +237,14 @@ def _execute_health_hint(
             )
             # ── Wire to Steward via NADI ────────────────────────────
             _escalate_bottleneck_to_steward(ctx, target, "brain_health")
+            # ── Create Bounty on Marketplace ──────────────────────
+            try:
+                from city.bounty import create_bounty
+                bounty_id = create_bounty(ctx, target, severity="high", source="brain_health")
+                if bounty_id:
+                    operations.append(f"bounty_created:{bounty_id}")
+            except Exception as exc:
+                logger.debug("Bounty creation failed (non-fatal): %s", exc)
             return
 
     # Awareness gate: skip if an active brain-health mission already exists.
@@ -363,6 +371,14 @@ def _execute_critique_hint(
             )
             # ── Wire to Steward via NADI ────────────────────────────
             _escalate_bottleneck_to_steward(ctx, target, "brain_critique")
+            # ── Create Bounty on Marketplace ──────────────────────
+            try:
+                from city.bounty import create_bounty
+                bounty_id = create_bounty(ctx, target, severity="high", source="brain_critique")
+                if bounty_id:
+                    operations.append(f"bounty_created:{bounty_id}")
+            except Exception as exc:
+                logger.debug("Bounty creation failed (non-fatal): %s", exc)
             return
 
     # Schritt 6B: Unified dispatch via CityIntentExecutor
