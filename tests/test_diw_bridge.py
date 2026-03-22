@@ -282,29 +282,29 @@ class TestCognitionHandlerDIWGate:
                    "venu": 30, "vamsi": 0, "murali": 0, "mode": 0})
         assert h.should_run(MagicMock()) is True
 
-    def test_cognition_skips_low_energy(self):
-        """venu=5 < 16 threshold = skipped."""
+    def test_cognition_always_runs(self):
+        """Cognition runs at ANY venu level (threshold=0 for 15-min heartbeats)."""
         from city.karma_handlers.cognition import CognitionHandler
         h = CognitionHandler()
         h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
-                   "venu": 5, "vamsi": 0, "murali": 0, "mode": 0})
-        assert h.should_run(MagicMock()) is False
-
-    def test_cognition_runs_at_threshold(self):
-        """venu=16 == 16 threshold = runs."""
-        from city.karma_handlers.cognition import CognitionHandler
-        h = CognitionHandler()
-        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
-                   "venu": 16, "vamsi": 0, "murali": 0, "mode": 0})
+                   "venu": 0, "vamsi": 0, "murali": 0, "mode": 0})
         assert h.should_run(MagicMock()) is True
 
-    def test_cognition_skips_at_boundary(self):
-        """venu=15 < 16 threshold = skipped (boundary)."""
+    def test_cognition_runs_high_energy(self):
+        """Cognition runs at high venu too."""
+        from city.karma_handlers.cognition import CognitionHandler
+        h = CognitionHandler()
+        h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
+                   "venu": 63, "vamsi": 0, "murali": 0, "mode": 0})
+        assert h.should_run(MagicMock()) is True
+
+    def test_cognition_runs_at_boundary(self):
+        """venu=15 runs (threshold is 0 for 15-min heartbeats)."""
         from city.karma_handlers.cognition import CognitionHandler
         h = CognitionHandler()
         h.on_diw({"diw": 0, "tick": 0, "position": 0, "phase": 0,
                    "venu": 15, "vamsi": 0, "murali": 0, "mode": 0})
-        assert h.should_run(MagicMock()) is False
+        assert h.should_run(MagicMock()) is True
 
     def test_cognition_is_diw_aware(self):
         """CognitionHandler extends DIWAwareHandler."""
