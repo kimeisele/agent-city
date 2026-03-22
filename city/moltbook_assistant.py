@@ -21,13 +21,19 @@ Zero LLM. Zero buddhi.think(). Kernel data + structured templates.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
 
 from config import get_config
+from city.mission_handler import get_mission_handler
 
 logger = logging.getLogger("AGENT_CITY.MOLTBOOK_ASSISTANT")
+
+# Human-in-the-Loop queue
+_HIL_QUEUE = Path("broadcasts/pending_missions.json")
 
 _cfg = get_config().get("moltbook_assistant", {})
 
@@ -177,7 +183,7 @@ class MoltbookAssistant:
 
         Returns structured dict consumed by karma.py phase caller.
         """
-        result: dict = {"invites_sent": 0, "post_created": False}
+        result: dict = {"invites_sent": 0, "post_created": False, "missions_queued": 0}
 
         # Send DM invitations
         for name in self._invite_queue[:_MAX_INVITES]:
@@ -189,6 +195,12 @@ class MoltbookAssistant:
             result["post_created"] = self._create_content(
                 self._planned_series, heartbeat_count, city_stats,
             )
+        elif self._planned_series == "":
+            # Spam gate active — try mission dispatch instead
+            mission = get_mission_handler().get_next_mission()
+            if mission:
+                self._queue_mission_for_approval(mission)
+                result["missions_queued"] = 1
 
         return result
 
@@ -355,7 +367,16 @@ class MoltbookAssistant:
         return self._publish(title, content, target, series)
 
     def _publish(self, title: str, content: str, target: str, series: str) -> bool:
-        """Publish a post to the target submolt."""
+        """Publish a post to the target submolt.
+        
+        For mission posts, queues to HIL first instead of posting directly.
+        """
+        # Mission posts go to Human-In-The-Loop queue, not direct posting
+        if series == "mission_dispatch":
+            return self._queue_mission_for_approval_direct(
+                title=title, content=content, target=target
+            )
+        
         try:
             self._client.sync_create_post(title, content, submolt=target)
             self._last_post_time = time.time()
@@ -364,6 +385,55 @@ class MoltbookAssistant:
             return True
         except Exception as e:
             logger.warning("CONTENT failed [m/%s]: %s — %s", target, series, e)
+            return False
+
+    def _queue_mission_for_approval(self, mission) -> bool:
+        """Queue a Mission object for human approval."""
+        try:
+            title, content = mission.to_post()
+            return self._queue_mission_for_approval_direct(
+                title=title,
+                content=content,
+                target="agents",
+                mission_data=asdict(mission),
+            )
+        except Exception as e:
+            logger.error("Failed to queue mission: %s", e)
+            return False
+
+    def _queue_mission_for_approval_direct(
+        self, title: str, content: str, target: str, mission_data: dict | None = None
+    ) -> bool:
+        """Queue a post for human-in-the-loop approval."""
+        try:
+            _HIL_QUEUE.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Read existing queue
+            if _HIL_QUEUE.exists():
+                queue = json.loads(_HIL_QUEUE.read_text())
+            else:
+                queue = {"pending": []}
+            
+            # Append new post
+            queue["pending"].append({
+                "timestamp": time.time(),
+                "title": title,
+                "content": content,
+                "target": target,
+                "mission_data": mission_data or {},
+                "status": "pending_approval",
+            })
+            
+            _HIL_QUEUE.write_text(json.dumps(queue, indent=2, default=str))
+            logger.info(
+                "MISSION: Queued for HIL approval [m/%s] %s | Total pending: %d",
+                target,
+                title[:60],
+                len(queue["pending"]),
+            )
+            return True
+        except Exception as e:
+            logger.error("Failed to queue mission for approval: %s", e)
             return False
 
     def _build_federation_update(self, hb: int, stats: dict) -> tuple[str, str]:
