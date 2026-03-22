@@ -32,11 +32,16 @@ def _repo_name() -> str:
     return f"{owner}/{repo}"
 
 
-def _federation_messages(ctx: PhaseContext) -> list[object]:
-    messages = getattr(ctx, "_federation_messages", None)
-    if isinstance(messages, list):
-        return list(messages)
-    return []
+def _federation_messages(ctx: PhaseContext) -> list[dict]:
+    messages = []
+    queue = getattr(ctx, "gateway_queue", None)
+    if queue is None:
+        queue = getattr(ctx, "_gateway_queue", [])
+    for item in queue:
+        membrane = item.get("membrane", {})
+        if membrane.get("surface") == "federation":
+            messages.append(item)
+    return messages
 
 
 def _record_compliance_report(ctx: PhaseContext, payload: dict, operations: list[str]) -> None:
@@ -111,16 +116,17 @@ class PRVerdictHook(BasePhaseHook):
         messages = _federation_messages(ctx)
 
         for msg in messages:
-            if getattr(msg, "operation", "") == "compliance_report":
-                payload = getattr(msg, "payload", {})
+            operation = msg.get("federation_operation", "")
+            payload = msg.get("federation_payload", {})
+
+            if operation == "compliance_report":
                 if isinstance(payload, dict):
                     _record_compliance_report(ctx, payload, operations)
                 continue
 
-            if msg.operation != "pr_review_verdict":
+            if operation != "pr_review_verdict":
                 continue
 
-            payload = msg.payload
             pr_number = payload.get("pr_number")
             verdict = payload.get("verdict", "")
             reason = payload.get("reason", "No reason provided.")

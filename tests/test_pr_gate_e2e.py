@@ -25,6 +25,7 @@ import pytest
 from city.federation_nadi import FederationMessage, FederationNadi
 from city.hooks.dharma.pr_verdict import PRVerdictHook
 from city.hooks.genesis.pr_scanner import PRScannerHook, _processed_prs
+from city.hooks.genesis.federation import FederationNadiHook
 
 
 @pytest.fixture(autouse=True)
@@ -50,10 +51,13 @@ def _make_ctx_with_real_nadi(tmp_path: Path, *, citizen: bool = False) -> MagicM
     ctx = MagicMock()
     ctx.offline_mode = False
     ctx.federation_nadi = nadi
+    ctx.city_nadi = None
+    ctx._city_nadi = None
     ctx.pokedex = MagicMock()
     ctx.pokedex.get.return_value = {"name": "test-citizen"} if citizen else None
     ctx.council = None
     ctx.heartbeat_count = 42
+    ctx.gateway_queue = []
 
     return ctx
 
@@ -144,9 +148,10 @@ class TestE2EPRGatePipeline:
         inbox_path = ctx.federation_nadi.inbox_path
         inbox_path.write_text(json.dumps([verdict_msg.to_dict()]))
 
-        handler = PRVerdictHook()
         ops: list[str] = []
+        FederationNadiHook().execute(ctx, ops)
 
+        handler = PRVerdictHook()
         # DHARMA phase: verdict handler runs
         handler.execute(ctx, ops)
 
@@ -207,6 +212,9 @@ class TestE2EPRGatePipeline:
         ctx.federation_nadi.inbox_path.write_text(
             json.dumps([steward_verdict.to_dict()])
         )
+
+        # Simulate GENESIS NADI inbox read
+        FederationNadiHook().execute(ctx, genesis_ops)
 
         # ── Step 4: DHARMA — Verdict handler processes ──
         handler = PRVerdictHook()
@@ -282,6 +290,8 @@ class TestE2EPRGatePipeline:
             json.dumps([steward_verdict.to_dict()])
         )
 
+        FederationNadiHook().execute(ctx, genesis_ops)
+
         # ── DHARMA: Verdict handler escalates to council ──
         handler = PRVerdictHook()
         dharma_ops: list[str] = []
@@ -335,6 +345,8 @@ class TestE2EPRGatePipeline:
         ctx.federation_nadi.inbox_path.write_text(
             json.dumps([steward_verdict.to_dict()])
         )
+
+        FederationNadiHook().execute(ctx, genesis_ops)
 
         # ── DHARMA: PR closed ──
         handler = PRVerdictHook()

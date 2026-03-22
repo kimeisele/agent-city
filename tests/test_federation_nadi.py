@@ -546,6 +546,53 @@ class TestFileIO:
 # ── Constants ─────────────────────────────────────────────────────────
 
 
+class TestIdentityBinding:
+    """FederationNadi must use the DID (node_id) from peer.json as outbound source."""
+
+    def test_emit_uses_node_id_from_peer_json(self, fed_dir):
+        peer = {
+            "identity": {
+                "city_id": "agent-city",
+                "slug": "agent-city",
+                "node_id": "ag_abc123deadbeef",
+                "public_key": "cafebabe",
+            }
+        }
+        (fed_dir / "peer.json").write_text(json.dumps(peer))
+        nadi = FederationNadi(_federation_dir=fed_dir)
+
+        nadi.emit("moksha", "city_report", {"heartbeat": 1})
+        nadi.flush()
+
+        data = json.loads(nadi.outbox_path.read_text())
+        assert data[0]["source"] == "ag_abc123deadbeef"
+
+    def test_emit_falls_back_to_city_id_when_no_node_id(self, fed_dir):
+        peer = {
+            "identity": {
+                "city_id": "agent-city",
+                "slug": "agent-city",
+            }
+        }
+        (fed_dir / "peer.json").write_text(json.dumps(peer))
+        nadi = FederationNadi(_federation_dir=fed_dir)
+
+        nadi.emit("moksha", "city_report", {"heartbeat": 1})
+        nadi.flush()
+
+        data = json.loads(nadi.outbox_path.read_text())
+        assert data[0]["source"] == "agent-city"
+
+    def test_no_peer_json_uses_caller_source(self, fed_dir):
+        nadi = FederationNadi(_federation_dir=fed_dir)
+
+        nadi.emit("moksha", "city_report", {"heartbeat": 1})
+        nadi.flush()
+
+        data = json.loads(nadi.outbox_path.read_text())
+        assert data[0]["source"] == "moksha"
+
+
 class TestConstants:
     def test_buffer_size(self):
         assert NADI_BUFFER_SIZE == 144
