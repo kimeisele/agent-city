@@ -210,10 +210,20 @@ def _route_to_cartridges(
                 operations.append(f"cognition_throttled:{agent_name}")
                 continue
 
-            operation_name = _execute_cognitive_action(
-                ctx, cognitive_action, mission, operations,
-            )
-            executed = operation_name is not None
+            # Initiative missions: the MicroBrain decision IS the work.
+            # The agent thought about its domain and chose an action — that's success.
+            # Regular missions go through _execute_cognitive_action for side effects.
+            if is_initiative and micro_brain_acted:
+                executed = True
+                operations.append(
+                    f"initiative_executed:{agent_name}:{cognitive_action.get('function', '?')}"
+                )
+            else:
+                operation_name = _execute_cognitive_action(
+                    ctx, cognitive_action, mission, operations,
+                )
+                executed = operation_name is not None
+
             # Runtime learning: per-agent per-mission outcome
             runtime.record_outcome(f"mission:{mission.id}", executed)
             _learn(
