@@ -44,6 +44,7 @@ def _build_registry():
     from city.hooks.dharma.immigration_processor import ImmigrationProcessorHook
     from city.hooks.dharma.zone_governance import ZoneGovernanceHook
     from city.hooks.dharma.pr_verdict import PRVerdictHook
+    from city.hooks.dharma.bottleneck_resolution import BottleneckResolutionHook
 
     registry = PhaseHookRegistry()
     registry.register(HibernationHook())              # pri=0   freeze first
@@ -61,6 +62,7 @@ def _build_registry():
     registry.register(IssueLifecycleHook())            # pri=45  issues
     registry.register(MoltbookAssistantDharmaHook())   # pri=50  assistant
     registry.register(PRVerdictHook())                 # pri=55  steward PR verdicts
+    registry.register(BottleneckResolutionHook())      # pri=56  steward bottleneck resolution
     registry.register(CommunityTriageHook())           # pri=60  triage
 
     return registry
