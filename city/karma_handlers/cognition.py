@@ -25,7 +25,9 @@ logger = logging.getLogger("AGENT_CITY.KARMA.COGNITION")
 # Minimum venu energy to run cognition (0-63 scale).
 # 16 = quarter-point — more permissive than heal (32) but still
 # gates out the lowest-energy ticks where the city should rest.
-_COGNITION_VENU_THRESHOLD: int = 16
+# At 15-min heartbeats, every tick is precious. Cognition runs EVERY heartbeat.
+# VENU gating is for sub-second orchestration, not 96-ticks-per-day cadence.
+_COGNITION_VENU_THRESHOLD: int = 0
 
 # Maps buddhi function × agent capability → existing city operation.
 _ACTION_MAP: dict[str, dict[str, str]] = {

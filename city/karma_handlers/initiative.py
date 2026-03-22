@@ -80,7 +80,9 @@ SVADHARMA_TABLE: dict[tuple[str, str], dict[str, str]] = {
 # ── Thresholds ───────────────────────────────────────────────────────────
 
 # VENU energy gate: initiative requires moderate energy (between cognition=16 and heal=32)
-_INITIATIVE_VENU_THRESHOLD: int = 24
+# Initiative fires most heartbeats. Agents should seek work actively.
+# Only skip on truly low-energy ticks (< 8 of 63).
+_INITIATIVE_VENU_THRESHOLD: int = 8
 
 # Prana gate: agent must be able to afford the initiative (metabolic_cost × 3 cycles)
 _INITIATIVE_PRANA_FLOOR: int = 30
