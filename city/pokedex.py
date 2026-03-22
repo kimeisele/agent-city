@@ -1977,6 +1977,51 @@ class Pokedex:
         )
         return order_id
 
+    def _create_bounty_order(
+        self,
+        target: str,
+        reward: int,
+        heartbeat: int,
+        expiry_hb: int = 20,
+        source: str = "brain",
+        description: str = "",
+    ) -> int | None:
+        """Create a bounty order (no asset escrow — reward from treasury).
+
+        Bounties are marketplace orders with asset_type='bounty'.
+        The "seller" is 'treasury' (public escrow), "price" is the reward.
+        Anyone can fill (claim) the bounty to receive the reward.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        asset_id = f"fix:{target[:100]}"
+
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """INSERT INTO marketplace_orders
+                   (seller, asset_type, asset_id, quantity, price,
+                    created_at, created_heartbeat, expires_heartbeat, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open')""",
+                (
+                    f"treasury:{source}",
+                    "bounty",
+                    asset_id,
+                    1,
+                    reward,
+                    now,
+                    heartbeat,
+                    heartbeat + expiry_hb,
+                ),
+            )
+            order_id = cur.lastrowid
+            self._conn.commit()
+
+        logger.info(
+            "MARKETPLACE: Bounty #%d — reward=%d target='%s' source=%s expires=%d",
+            order_id, reward, target[:60], source, heartbeat + expiry_hb,
+        )
+        return order_id
+
     def fill_order(
         self,
         order_id: int,
