@@ -63,3 +63,4 @@ cover/
 .cursorignore
 .cursorindexingignore
 
+.aider*
