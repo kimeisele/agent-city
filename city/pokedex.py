@@ -1985,6 +1985,7 @@ class Pokedex:
         expiry_hb: int = 20,
         source: str = "brain",
         description: str = "",
+        asset_id: str | None = None,
     ) -> int | None:
         """Create a bounty order (no asset escrow — reward from treasury).
 
@@ -1993,7 +1994,7 @@ class Pokedex:
         Anyone can fill (claim) the bounty to receive the reward.
         """
         now = datetime.now(timezone.utc).isoformat()
-        asset_id = f"fix:{target[:100]}"
+        asset_id = asset_id or f"fix:{target[:100]}"
 
         with self._lock:
             cur = self._conn.cursor()
@@ -2021,6 +2022,99 @@ class Pokedex:
             order_id, reward, target[:60], source, heartbeat + expiry_hb,
         )
         return order_id
+
+    def fill_bounty_order(self, order_id: int, claimer: str, heartbeat: int) -> dict | None:
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT * FROM marketplace_orders WHERE id = ? AND status = 'open' AND asset_type = 'bounty'",
+                (order_id,),
+            )
+            order = cur.fetchone()
+            if not order:
+                return None
+
+            claimer_row = self._require(claimer)
+            price = int(order["price"] or 0)
+            if price <= 0:
+                return None
+
+            seller = order["seller"]
+            now = datetime.now(timezone.utc).isoformat()
+            cur.execute(
+                """UPDATE marketplace_orders
+                   SET status = 'filled', buyer = ?, filled_at = ?
+                   WHERE id = ?""",
+                (claimer, now, order_id),
+            )
+            cur.execute(
+                "UPDATE agents SET prana = prana + ? WHERE name = ?",
+                (price, claimer),
+            )
+
+            try:
+                tx_id = self._bank.transfer(
+                    SYSTEM_TREASURY, claimer, price, f"bounty_order_{order_id}", "bounty"
+                )
+            except Exception:
+                self._conn.rollback()
+                return None
+
+            cur.execute(
+                "UPDATE marketplace_orders SET tx_id = ? WHERE id = ?",
+                (tx_id, order_id),
+            )
+            self._record_event(
+                claimer,
+                "bounty_claim",
+                claimer_row["status"],
+                claimer_row["status"],
+                json.dumps({
+                    "order_id": order_id,
+                    "asset_id": order["asset_id"],
+                    "amount": price,
+                    "heartbeat": heartbeat,
+                    "seller": seller,
+                }),
+            )
+            self._conn.commit()
+
+            if self._prana_engine is not None and self._prana_engine.has(claimer):
+                self._prana_engine.credit(claimer, price)
+
+            if claimer_row["status"] == "frozen":
+                cur.execute("SELECT prana FROM agents WHERE name = ?", (claimer,))
+                new_prana = cur.fetchone()["prana"]
+                from city.seed_constants import HIBERNATION_THRESHOLD
+
+                if new_prana > HIBERNATION_THRESHOLD:
+                    return self.revive(
+                        claimer,
+                        prana_dose=0,
+                        sponsor="system",
+                        reason=f"revive:bounty_claim:{order['asset_id']}",
+                        membrane=self._internal_root_membrane(source_class="economy"),
+                    )
+
+        logger.info(
+            "MARKETPLACE: Bounty #%d — %s claimed %s for %d prana",
+            order_id,
+            claimer,
+            order["asset_id"],
+            price,
+        )
+        return {
+            "order_id": order_id,
+            "seller": seller,
+            "buyer": claimer,
+            "asset_type": order["asset_type"],
+            "asset_id": order["asset_id"],
+            "quantity": order["quantity"],
+            "price": price,
+            "commission": 0,
+            "seller_receives": 0,
+            "tx_id": tx_id,
+        }
 
     def fill_order(
         self,
@@ -2172,6 +2266,9 @@ class Pokedex:
             )
             self._conn.commit()
 
+            if order["asset_type"] == "bounty":
+                return True
+
         # Return escrowed asset (outside lock — grant_asset has its own lock)
         self.grant_asset(
             agent,
@@ -2205,6 +2302,8 @@ class Pokedex:
 
         # Return escrowed assets (outside lock)
         for order in expired_orders:
+            if order["asset_type"] == "bounty":
+                continue
             self.grant_asset(
                 order["seller"],
                 order["asset_type"],

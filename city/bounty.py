@@ -15,6 +15,7 @@ The "asset_id" is the bounty target (e.g., "fix:ruff_clean").
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -45,6 +46,29 @@ _CODE_FIX_KEYWORDS = (
 )
 
 
+def _normalized_target_key(target: str) -> str:
+    lowered = target.lower().strip()
+    if lowered.startswith("brain_bottleneck_"):
+        lowered = lowered[len("brain_bottleneck_"):]
+        lowered = re.sub(r"_\d+$", "", lowered)
+    if "ruff" in lowered:
+        return "ruff_clean"
+    if "tests_pass" in lowered or "test_pass" in lowered or "tests" in lowered:
+        return "tests_pass"
+    if "integrity" in lowered:
+        return "integrity"
+    if "code_health" in lowered:
+        return "code_health"
+    if "engagement" in lowered:
+        return "engagement"
+    token = re.sub(r"[^a-z0-9]+", "_", lowered).strip("_")
+    return token[:100] or "unknown"
+
+
+def _bounty_asset_id(target: str) -> str:
+    return f"fix:{_normalized_target_key(target)}"
+
+
 def create_bounty(
     ctx: PhaseContext,
     target: str,
@@ -61,16 +85,26 @@ def create_bounty(
     if ctx.sankalpa is None:
         return None
 
+    from city.pokedex import SYSTEM_TREASURY
+
     reward = _SEVERITY_REWARD.get(severity, BOUNTY_REWARD_MEDIUM)
-    bounty_id = f"bounty:{target[:50]}:{ctx.heartbeat_count}"
+    try:
+        treasury_balance = int(ctx.pokedex._bank.get_balance(SYSTEM_TREASURY))
+        reward = min(reward, max(treasury_balance, 0))
+    except Exception:
+        pass
+    if reward <= 0:
+        return None
+
+    asset_id = _bounty_asset_id(target)
+    bounty_id = f"bounty:{asset_id}:{ctx.heartbeat_count}"
 
     # Dedup: skip if active bounty for same target exists
     try:
-        active_orders = ctx.pokedex.get_active_orders(asset_type="bounty")
-        for order in active_orders:
-            if order.get("asset_id", "").startswith(f"fix:{target[:30]}"):
-                logger.debug("Bounty dedup: %s already active", target[:50])
-                return None
+        active_orders = ctx.pokedex.get_active_orders(asset_type="bounty", asset_id=asset_id)
+        if active_orders:
+            logger.debug("Bounty dedup: %s already active", asset_id)
+            return None
     except Exception:
         pass
 
@@ -87,6 +121,7 @@ def create_bounty(
             expiry_hb=BOUNTY_EXPIRY_HB,
             source=source,
             description=description[:200],
+            asset_id=asset_id,
         )
         if order_id is not None:
             logger.info(
@@ -103,7 +138,7 @@ def create_bounty(
 def claim_bounty(ctx: PhaseContext, order_id: int, claimer: str) -> bool:
     """Claim a bounty. Prana transferred from escrow to claimer on completion."""
     try:
-        receipt = ctx.pokedex.fill_order(
+        receipt = ctx.pokedex.fill_bounty_order(
             order_id, claimer, ctx.heartbeat_count,
         )
         if receipt:
@@ -115,3 +150,41 @@ def claim_bounty(ctx: PhaseContext, order_id: int, claimer: str) -> bool:
     except Exception as exc:
         logger.warning("BOUNTY: claim failed: %s", exc)
     return False
+
+
+def resolve_bounties_for_missions(ctx: PhaseContext, terminal_missions: list[dict]) -> list[dict]:
+    claimed: list[dict] = []
+    for mission in terminal_missions:
+        if mission.get("status") != "completed":
+            continue
+
+        owner = str(mission.get("owner", ""))
+        if not owner or owner in {"reported", "unknown", "mayor", "dharma"}:
+            continue
+
+        mission_id = str(mission.get("id", ""))
+        mission_name = str(mission.get("name", ""))
+        if not mission_id.startswith("brain_bottleneck_"):
+            continue
+
+        asset_id = _bounty_asset_id(f"{mission_id} {mission_name}")
+        try:
+            open_orders = ctx.pokedex.get_active_orders(asset_type="bounty", asset_id=asset_id)
+        except Exception:
+            continue
+
+        for order in open_orders:
+            if claim_bounty(ctx, int(order["id"]), owner):
+                claimed.append(
+                    {
+                        "agent": owner,
+                        "asset": "bounty",
+                        "mission": mission_id,
+                        "bounty": asset_id,
+                        "prana": int(order.get("price", 0) or 0),
+                        "order_id": int(order["id"]),
+                    }
+                )
+                break
+
+    return claimed

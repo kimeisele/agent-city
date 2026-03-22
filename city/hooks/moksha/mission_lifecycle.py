@@ -323,6 +323,15 @@ def _mint_mission_rewards(ctx: PhaseContext, terminal_missions: list[dict]) -> l
     }
 
     minted: list[dict] = []
+    try:
+        from city.bounty import resolve_bounties_for_missions
+
+        bounty_claims = resolve_bounties_for_missions(ctx, terminal_missions)
+        if bounty_claims:
+            minted.extend(bounty_claims)
+    except Exception as e:
+        logger.warning("MOKSHA: Failed to resolve bounties: %s", e)
+
     for mission in terminal_missions:
         owner = mission.get("owner", "")
         if not owner or owner in ("reported", "unknown"):
