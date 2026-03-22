@@ -323,6 +323,10 @@ class TestScopeRejectNadiEscalation:
         nadi_mock.emit.assert_called_once()
         call_kwargs = nadi_mock.emit.call_args
         assert call_kwargs.kwargs.get("operation") or call_kwargs[1].get("operation", "") == "bottleneck_escalation"
+        payload = call_kwargs.kwargs.get("payload") or call_kwargs[1].get("payload", {})
+        assert payload["contract_name"] == "ruff_clean"
+        assert payload["target_repo"] == "kimeisele/agent-city"
+        assert payload["issue_key"].startswith("kimeisele/agent-city:ruff_clean:")
 
     def test_critique_hint_scope_reject_emits_nadi(self):
         """Critique hint with tests_pass target → SCOPE_REJECT + NADI emit."""
@@ -349,6 +353,9 @@ class TestScopeRejectNadiEscalation:
         assert kw["operation"] == "bottleneck_escalation"
         assert kw["payload"]["source"] == "brain_critique"
         assert kw["payload"]["requested_action"] == "fix"
+        assert kw["payload"]["contract_name"] == "tests_pass"
+        assert kw["payload"]["target_repo"] == "kimeisele/agent-city"
+        assert kw["payload"]["issue_key"].startswith("kimeisele/agent-city:tests_pass:")
 
     def test_scope_reject_graceful_without_nadi(self):
         """SCOPE_REJECT still works if federation_nadi is None."""

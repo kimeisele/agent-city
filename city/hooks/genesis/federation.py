@@ -124,6 +124,7 @@ class FederationNadiHook(BasePhaseHook):
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         fed_messages = ctx.federation_nadi.receive()
+        ctx._federation_messages = list(fed_messages)
         for msg in fed_messages:
             enqueue_ingress(
                 ctx,
@@ -131,6 +132,7 @@ class FederationNadiHook(BasePhaseHook):
                 {
                     "source": f"federation:{msg.source}",
                     "text": msg.operation,
+                    "federation_operation": msg.operation,
                     "federation_payload": msg.payload,
                     "correlation_id": msg.correlation_id,
                 },

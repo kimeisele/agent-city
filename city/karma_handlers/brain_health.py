@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
+from config import get_config
 from city.karma_handlers import BaseKarmaHandler
 from city.seed_constants import NAVA, TRINITY
 
@@ -16,6 +18,36 @@ logger = logging.getLogger("AGENT_CITY.KARMA.BRAIN_HEALTH")
 _MAX_BRAIN_CALLS_PER_CYCLE = 3
 # Max prana the brain can spend per KARMA cycle: 3 calls × 9 prana = 27
 _MAX_BRAIN_PRANA_PER_CYCLE = NAVA * TRINITY  # 27 prana
+
+
+def _target_repo_name() -> str:
+    cfg = get_config().get("discussions", {})
+    owner = cfg.get("owner", "kimeisele")
+    repo = cfg.get("repo", "agent-city")
+    return f"{owner}/{repo}"
+
+
+def _contract_name_for_target(target: str) -> str:
+    lowered = target.lower()
+    if "ruff" in lowered:
+        return "ruff_clean"
+    if "tests_pass" in lowered or "test_pass" in lowered or "tests" in lowered:
+        return "tests_pass"
+    if "integrity" in lowered:
+        return "integrity"
+    if "code_health" in lowered:
+        return "code_health"
+    if "engagement" in lowered:
+        return "engagement"
+    token = re.sub(r"[^a-z0-9]+", "_", lowered).strip("_")
+    return token[:40] or "unknown"
+
+
+def _issue_key_for_target(target: str) -> str:
+    contract_name = _contract_name_for_target(target)
+    token = re.sub(r"[^a-z0-9]+", "_", target.lower()).strip("_")
+    token = token[:48] or "unknown"
+    return f"{_target_repo_name()}:{contract_name}:{token}"
 
 
 def brain_budget_ok(ctx: PhaseContext) -> bool:
@@ -427,6 +459,10 @@ def _escalate_bottleneck_to_steward(
         operation="bottleneck_escalation",
         payload={
             "target": target[:120],
+            "contract_name": _contract_name_for_target(target),
+            "issue_key": _issue_key_for_target(target),
+            "target_repo": _target_repo_name(),
+            "target_role": "city_runtime",
             "source": source,
             "evidence": "failing contracts — scope gate rejected code-fix mission",
             "requested_action": "fix",

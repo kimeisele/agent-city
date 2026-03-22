@@ -16,6 +16,7 @@ import logging
 import subprocess
 from typing import TYPE_CHECKING
 
+from config import get_config
 from city.phase_hook import DHARMA, BasePhaseHook
 
 if TYPE_CHECKING:
@@ -23,7 +24,51 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("AGENT_CITY.HOOKS.DHARMA.PR_VERDICT")
 
-REPO = "kimeisele/agent-city"
+
+def _repo_name() -> str:
+    cfg = get_config().get("discussions", {})
+    owner = cfg.get("owner", "kimeisele")
+    repo = cfg.get("repo", "agent-city")
+    return f"{owner}/{repo}"
+
+
+def _federation_messages(ctx: PhaseContext) -> list[object]:
+    messages = getattr(ctx, "_federation_messages", None)
+    if isinstance(messages, list):
+        return list(messages)
+    return []
+
+
+def _record_compliance_report(ctx: PhaseContext, payload: dict, operations: list[str]) -> None:
+    report = {
+        "operation": "compliance_report",
+        "status": str(payload.get("status", payload.get("compliance", "reported")))[:40],
+        "subject": str(payload.get("subject", payload.get("target", payload.get("rule", "unknown"))))[:120],
+        "source": str(payload.get("source", payload.get("issuer", "steward")))[:80],
+        "heartbeat": getattr(ctx, "heartbeat_count", 0),
+        "payload": dict(payload),
+    }
+    reports = getattr(ctx, "_compliance_reports", None)
+    if not isinstance(reports, list):
+        reports = []
+    reports.append(report)
+    ctx._compliance_reports = reports
+
+    events = getattr(ctx, "recent_events", None)
+    if not isinstance(events, list):
+        events = []
+        ctx.recent_events = events
+    events.append(report)
+
+    operations.append(
+        f"compliance_report:{report['status']}:{report['subject'][:40]}"
+    )
+    logger.info(
+        "COMPLIANCE: %s from %s — %s",
+        report["status"],
+        report["source"],
+        report["subject"],
+    )
 
 
 def _gh_run(args: list[str]) -> str | None:
@@ -60,12 +105,18 @@ class PRVerdictHook(BasePhaseHook):
         return 55
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.federation_nadi is not None and not ctx.offline_mode
+        return ctx.federation_nadi is not None and not ctx.offline_mode and bool(_federation_messages(ctx))
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        messages = ctx.federation_nadi.receive()
+        messages = _federation_messages(ctx)
 
         for msg in messages:
+            if getattr(msg, "operation", "") == "compliance_report":
+                payload = getattr(msg, "payload", {})
+                if isinstance(payload, dict):
+                    _record_compliance_report(ctx, payload, operations)
+                continue
+
             if msg.operation != "pr_review_verdict":
                 continue
 
@@ -110,8 +161,9 @@ class PRVerdictHook(BasePhaseHook):
                 f"**Steward Approved.** Auto-merging.\n\n"
                 f"Reason: {reason}"
             )
-            _gh_run(["pr", "comment", str(pr_number), "--repo", REPO, "--body", comment])
-            result = _gh_run(["pr", "merge", str(pr_number), "--repo", REPO, "--merge"])
+            repo = _repo_name()
+            _gh_run(["pr", "comment", str(pr_number), "--repo", repo, "--body", comment])
+            result = _gh_run(["pr", "merge", str(pr_number), "--repo", repo, "--merge"])
             if result is not None:
                 operations.append(f"pr_verdict:merged:#{pr_number}")
                 logger.info("PR_VERDICT: Auto-merged PR #%d", pr_number)
@@ -126,7 +178,7 @@ class PRVerdictHook(BasePhaseHook):
                 f"This PR touches protected core files and requires council approval "
                 f"before merge. A governance proposal has been created."
             )
-            _gh_run(["pr", "comment", str(pr_number), "--repo", REPO, "--body", comment])
+            _gh_run(["pr", "comment", str(pr_number), "--repo", _repo_name(), "--body", comment])
 
             # Create council proposal if council is available
             if ctx.council is not None:
@@ -146,7 +198,7 @@ class PRVerdictHook(BasePhaseHook):
             f"**Steward Review: Changes Requested**\n\n"
             f"{reason}"
         )
-        _gh_run(["pr", "comment", str(pr_number), "--repo", REPO, "--body", comment])
+        _gh_run(["pr", "comment", str(pr_number), "--repo", _repo_name(), "--body", comment])
         operations.append(f"pr_verdict:changes_requested:#{pr_number}")
         logger.info("PR_VERDICT: Changes requested on PR #%d", pr_number)
 
@@ -161,7 +213,7 @@ class PRVerdictHook(BasePhaseHook):
             f"**Steward Review: Rejected**\n\n"
             f"{reason}"
         )
-        _gh_run(["pr", "close", str(pr_number), "--repo", REPO, "--comment", comment])
+        _gh_run(["pr", "close", str(pr_number), "--repo", _repo_name(), "--comment", comment])
         operations.append(f"pr_verdict:rejected:#{pr_number}")
         logger.info("PR_VERDICT: Rejected and closed PR #%d", pr_number)
 
@@ -195,7 +247,7 @@ class PRVerdictHook(BasePhaseHook):
             action={
                 "type": "pr_merge",
                 "pr_number": pr_number,
-                "repo": REPO,
+                "repo": _repo_name(),
             },
             timestamp=time.time(),
             heartbeat=ctx.heartbeat_count,
