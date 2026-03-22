@@ -359,6 +359,82 @@ class TestTransactionSafety(unittest.TestCase):
         self.assertEqual(receipt["commission"], 6)
 
 
+class TestBountySettlement(unittest.TestCase):
+    def test_fill_bounty_order_pays_claimer_without_asset_trade(self):
+        pokedex = _make_pokedex()
+        _register(pokedex, "solver")
+
+        pokedex._bank.transfer("MINT", "SYSTEM_TREASURY", 200, "bounty_fund", "funding")
+        oid = pokedex._create_bounty_order(
+            target="ruff_clean contract",
+            reward=54,
+            heartbeat=1,
+            asset_id="fix:ruff_clean",
+        )
+
+        before_prana = pokedex.get_prana("solver")
+        before_balance = pokedex._bank.get_balance("solver")
+        receipt = pokedex.fill_bounty_order(oid, "solver", heartbeat=2)
+
+        self.assertIsNotNone(receipt)
+        self.assertEqual(receipt["asset_type"], "bounty")
+        self.assertEqual(receipt["asset_id"], "fix:ruff_clean")
+        self.assertEqual(pokedex.get_prana("solver"), before_prana + 54)
+        self.assertEqual(pokedex._bank.get_balance("solver"), before_balance + 54)
+        self.assertFalse(pokedex.has_asset("solver", "bounty", "fix:ruff_clean"))
+
+    def test_expire_bounty_does_not_return_fake_asset(self):
+        pokedex = _make_pokedex()
+        _register(pokedex, "solver")
+
+        pokedex._create_bounty_order(
+            target="tests_pass failing",
+            reward=27,
+            heartbeat=1,
+            expiry_hb=1,
+            asset_id="fix:tests_pass",
+        )
+
+        expired = pokedex.expire_orders(heartbeat=3)
+
+        self.assertEqual(expired, 1)
+        self.assertFalse(pokedex.has_asset("treasury:brain", "bounty", "fix:tests_pass"))
+
+    def test_resolve_bounties_for_completed_brain_bottleneck_mission(self):
+        from city.bounty import resolve_bounties_for_missions
+
+        pokedex = _make_pokedex()
+        _register(pokedex, "solver")
+        pokedex._bank.transfer("MINT", "SYSTEM_TREASURY", 200, "bounty_fund", "funding")
+        pokedex._create_bounty_order(
+            target="ruff_clean contract",
+            reward=108,
+            heartbeat=1,
+            asset_id="fix:ruff_clean",
+        )
+
+        ctx = MagicMock()
+        ctx.pokedex = pokedex
+        ctx.heartbeat_count = 9
+
+        claims = resolve_bounties_for_missions(
+            ctx,
+            [
+                {
+                    "id": "brain_bottleneck_fix_ruff_clean_contract_9",
+                    "name": "Brain bottleneck: fix ruff_clean contract",
+                    "status": "completed",
+                    "owner": "solver",
+                }
+            ],
+        )
+
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["agent"], "solver")
+        self.assertEqual(claims[0]["bounty"], "fix:ruff_clean")
+        self.assertEqual(len(pokedex.get_active_orders(asset_type="bounty")), 0)
+
+
 # ── Stats + Constants Tests ─────────────────────────────────────────
 
 
