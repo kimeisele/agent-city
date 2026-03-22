@@ -72,9 +72,27 @@ def execute(ctx: PhaseContext) -> list[str]:
     """DHARMA: Dispatch hooks in priority order."""
     actions: list[str] = []
 
+    # 12D: Drain city_nadi into gateway_queue so DHARMA hooks can see system messages
+    if ctx.city_nadi is not None:
+        new_items = ctx.city_nadi.drain()
+        if new_items:
+            ctx.gateway_queue.extend(new_items)
+            logger.debug("DHARMA: drained %d items from city_nadi into gateway_queue", len(new_items))
+
     from city.phase_hook import DHARMA
     registry = _build_registry()
     registry.dispatch(DHARMA, ctx, actions)
+
+    # 12D: Consume federation messages handled in DHARMA so they don't leak to KARMA intents
+    if ctx.gateway_queue:
+        original_count = len(ctx.gateway_queue)
+        ctx.gateway_queue[:] = [
+            item for item in ctx.gateway_queue
+            if item.get("membrane", {}).get("surface") != "federation"
+        ]
+        consumed = original_count - len(ctx.gateway_queue)
+        if consumed:
+            logger.debug("DHARMA: consumed %d federation messages", consumed)
 
     if actions:
         logger.info(
