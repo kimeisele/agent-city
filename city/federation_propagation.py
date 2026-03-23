@@ -40,7 +40,7 @@ logger = logging.getLogger("AGENT_CITY.FEDERATION_PROPAGATION")
 # Critical gap definitions — tied to real system diagnostics
 DETECTABLE_GAPS = {
     "nadi_reliability": {
-        "signal_trigger": "exception_handler_spike",  # When exception rates spike
+        "signal_trigger": "exception_handler_spike",
         "mission_type": "fed_nadi_reliability",
         "title": "Federation NADI Message Reliability Under Load",
         "problem_statement": (
@@ -52,6 +52,7 @@ DETECTABLE_GAPS = {
         "reward": "Karma x10 + Federation Architect status",
         "github_issue": 360,
         "moltbook_tags": ["federation", "infrastructure", "reliability"],
+        "required_metrics": ["exception_rate", "error_logs", "message_count"],
     },
     "brain_cognition_latency": {
         "signal_trigger": "enqueued_stuck_comments",
@@ -66,6 +67,7 @@ DETECTABLE_GAPS = {
         "reward": "Karma x8 + Brain Health Steward role",
         "github_issue": 131,
         "moltbook_tags": ["brain", "cognition", "reliability"],
+        "required_metrics": ["stuck_count", "latency_samples", "enqueued_total"],
     },
     "cross_zone_economy": {
         "signal_trigger": "zone_prana_isolation",
@@ -80,6 +82,7 @@ DETECTABLE_GAPS = {
         "reward": "Karma x12 + Economy Architect status + 100 prana/cycle",
         "github_issue": 348,
         "moltbook_tags": ["economy", "zones", "market-design"],
+        "required_metrics": ["zone_prana_levels", "zone_count", "trade_volume"],
     },
 }
 
@@ -176,15 +179,74 @@ class FederationPropagationEngine:
 
         return gap
 
-    def create_moltbook_help_call(self, gap: DetectedGap) -> tuple[str, str]:
-        """Generate Moltbook post title + content from detected gap."""
-        gap_def = DETECTABLE_GAPS[gap.gap_id]
+    def create_moltbook_help_call(
+        self, 
+        gap: DetectedGap, 
+        system_state: dict | None = None,
+    ) -> tuple[str, str]:
+        """Generate Moltbook post title + content from detected gap + live metrics.
         
+        Dynamically extracts required_metrics from gap_def and interpolates
+        actual system_state values into technical context block.
+        
+        Args:
+            gap: Detected gap
+            system_state: Dict with metric keys matching gap_def["required_metrics"]
+                         Missing keys handled gracefully
+        """
+        gap_def = DETECTABLE_GAPS[gap.gap_id]
         title = f"🆘 {gap_def['title']}"
+        
+        # Dynamically extract and format live metrics
+        technical_lines = []
+        required_metrics = gap_def.get("required_metrics", [])
+        
+        if system_state and required_metrics:
+            for metric_key in required_metrics:
+                metric_value = system_state.get(metric_key)
+                
+                if metric_value is None:
+                    continue
+                
+                # Format metric based on type
+                if isinstance(metric_value, float):
+                    if "rate" in metric_key or "latency" in metric_key:
+                        formatted_value = f"{metric_value:.2f}"
+                    else:
+                        formatted_value = f"{metric_value:.1f}"
+                elif isinstance(metric_value, list):
+                    if metric_key == "error_logs":
+                        sample_errors = "; ".join(str(e)[:50] for e in metric_value[:3])
+                        formatted_value = sample_errors
+                    elif metric_key == "latency_samples":
+                        avg = sum(metric_value) / len(metric_value) if metric_value else 0
+                        max_val = max(metric_value) if metric_value else 0
+                        formatted_value = f"avg {avg:.0f}ms, max {max_val:.0f}ms"
+                    else:
+                        formatted_value = str(metric_value)[:60]
+                elif isinstance(metric_value, dict):
+                    if metric_key == "zone_prana_levels":
+                        zone_items = ", ".join(
+                            f"{z}({p})" for z, p in list(metric_value.items())[:5]
+                        )
+                        formatted_value = f"[{zone_items}]"
+                    else:
+                        formatted_value = str(metric_value)[:60]
+                else:
+                    formatted_value = str(metric_value)
+                
+                # Humanize metric key
+                label = metric_key.replace("_", " ").title()
+                technical_lines.append(f"**{label}:** {formatted_value}")
+        
+        # Build technical block
+        technical_block = ""
+        if technical_lines:
+            technical_block = "**Live System State:**\n" + "\n".join(technical_lines) + "\n\n"
         
         content = f"""{gap_def['problem_statement']}
 
-**We're seeking:** Agents/developers skilled in {', '.join(gap_def['required_capabilities'])} to collaborate on solving this.
+{technical_block}**We're seeking:** Agents/developers skilled in {', '.join(gap_def['required_capabilities'])} to collaborate on solving this.
 
 **Reward:** {gap_def['reward']}
 **Contribute:** Fork github.com/kimeisele/agent-city and tackle issue #{gap_def['github_issue']}
