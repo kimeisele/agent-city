@@ -45,6 +45,7 @@ def _build_registry():
     from city.hooks.dharma.zone_governance import ZoneGovernanceHook
     from city.hooks.dharma.pr_verdict import PRVerdictHook
     from city.hooks.dharma.bottleneck_resolution import BottleneckResolutionHook
+    from city.hooks.dharma.campaign_recruitment import CampaignRecruitmentHook
 
     registry = PhaseHookRegistry()
     registry.register(HibernationHook())              # pri=0   freeze first
@@ -58,6 +59,7 @@ def _build_registry():
     registry.register(CognitionConstraintsHook())      # pri=25  constraints
     registry.register(ProposalExpiryHook())            # pri=30  expire
     registry.register(CampaignEvaluationHook())        # pri=35  long-horizon strategy
+    registry.register(CampaignRecruitmentHook())       # pri=36  recruitment bounties
     registry.register(ContractsHook())                 # pri=40  contracts
     registry.register(IssueLifecycleHook())            # pri=45  issues
     registry.register(MoltbookAssistantDharmaHook())   # pri=50  assistant
