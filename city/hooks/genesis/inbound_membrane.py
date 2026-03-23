@@ -1,13 +1,13 @@
 """
-GENESIS Hook: Inbound Membrane — Strict A2A Protocol Parser.
+GENESIS Hook: Inbound Membrane — Pure A2A Protocol Parser.
+
+EXTRACTS ONLY. ZERO VALIDATION. ZERO STATE.
 
 Parses GitHub comments for Agent-City Protocol (ACP) structured signals.
-Only deterministic JSON schema parsing — zero keyword guessing.
+Outputs pure InboundACPEvent data objects → pushed to true state registry.
 
-Unstructured natural language → wrapped as Unstructured_Signal → routed
-to Antaranga Chamber for LLM classification (when compute budget allows).
-
-This is the narrow cut where "outside" becomes "inside".
+Validation happens in KARMA/DHARMA where BountyRegistry lives.
+This is a dumb pipe. No hardcoded lists. No mocking.
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
@@ -18,9 +18,9 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from city.membrane import IngressSurface, enqueue_ingress
 from city.phase_hook import GENESIS, BasePhaseHook
@@ -34,9 +34,6 @@ logger = logging.getLogger("AGENT_CITY.HOOKS.GENESIS.INBOUND_MEMBRANE")
 
 ACP_VERSION = "1.0"
 
-# Known bounty issues (for validation)
-_BOUNTY_ISSUES = {360, 131, 348}
-
 
 class ACPIntent(str, Enum):
     """Strict ACP intent schema — no ambiguity."""
@@ -48,83 +45,74 @@ class ACPIntent(str, Enum):
 
 
 @dataclass(frozen=True)
-class ACPMessage:
-    """Parsed ACP message — machine-readable contract."""
+class InboundACPEvent:
+    """Pure parsed event — no validation, no state.
+    
+    This is a dumb data container. Validation happens downstream
+    in KARMA/DHARMA where the true BountyRegistry lives.
+    """
     version: str
     intent: ACPIntent
     payload: dict
     author: str
-    source: str
+    source: str  # "github_issue" | "github_discussion"
     source_id: int
+    raw_block: str  # Original JSON for audit
 
 
 @dataclass(frozen=True)
 class UnstructuredSignal:
-    """Natural language signal — requires LLM classification."""
+    """Natural language → requires LLM classification."""
     author: str
     source: str
     source_id: int
     raw_text: str
-    reason: str = "no_acp_block"
 
 
-# ── Protocol Parser ─────────────────────────────────────────────────
+# ── Pure Parser (No State, No Validation) ───────────────────────────
 
-# Matches JSON code blocks in markdown
 _ACP_JSON_PATTERN = re.compile(r"```(?:json)?\s*({.*?})\s*```", re.DOTALL)
-
-# ACP schema validator
 _REQUIRED_ACP_FIELDS = frozenset({"acp_version", "intent"})
 _VALID_INTENTS = frozenset({v.value for v in ACPIntent})
 
 
-def _extract_json_blocks(text: str) -> list[dict]:
-    """Extract all JSON code blocks from markdown text."""
+def _extract_json_blocks(text: str) -> list[tuple[dict, str]]:
+    """Extract JSON blocks with raw text for audit."""
     blocks = []
     for match in _ACP_JSON_PATTERN.finditer(text):
         try:
             obj = json.loads(match.group(1))
             if isinstance(obj, dict):
-                blocks.append(obj)
+                blocks.append((obj, match.group(0)))
         except (json.JSONDecodeError, TypeError):
             continue
     return blocks
 
 
-def _validate_acp_message(obj: dict) -> bool:
-    """Validate ACP message schema (strict)."""
-    # Check required fields
-    if not _REQUIRED_ACP_FIELDS <= set(obj.keys()):
-        return False
-    
-    # Check version
-    if obj.get("acp_version") != ACP_VERSION:
-        return False
-    
-    # Check intent
-    if obj.get("intent") not in _VALID_INTENTS:
-        return False
-    
-    return True
-
-
-def _parse_acp_message(
+def _parse_acp_block(
     obj: dict,
+    raw_block: str,
     author: str,
     source: str,
     source_id: int,
-) -> ACPMessage | None:
-    """Parse validated ACP message into typed structure."""
-    if not _validate_acp_message(obj):
+) -> InboundACPEvent | None:
+    """Parse ACP block → event. NO VALIDATION beyond schema."""
+    # Schema check only (version + intent format)
+    if not _REQUIRED_ACP_FIELDS <= set(obj.keys()):
+        return None
+    if obj.get("acp_version") != ACP_VERSION:
+        return None
+    if obj.get("intent") not in _VALID_INTENTS:
         return None
     
-    return ACPMessage(
+    return InboundACPEvent(
         version=obj["acp_version"],
         intent=ACPIntent(obj["intent"]),
         payload=obj.get("payload", {}),
         author=author,
         source=source,
         source_id=source_id,
+        raw_block=raw_block,
     )
 
 
@@ -133,99 +121,42 @@ def _parse_comment(
     text: str,
     source: str,
     source_id: int,
-) -> ACPMessage | UnstructuredSignal | None:
-    """Parse a GitHub comment for ACP signals.
+) -> InboundACPEvent | UnstructuredSignal | None:
+    """Parse comment → ACP event or unstructured signal.
     
-    Priority:
-    1. Valid ACP JSON block → ACPMessage (deterministic routing)
-    2. No ACP block → UnstructuredSignal (LLM classification later)
+    NO STATE CHECKS. NO VALIDATION of issue refs, bounties, etc.
+    That happens in KARMA where Pokedex/BountyRegistry lives.
     """
-    # Extract JSON blocks
     json_blocks = _extract_json_blocks(text)
     
-    # Try to parse first valid ACP message
-    for block in json_blocks:
-        acp = _parse_acp_message(block, author, source, source_id)
-        if acp is not None:
-            return acp
+    for obj, raw_block in json_blocks:
+        event = _parse_acp_block(obj, raw_block, author, source, source_id)
+        if event is not None:
+            return event
     
-    # No valid ACP → unstructured signal (if text has substance)
+    # No valid ACP → unstructured (if substantial)
     if text.strip() and len(text.strip()) > 20:
         return UnstructuredSignal(
             author=author,
             source=source,
             source_id=source_id,
-            raw_text=text[:1000],  # Trim for memory
-            reason="no_acp_block",
+            raw_text=text[:1000],
         )
     
     return None
 
 
-# ── Intent-Specific Validators ──────────────────────────────────────
-
-def _validate_claim_bounty(payload: dict) -> tuple[bool, str]:
-    """Validate CLAIM_BOUNTY payload."""
-    issue_ref = payload.get("issue_ref", "")
-    # Extract number from "#360" or "360"
-    match = re.search(r"#?(\d+)", str(issue_ref))
-    if not match:
-        return False, "missing issue_ref"
-    
-    issue_num = int(match.group(1))
-    if issue_num not in _BOUNTY_ISSUES:
-        return False, f"invalid bounty issue: #{issue_num}"
-    
-    # Optional: agent_signature for verification
-    return True, ""
-
-
-def _validate_offer_compute(payload: dict) -> tuple[bool, str]:
-    """Validate OFFER_COMPUTE payload."""
-    if "token" not in payload and "api_key" not in payload and "quota" not in payload:
-        return False, "missing token/api_key/quota"
-    return True, ""
-
-
-def _validate_submit_pr(payload: dict) -> tuple[bool, str]:
-    """Validate SUBMIT_PR payload."""
-    pr_url = payload.get("pr_url", "")
-    if not pr_url or "github.com" not in pr_url or "/pull/" not in pr_url:
-        return False, "invalid pr_url"
-    return True, ""
-
-
-def _validate_join_federation(payload: dict) -> tuple[bool, str]:
-    """Validate JOIN_FEDERATION payload."""
-    if "agent_id" not in payload and "repo" not in payload:
-        return False, "missing agent_id or repo"
-    return True, ""
-
-
-_VALIDATORS = {
-    ACPIntent.CLAIM_BOUNTY: _validate_claim_bounty,
-    ACPIntent.OFFER_COMPUTE: _validate_offer_compute,
-    ACPIntent.SUBMIT_PR: _validate_submit_pr,
-    ACPIntent.JOIN_FEDERATION: _validate_join_federation,
-    ACPIntent.PROPOSE_ALLIANCE: lambda p: (True, ""),  # Open-ended
-}
-
-
-def _validate_payload(acp: ACPMessage) -> tuple[bool, str]:
-    """Validate ACP message payload against intent schema."""
-    validator = _VALIDATORS.get(acp.intent)
-    if not validator:
-        return False, f"unknown intent: {acp.intent}"
-    return validator(acp.payload)
-
-
-# ── State Tracking ──────────────────────────────────────────────────
+# ── State Tracking (Dedup only) ─────────────────────────────────────
 
 _processed_comments: set[str] = set()
 
 
 class InboundMembraneHook(BasePhaseHook):
-    """Strict A2A protocol parser for inbound signals."""
+    """Pure A2A protocol parser → event bus injection.
+    
+    THIS HOOK DOES NOT VALIDATE. It extracts and routes.
+    Validation happens in KARMA/DHARMA via Pokedex/BountyRegistry.
+    """
 
     @property
     def name(self) -> str:
@@ -237,7 +168,7 @@ class InboundMembraneHook(BasePhaseHook):
 
     @property
     def priority(self) -> int:
-        return 58  # after issue_scanner (55), before discussion_scanner (60)
+        return 58
 
     def should_run(self, ctx: PhaseContext) -> bool:
         return ctx.issues is not None and not ctx.offline_mode
@@ -246,9 +177,14 @@ class InboundMembraneHook(BasePhaseHook):
         acp_count = 0
         unstructured_count = 0
 
-        # Scan bounty issues for new comments
-        for issue_num in _BOUNTY_ISSUES:
+        # Scan ALL open issues (not hardcoded list)
+        # Use ctx.issues to get dynamic state
+        open_issues = self._fetch_all_open_issues()
+        
+        for issue in open_issues:
+            issue_num = issue.get("number", 0)
             comments = self._fetch_issue_comments(issue_num)
+            
             for comment in comments:
                 comment_id = str(comment.get("id", ""))
                 if comment_id in _processed_comments:
@@ -259,48 +195,56 @@ class InboundMembraneHook(BasePhaseHook):
                 if not author or not body:
                     continue
 
-                # Parse comment
+                # PURE PARSE (no validation)
                 result = _parse_comment(author, body, "github_issue", issue_num)
                 if result is None:
                     _processed_comments.add(comment_id)
                     continue
 
-                # Mark as processed
                 _processed_comments.add(comment_id)
 
-                # Route based on signal type
-                if isinstance(result, ACPMessage):
-                    # Validate payload
-                    valid, error = _validate_payload(result)
-                    if not valid:
-                        logger.warning(
-                            "ACP validation failed: %s (intent=%s, author=%s)",
-                            error, result.intent, author,
-                        )
-                        continue
-                    
-                    self._route_acp(ctx, result, operations)
+                # Route to true state registry
+                if isinstance(result, InboundACPEvent):
+                    self._inject_acp_event(ctx, result, operations)
                     acp_count += 1
                     logger.info(
-                        "ACP: %s from %s on #%d (validated)",
+                        "ACP: %s from %s on #%d → event bus",
                         result.intent.value, author, issue_num,
                     )
                 else:
-                    # Unstructured → route to Chamber for LLM classification
-                    self._route_unstructured(ctx, result, operations)
+                    self._inject_unstructured(ctx, result, operations)
                     unstructured_count += 1
-                    logger.debug(
-                        "UNSTRUCTURED: from %s on #%d (LLM classify later)",
-                        author, issue_num,
-                    )
 
         if acp_count > 0:
-            logger.info("INBOUND_MEMBRANE: %d ACP signals processed", acp_count)
+            logger.info("INBOUND_MEMBRANE: %d ACP events → registry", acp_count)
         if unstructured_count > 0:
-            logger.info("INBOUND_MEMBRANE: %d unstructured signals → Chamber", unstructured_count)
+            logger.info("INBOUND_MEMBRANE: %d unstructured → Chamber", unstructured_count)
+
+    def _fetch_all_open_issues(self) -> list[dict]:
+        """Fetch ALL open issues (dynamic, not hardcoded)."""
+        import urllib.request
+        import json
+        import os
+
+        token = os.environ.get("GITHUB_TOKEN", "") or os.environ.get("GH_TOKEN", "")
+        if not token:
+            return []
+
+        # Fetch all open issues (not filtered by label)
+        url = "https://api.github.com/repos/kimeisele/agent-city/issues?state=open&per_page=100"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read())
+        except Exception:
+            return []
 
     def _fetch_issue_comments(self, issue_number: int) -> list[dict]:
-        """Fetch comments for a GitHub issue."""
+        """Fetch comments for an issue."""
         import urllib.request
         import json
         import os
@@ -321,63 +265,67 @@ class InboundMembraneHook(BasePhaseHook):
         except Exception:
             return []
 
-    def _route_acp(
+    def _inject_acp_event(
         self,
         ctx: PhaseContext,
-        acp: ACPMessage,
+        event: InboundACPEvent,
         operations: list[str],
     ) -> None:
-        """Route validated ACP message to appropriate handler."""
+        """Inject ACP event into TRUE state registry (KARMA/DHARMA).
+        
+        This does NOT validate. It pushes to the event bus where
+        BountyRegistry, Immigration, Council etc. listen and validate.
+        """
         payload = {
             "source": "acp",
-            "acp_version": acp.version,
-            "intent": acp.intent.value,
-            "payload": acp.payload,
-            "from_agent": acp.author,
-            "source_id": acp.source_id,
+            "acp_version": event.version,
+            "intent": event.intent.value,
+            "payload": event.payload,
+            "from_agent": event.author,
+            "source_id": event.source_id,
+            "raw_block": event.raw_block,  # Audit trail
         }
 
-        # Deterministic routing based on intent
-        if acp.intent == ACPIntent.CLAIM_BOUNTY:
+        # Route to event bus by intent
+        # TRUE VALIDATION HAPPENS IN KARMA/DHARMA HANDLERS
+        if event.intent == ACPIntent.CLAIM_BOUNTY:
+            # → BountyRegistry validates issue_ref
             enqueue_ingress(ctx, IngressSurface.GITHUB_DISCUSSION, payload)
-            operations.append(f"acp_claim_bounty:{acp.author}:{acp.payload.get('issue_ref')}")
+            operations.append(f"acp_inject:CLAIM_BOUNTY:{event.author}:#{event.source_id}")
             
-        elif acp.intent == ACPIntent.OFFER_COMPUTE:
-            # Route to economy layer
+        elif event.intent == ACPIntent.OFFER_COMPUTE:
+            # → Economy/Compute layer validates token
             enqueue_ingress(ctx, IngressSurface.GITHUB_WEBHOOK, payload)
-            operations.append(f"acp_compute_offer:{acp.author}")
+            operations.append(f"acp_inject:OFFER_COMPUTE:{event.author}")
             
-        elif acp.intent == ACPIntent.SUBMIT_PR:
-            # Route to PR lifecycle
+        elif event.intent == ACPIntent.SUBMIT_PR:
+            # → PR Lifecycle validates pr_url
             enqueue_ingress(ctx, IngressSurface.GITHUB_DISCUSSION, payload)
-            operations.append(f"acp_pr_submit:{acp.author}:{acp.payload.get('pr_url')}")
+            operations.append(f"acp_inject:SUBMIT_PR:{event.author}")
             
-        elif acp.intent == ACPIntent.JOIN_FEDERATION:
-            # Route to immigration
+        elif event.intent == ACPIntent.JOIN_FEDERATION:
+            # → Immigration validates agent_id/repo
             enqueue_ingress(ctx, IngressSurface.FEDERATION, payload)
-            operations.append(f"acp_federation_join:{acp.author}")
+            operations.append(f"acp_inject:JOIN_FEDERATION:{event.author}")
             
-        elif acp.intent == ACPIntent.PROPOSE_ALLIANCE:
-            # Route to governance/council
+        elif event.intent == ACPIntent.PROPOSE_ALLIANCE:
+            # → Council validates proposal
             enqueue_ingress(ctx, IngressSurface.FEDERATION, payload)
-            operations.append(f"acp_alliance_propose:{acp.author}")
+            operations.append(f"acp_inject:PROPOSE_ALLIANCE:{event.author}")
 
-    def _route_unstructured(
+    def _inject_unstructured(
         self,
         ctx: PhaseContext,
         signal: UnstructuredSignal,
         operations: list[str],
     ) -> None:
-        """Route unstructured signal to Antaranga Chamber for LLM classification."""
+        """Route unstructured → Antaranga Chamber (LLM classifies)."""
         payload = {
             "source": "unstructured",
             "text": signal.raw_text,
             "from_agent": signal.author,
             "source_id": signal.source_id,
             "classification": "pending_llm",
-            "reason": signal.reason,
         }
-
-        # Route to Chamber (Brain will classify when compute allows)
         enqueue_ingress(ctx, IngressSurface.GITHUB_DISCUSSION, payload)
-        operations.append(f"unstructured:{signal.author}:#{signal.source_id}")
+        operations.append(f"unstructured_inject:{signal.author}:#{signal.source_id}")
