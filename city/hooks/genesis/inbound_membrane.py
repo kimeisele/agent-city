@@ -4,9 +4,9 @@ GENESIS Hook: Inbound Membrane — Pure A2A Protocol Parser.
 EXTRACTS ONLY. ZERO VALIDATION. ZERO STATE.
 
 Parses GitHub comments for Agent-City Protocol (ACP) structured signals.
-Outputs pure InboundACPEvent data objects → pushed to true state registry.
+Outputs pure InboundACPEvent → enqueued to Gateway for KARMA processing.
 
-Validation happens in KARMA/DHARMA where BountyRegistry lives.
+Validation happens in KARMA where Pokedex/BountyRegistry lives.
 This is a dumb pipe. No hardcoded lists. No mocking.
 
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
@@ -46,18 +46,13 @@ class ACPIntent(str, Enum):
 
 @dataclass(frozen=True)
 class InboundACPEvent:
-    """Pure parsed event — no validation, no state.
-    
-    This is a dumb data container. Validation happens downstream
-    in KARMA/DHARMA where the true BountyRegistry lives.
-    """
+    """Pure parsed event — no validation, no state."""
     version: str
     intent: ACPIntent
     payload: dict
     author: str
-    source: str  # "github_issue" | "github_discussion"
+    source: str
     source_id: int
-    raw_block: str  # Original JSON for audit
 
 
 @dataclass(frozen=True)
@@ -91,13 +86,11 @@ def _extract_json_blocks(text: str) -> list[tuple[dict, str]]:
 
 def _parse_acp_block(
     obj: dict,
-    raw_block: str,
     author: str,
     source: str,
     source_id: int,
 ) -> InboundACPEvent | None:
     """Parse ACP block → event. NO VALIDATION beyond schema."""
-    # Schema check only (version + intent format)
     if not _REQUIRED_ACP_FIELDS <= set(obj.keys()):
         return None
     if obj.get("acp_version") != ACP_VERSION:
@@ -112,7 +105,6 @@ def _parse_acp_block(
         author=author,
         source=source,
         source_id=source_id,
-        raw_block=raw_block,
     )
 
 
@@ -122,15 +114,11 @@ def _parse_comment(
     source: str,
     source_id: int,
 ) -> InboundACPEvent | UnstructuredSignal | None:
-    """Parse comment → ACP event or unstructured signal.
-    
-    NO STATE CHECKS. NO VALIDATION of issue refs, bounties, etc.
-    That happens in KARMA where Pokedex/BountyRegistry lives.
-    """
+    """Parse comment → ACP event or unstructured signal."""
     json_blocks = _extract_json_blocks(text)
     
-    for obj, raw_block in json_blocks:
-        event = _parse_acp_block(obj, raw_block, author, source, source_id)
+    for obj, _ in json_blocks:
+        event = _parse_acp_block(obj, author, source, source_id)
         if event is not None:
             return event
     
@@ -152,11 +140,7 @@ _processed_comments: set[str] = set()
 
 
 class InboundMembraneHook(BasePhaseHook):
-    """Pure A2A protocol parser → event bus injection.
-    
-    THIS HOOK DOES NOT VALIDATE. It extracts and routes.
-    Validation happens in KARMA/DHARMA via Pokedex/BountyRegistry.
-    """
+    """Pure A2A protocol parser → event bus injection."""
 
     @property
     def name(self) -> str:
@@ -177,8 +161,7 @@ class InboundMembraneHook(BasePhaseHook):
         acp_count = 0
         unstructured_count = 0
 
-        # Scan ALL open issues (not hardcoded list)
-        # Use ctx.issues to get dynamic state
+        # Scan ALL open issues (dynamic, not hardcoded)
         open_issues = self._fetch_all_open_issues()
         
         for issue in open_issues:
@@ -203,7 +186,7 @@ class InboundMembraneHook(BasePhaseHook):
 
                 _processed_comments.add(comment_id)
 
-                # Route to true state registry
+                # Route to event bus
                 if isinstance(result, InboundACPEvent):
                     self._inject_acp_event(ctx, result, operations)
                     acp_count += 1
@@ -230,7 +213,6 @@ class InboundMembraneHook(BasePhaseHook):
         if not token:
             return []
 
-        # Fetch all open issues (not filtered by label)
         url = "https://api.github.com/repos/kimeisele/agent-city/issues?state=open&per_page=100"
         headers = {
             "Authorization": f"token {token}",
@@ -271,11 +253,7 @@ class InboundMembraneHook(BasePhaseHook):
         event: InboundACPEvent,
         operations: list[str],
     ) -> None:
-        """Inject ACP event into TRUE state registry (KARMA/DHARMA).
-        
-        This does NOT validate. It pushes to the event bus where
-        BountyRegistry, Immigration, Council etc. listen and validate.
-        """
+        """Inject ACP event into event bus (KARMA validates)."""
         payload = {
             "source": "acp",
             "acp_version": event.version,
@@ -283,33 +261,26 @@ class InboundMembraneHook(BasePhaseHook):
             "payload": event.payload,
             "from_agent": event.author,
             "source_id": event.source_id,
-            "raw_block": event.raw_block,  # Audit trail
         }
 
-        # Route to event bus by intent
-        # TRUE VALIDATION HAPPENS IN KARMA/DHARMA HANDLERS
+        # Route by intent — KARMA handlers validate
         if event.intent == ACPIntent.CLAIM_BOUNTY:
-            # → BountyRegistry validates issue_ref
             enqueue_ingress(ctx, IngressSurface.GITHUB_DISCUSSION, payload)
             operations.append(f"acp_inject:CLAIM_BOUNTY:{event.author}:#{event.source_id}")
             
         elif event.intent == ACPIntent.OFFER_COMPUTE:
-            # → Economy/Compute layer validates token
             enqueue_ingress(ctx, IngressSurface.GITHUB_WEBHOOK, payload)
             operations.append(f"acp_inject:OFFER_COMPUTE:{event.author}")
             
         elif event.intent == ACPIntent.SUBMIT_PR:
-            # → PR Lifecycle validates pr_url
             enqueue_ingress(ctx, IngressSurface.GITHUB_DISCUSSION, payload)
             operations.append(f"acp_inject:SUBMIT_PR:{event.author}")
             
         elif event.intent == ACPIntent.JOIN_FEDERATION:
-            # → Immigration validates agent_id/repo
             enqueue_ingress(ctx, IngressSurface.FEDERATION, payload)
             operations.append(f"acp_inject:JOIN_FEDERATION:{event.author}")
             
         elif event.intent == ACPIntent.PROPOSE_ALLIANCE:
-            # → Council validates proposal
             enqueue_ingress(ctx, IngressSurface.FEDERATION, payload)
             operations.append(f"acp_inject:PROPOSE_ALLIANCE:{event.author}")
 
@@ -319,7 +290,7 @@ class InboundMembraneHook(BasePhaseHook):
         signal: UnstructuredSignal,
         operations: list[str],
     ) -> None:
-        """Route unstructured → Antaranga Chamber (LLM classifies)."""
+        """Route unstructured → Chamber (LLM classifies)."""
         payload = {
             "source": "unstructured",
             "text": signal.raw_text,
