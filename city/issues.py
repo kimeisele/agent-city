@@ -527,8 +527,17 @@ class CityIssueManager:
         }
 
     def is_issue_open(self, issue_number: int) -> bool:
-        """Return whether the issue is still tracked as open by the city."""
-        return issue_number in self._issue_cells
+        """Return whether the issue is still tracked as open.
+        
+        Checks local cache first, then falls back to GitHub API for 
+        issues outside the local tracking window (Issue #743 fix).
+        """
+        if issue_number in self._issue_cells:
+            return True
+            
+        # Fallback: Check GitHub directly for issues outside local 100-issue window
+        out = _gh_run(["issue", "view", str(issue_number), "--json", "state", "-q", ".state"])
+        return out == "OPEN"
 
     def get_bound_mission(self, issue_number: int) -> str | None:
         """Return the currently bound mission id for an issue, if any."""
