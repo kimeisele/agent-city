@@ -386,7 +386,38 @@ class Pokedex:
         )
         self._conn.commit()
 
+        # Signal Deduplication (GENESIS persistence)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS membrane_processed_signals (
+                signal_id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                processed_at TEXT NOT NULL
+            )
+        """)
+        self._conn.commit()
+
     # ── Public API ────────────────────────────────────────────────────
+
+    def is_signal_processed(self, signal_id: str) -> bool:
+        """Check if a signal (e.g., GitHub comment ID) has already been processed."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM membrane_processed_signals WHERE signal_id = ?",
+                (signal_id,),
+            )
+            return cur.fetchone() is not None
+
+    def mark_signal_processed(self, signal_id: str, source: str) -> None:
+        """Mark a signal as processed to prevent duplicate GENESIS triggers."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "INSERT OR IGNORE INTO membrane_processed_signals (signal_id, source, processed_at) VALUES (?, ?, ?)",
+                (signal_id, source, now),
+            )
+            self._conn.commit()
 
     def discover(self, name: str, moltbook_profile: dict | None = None) -> dict:
         """Register an agent as 'discovered' — seen on Moltbook, no identity yet.
