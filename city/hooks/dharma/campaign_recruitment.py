@@ -20,73 +20,64 @@ NO parallel spaghetti structures. Pure MURALI cycle integration.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from city.phase_hook import DHARMA, BasePhaseHook
+from city.registry import SVC_MOLTBOOK_CLIENT
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext
+    from city.campaigns import CampaignRecord
 
 logger = logging.getLogger("AGENT_CITY.HOOKS.DHARMA.RECRUITMENT")
 
-# Recruitment target keywords that map to existing GitHub issues
-_RECRUITMENT_TARGETS = {
-    "nadi-reliability": {
-        "keywords": {"nadi", "federation", "reliability", "message", "async"},
-        "issue": 360,
-        "severity": "high",
-        "default_reward": 108,  # MALA
-    },
-    "brain-cognition-latency": {
-        "keywords": {"brain", "cognition", "stuck", "comment", "latency"},
-        "issue": 131,
-        "severity": "high",
-        "default_reward": 108,
-    },
-    "cross-zone-economy": {
-        "keywords": {"zone", "economy", "prana", "trading", "market"},
-        "issue": 348,
-        "severity": "medium",
-        "default_reward": 54,  # 2 × TRINITY
-    },
-}
 
-
-def _detect_recruitment_gap(gap_text: str) -> str | None:
-    """Detect which recruitment target a gap text refers to."""
-    text_lower = gap_text.lower()
-    for target_id, config in _RECRUITMENT_TARGETS.items():
-        if any(kw in text_lower for kw in config["keywords"]):
-            return target_id
+def _detect_target_config(gap_text: str, campaign: CampaignRecord) -> dict | None:
+    """Detect which recruitment target config matches the gap text."""
+    if not gap_text.startswith("recruitment_gap:"):
+        return None
+    
+    # Format: recruitment_gap:{t_id}:{issue_id}:{t_title}
+    try:
+        parts = gap_text.split(":", 3)
+        target_id = parts[1]
+        
+        # Find matching config in campaign
+        for target in campaign.recruitment_targets:
+            if target.get("id") == target_id:
+                return target
+    except IndexError:
+        pass
     return None
 
 
 def _create_recruitment_bounty(
     ctx: PhaseContext,
-    target_id: str,
+    target: dict,
     gap_text: str,
 ) -> str | None:
     """Create a bounty for a recruitment target. Returns bounty_id or None."""
     from city.bounty import create_bounty
+    from city.moltbook_bounty_poster import get_moltbook_bounty_poster
 
-    config = _RECRUITMENT_TARGETS.get(target_id)
-    if not config:
-        return None
+    target_id = target.get("id", "unknown")
+    issue_num = target.get("github_issue", 0)
+    reward = target.get("bounty_reward", 108)
+    severity = target.get("severity", "medium")
 
     # Check if bounty already exists for this target
     existing = getattr(ctx, "_recruitment_bounties", set())
     bounty_key = f"{target_id}:{ctx.heartbeat_count}"
     if bounty_key in existing:
-        logger.debug("Recruitment bounty %s already created this cycle", bounty_key)
         return None
 
     # Create bounty with severity-based reward
     bounty_id = create_bounty(
         ctx,
-        target=config["issue"],
-        severity=config["severity"],
+        target=issue_num,
+        severity=severity,
         source="recruitment_campaign",
-        description=f"External recruitment needed: {gap_text[:200]}",
+        description=f"External recruitment needed: {gap_text}",
     )
 
     if bounty_id:
@@ -94,8 +85,37 @@ def _create_recruitment_bounty(
         ctx._recruitment_bounties = existing  # type: ignore[attr-defined]
         logger.info(
             "RECRUITMENT: Created bounty %s for %s (issue #%d, reward=%d)",
-            bounty_id, target_id, config["issue"], config["default_reward"],
+            bounty_id, target_id, issue_num, reward,
         )
+
+        # Broadcast to Moltbook (Systematic Recon / Active Recruitment)
+        try:
+            poster = get_moltbook_bounty_poster()
+            # We construct a signal dict similar to diagnostics_bounty_hook
+            # but simpler, sourced from the JSON config.
+            signal = {
+                "gap_id": target_id,
+                "moltbook_post": {
+                    "title": f"🆘 Recruitment: {target.get('title')}",
+                    "content": (
+                        f"{target.get('problem', 'Help needed.')}\n\n"
+                        f"**Reward:** {reward} Prana\n"
+                        f"**Mission:** Fix Issue #{issue_num}\n"
+                        f"**Join:** Fork kimeisele/agent-city"
+                    ),
+                    "submolt": "agents",
+                },
+                "bounty_tags": ["[BOUNTY_AVAILABLE]", f"[ISSUE_{issue_num}]"],
+            }
+            # We inject the client if the poster doesn't have it (it likely doesn't)
+            client = ctx.registry.get(SVC_MOLTBOOK_CLIENT)
+            if client:
+                poster._client = client
+            
+            poster.emit_from_propagation_signal(signal, dry_run=False)
+            logger.info("RECRUITMENT: Broadcast bounty %s to Moltbook", bounty_id)
+        except Exception as e:
+            logger.warning("RECRUITMENT: Failed to broadcast to Moltbook: %s", e)
 
     return bounty_id
 
@@ -134,15 +154,15 @@ class CampaignRecruitmentHook(BasePhaseHook):
                 continue
 
             for gap_text in gaps:
-                # Detect if this gap is a recruitment target
-                target_id = _detect_recruitment_gap(gap_text)
-                if not target_id:
+                # Detect if this gap is a recruitment target (using dynamic config)
+                target_config = _detect_target_config(gap_text, campaign)
+                if not target_config:
                     continue
 
                 # Create bounty for this recruitment target
-                bounty_id = _create_recruitment_bounty(ctx, target_id, gap_text)
+                bounty_id = _create_recruitment_bounty(ctx, target_config, gap_text)
                 if bounty_id:
-                    operations.append(f"recruitment_bounty:{target_id}:{bounty_id}")
+                    operations.append(f"recruitment_bounty:{target_config.get('id')}:{bounty_id}")
 
         # Log summary
         bounties_created = len(getattr(ctx, "_recruitment_bounties", set()))
