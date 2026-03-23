@@ -126,7 +126,7 @@ class DiagnosticsBountyHook:
         return False
 
     def evaluate_all_metrics(self, diagnostics_state: dict) -> list[tuple[str, float]]:
-        """Check all gap conditions and propagate those triggered with live metrics.
+        """Check all gap conditions and return those triggered.
         
         Args:
             diagnostics_state: Full system diagnostics dict
@@ -139,23 +139,7 @@ class DiagnosticsBountyHook:
         # Check NADI
         nadi_metrics = diagnostics_state.get("nadi", {})
         if self.check_nadi_reliability(nadi_metrics):
-            message_count = nadi_metrics.get("message_count", 1)
-            exception_count = nadi_metrics.get("exception_count", 0)
-            exception_rate = exception_count / message_count if message_count > 0 else 0.0
-            intensity = min(1.0, exception_rate * 100)
-            
-            # Wire live metrics
-            system_state_nadi = {
-                "exception_rate": exception_rate,
-                "error_logs": nadi_metrics.get("error_logs", []),
-                "message_count": message_count,
-            }
-            self.trigger_propagation(
-                "nadi_reliability",
-                "exception_handler_spike",
-                intensity,
-                system_state=system_state_nadi,
-            )
+            intensity = min(1.0, nadi_metrics.get("exception_count", 0) / 10.0)
             triggered_gaps.append(("nadi_reliability", intensity))
         
         # Check Brain
@@ -163,54 +147,20 @@ class DiagnosticsBountyHook:
         if self.check_brain_cognition(brain_metrics):
             stuck = brain_metrics.get("stuck_enqueued_count", 0)
             intensity = min(1.0, stuck / 10.0)
-            
-            # Wire live metrics
-            system_state_brain = {
-                "stuck_count": stuck,
-                "latency_samples": brain_metrics.get("latency_samples", []),
-                "enqueued_total": brain_metrics.get("total_enqueued", 0),
-            }
-            self.trigger_propagation(
-                "brain_cognition_latency",
-                "enqueued_stuck_comments",
-                intensity,
-                system_state=system_state_brain,
-            )
             triggered_gaps.append(("brain_cognition_latency", intensity))
         
         # Check Economy
         econ_metrics = diagnostics_state.get("economy", {})
         if self.check_cross_zone_economy(econ_metrics):
-            intensity = 0.75
-            
-            # Wire live metrics
-            zone_prana_levels = econ_metrics.get("zone_prana_levels", {})
-            system_state_econ = {
-                "zone_prana_levels": zone_prana_levels,
-                "zone_count": len(zone_prana_levels),
-                "trade_volume": econ_metrics.get("trade_volume", 0),
-            }
-            self.trigger_propagation(
-                "cross_zone_economy",
-                "zone_prana_isolation",
-                intensity,
-                system_state=system_state_econ,
-            )
-            triggered_gaps.append(("cross_zone_economy", intensity))
+            triggered_gaps.append(("cross_zone_economy", 0.75))
         
         return triggered_gaps
 
     def trigger_propagation(
-        self, gap_id: str, trigger_type: str, intensity: float, system_state: dict | None = None
+        self, gap_id: str, trigger_type: str, intensity: float
     ) -> dict | None:
-        """Trigger FederationPropagationEngine for this gap with live metrics.
+        """Trigger FederationPropagationEngine for this gap.
         
-        Args:
-            gap_id: Gap identifier
-            trigger_type: What detected it
-            intensity: 0.0-1.0 criticality
-            system_state: Live metrics dict to be injected into Moltbook post
-            
         Returns:
             Dict with {gap_id, signal_dict, moltbook_post, internal_mission}
             or None if throttled
@@ -229,8 +179,8 @@ class DiagnosticsBountyHook:
             if not gap:
                 return None
             
-            # Generate all outputs with live system state
-            title, content = engine.create_moltbook_help_call(gap, system_state=system_state)
+            # Generate all outputs
+            title, content = engine.create_moltbook_help_call(gap)
             signal_dict = gap.to_signal()
             mission = engine.create_internal_mission(gap)
             
