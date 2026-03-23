@@ -38,7 +38,7 @@ class BountyClaimHandler(BaseKarmaHandler):
 
     @property
     def priority(self) -> int:
-        return 65  # after marketplace (60), before triage (70)
+        return 15  # before gateway (20) — intercepts ACP bounties before general routing
 
     def should_run(self, ctx: PhaseContext) -> bool:
         # Always run if we have ingress queue

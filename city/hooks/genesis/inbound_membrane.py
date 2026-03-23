@@ -135,8 +135,7 @@ def _parse_comment(
 
 
 # ── State Tracking (Dedup only) ─────────────────────────────────────
-
-_processed_comments: set[str] = set()
+# Stufe 2: Persistence via Pokedex (membrane_processed_signals table)
 
 
 class InboundMembraneHook(BasePhaseHook):
@@ -170,7 +169,8 @@ class InboundMembraneHook(BasePhaseHook):
             
             for comment in comments:
                 comment_id = str(comment.get("id", ""))
-                if comment_id in _processed_comments:
+                # Persistence check
+                if ctx.pokedex.is_signal_processed(comment_id):
                     continue
 
                 author = comment.get("user", {}).get("login", "")
@@ -180,11 +180,12 @@ class InboundMembraneHook(BasePhaseHook):
 
                 # PURE PARSE (no validation)
                 result = _parse_comment(author, body, "github_issue", issue_num)
+                
+                # Mark as processed in Pokedex immediately (even if None)
+                ctx.pokedex.mark_signal_processed(comment_id, "github_issue_comment")
+                
                 if result is None:
-                    _processed_comments.add(comment_id)
                     continue
-
-                _processed_comments.add(comment_id)
 
                 # Route to event bus
                 if isinstance(result, InboundACPEvent):

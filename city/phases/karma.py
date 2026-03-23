@@ -51,6 +51,7 @@ def _build_dispatcher():
     from city.karma_handlers.assistant import AssistantHandler
     from city.karma_handlers.triage import TriageHandler
     from city.karma_handlers.bounty_claim import BountyClaimHandler
+    from city.karma_handlers.unstructured import UnstructuredSignalHandler
     from city.karma_handlers.diw_bridge import VenuDispatcher
 
     registry = KarmaHandlerRegistry()
@@ -65,7 +66,8 @@ def _build_dispatcher():
     registry.register(HealHandler())
     registry.register(CouncilHandler())
     registry.register(AssistantHandler())
-    registry.register(BountyClaimHandler())  # pri=65 A2A bounty claims
+    registry.register(BountyClaimHandler())  # pri=15 (intercepts structured)
+    registry.register(UnstructuredSignalHandler())  # pri=18 (intercepts natural language)
 
     # Use the mahamantra singleton VenuOrchestrator.
     # Persisted via to_bytes/from_bytes in heartbeat.py (8E), so ticks
