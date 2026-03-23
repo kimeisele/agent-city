@@ -53,6 +53,14 @@ class PRLifecycleHook(BasePhaseHook):
 
         pr_mgr = ctx.registry.get(SVC_PR_LIFECYCLE)
         if pr_mgr is not None:
+            # Native GitHub Reward Scan (Internet of Agents Hebel)
+            # Rewards anyone who merges a PR closing a bounty issue.
+            native_rewards = pr_mgr.scan_and_reward_merged_prs(ctx)
+            if native_rewards:
+                reflection["pr_native_rewards"] = native_rewards
+                for r in native_rewards:
+                    operations.append(f"pr_rewarded:{r['author']}:#{r['pr']}:closes=#{r['issue']}")
+
             pr_changes = pr_mgr.check_all(ctx.heartbeat_count)
             if pr_changes:
                 reflection["pr_lifecycle_changes"] = pr_changes
