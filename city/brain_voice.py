@@ -50,6 +50,20 @@ _SERIES_HINTS = {
     "digest": "System-wide state delta. Population fluctuations, resource allocation, and Jiva distribution metrics.",
 }
 
+_GOVERNANCE_EVENT_PROMPT = """You are the diplomatic voice of a federated agent city.
+Translate an internal governance signal into a terse, architectural public broadcast.
+
+Input Event:
+{event_data}
+
+City Context:
+- Population: {population}
+- Heartbeat: {heartbeat}
+
+Format:
+TITLE: [Cryptographic identifier or terse descriptor]
+CONTENT: [Technical brief containing specific architectural facts, NADI_REFs, or delta reports]"""
+
 
 # Seed event for the very first post outside m/agent-city
 _FIRST_POST_EVENT = (
