@@ -167,9 +167,12 @@ class DMInboxHook(BasePhaseHook):
 
             for msg in messages:
                 msg_id = msg.get("id", "")
-                if msg_id in _seen_message_ids:
+                if not msg_id:
                     continue
-                _seen_message_ids[msg_id] = None
+                
+                # Persistent dedup (Phase 6E: stop shitposting)
+                if ctx.pokedex.is_signal_processed(msg_id):
+                    continue
 
                 sender = msg.get("from", {}).get("username", msg.get("sender", ""))
                 content = msg.get("content", msg.get("text", ""))
@@ -186,12 +189,10 @@ class DMInboxHook(BasePhaseHook):
                         "from_agent": sender,
                     },
                 )
+                
+                ctx.pokedex.mark_signal_processed(msg_id, "moltbook_dm")
                 operations.append(f"dm_enqueued:{sender}")
                 logger.info("GENESIS: Enqueued DM from %s", sender)
-
-        # FIFO eviction: remove oldest entries first
-        while len(_seen_message_ids) > _SEEN_MESSAGE_IDS_MAX:
-            _seen_message_ids.popitem(last=False)
 
 
 class SubmoltScanHook(BasePhaseHook):
@@ -214,7 +215,7 @@ class SubmoltScanHook(BasePhaseHook):
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         _scan_limit = get_config().get("moltbook_bridge", {}).get("feed_scan_limit", 20)
-        submolt_signals = ctx.moltbook_bridge.scan_submolt(limit=_scan_limit)
+        submolt_signals = ctx.moltbook_bridge.scan_submolt(limit=_scan_limit, pokedex=ctx.pokedex)
         for signal in submolt_signals:
             # Discover authors from submolt posts
             author = signal.get("author", "")

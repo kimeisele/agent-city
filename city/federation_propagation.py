@@ -121,9 +121,18 @@ class DetectedGap:
 class FederationPropagationEngine:
     """Autonomous gap detection → mission creation → Moltbook propagation."""
 
-    def __init__(self):
+    def __init__(self, pokedex: Optional[object] = None):
+        """
+        Args:
+            pokedex: Optional city.pokedex.Pokedex for persistent throttling.
+        """
         self._propagation_log: list[DetectedGap] = []
-        self._last_propagation: dict[str, float] = {}  # gap_id → timestamp
+        self._pokedex = pokedex
+        self._last_propagation: dict[str, float] = {}  # In-memory fallback
+
+    def set_pokedex(self, pokedex: object) -> None:
+        """Set pokedex after initialization (if factory needs to wire it later)."""
+        self._pokedex = pokedex
 
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -147,7 +156,14 @@ class FederationPropagationEngine:
 
         # Throttle: max 1 propagation per gap per 6 hours
         now_ts = datetime.now(timezone.utc).timestamp()
-        last_ts = self._last_propagation.get(gap_id, 0)
+        
+        # Use persistent throttle if pokedex is available
+        last_ts = 0.0
+        if self._pokedex and hasattr(self._pokedex, "get_last_propagation_time"):
+            last_ts = self._pokedex.get_last_propagation_time(gap_id)
+        else:
+            last_ts = self._last_propagation.get(gap_id, 0.0)
+
         if now_ts - last_ts < 21600:  # 6 hours
             logger.debug(
                 "PROPAGATION: %s throttled (last %.0f seconds ago)",
@@ -165,7 +181,12 @@ class FederationPropagationEngine:
         )
 
         self._propagation_log.append(gap)
-        self._last_propagation[gap_id] = now_ts
+        
+        # Mark as propagated (persistently if possible)
+        if self._pokedex and hasattr(self._pokedex, "mark_propagated"):
+            self._pokedex.mark_propagated(gap_id)
+        else:
+            self._last_propagation[gap_id] = now_ts
 
         logger.warning(
             "PROPAGATION: Gap detected [%s] via %s | Intensity: %.1f | Propagating...",
