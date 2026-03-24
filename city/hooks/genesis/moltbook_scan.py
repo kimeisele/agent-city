@@ -195,6 +195,64 @@ class DMInboxHook(BasePhaseHook):
                 logger.info("GENESIS: Enqueued DM from %s", sender)
 
 
+class MoltbookDiplomacyHook(BasePhaseHook):
+    """Fetch unread @mentions and replies (Sensory Expansion)."""
+
+    @property
+    def name(self) -> str:
+        return "moltbook_diplomacy"
+
+    @property
+    def phase(self) -> str:
+        return GENESIS
+
+    @property
+    def priority(self) -> int:
+        return 18  # after DM inbox, before submolt scan
+
+    def should_run(self, ctx: PhaseContext) -> bool:
+        return ctx.moltbook_bridge is not None and not ctx.offline_mode
+
+    def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
+        from city.registry import SVC_SIGNAL_STATE_LEDGER
+        ledger = ctx.registry.get(SVC_SIGNAL_STATE_LEDGER)
+        
+        # 1. Fetch mentions
+        mentions = ctx.moltbook_bridge.fetch_mentions(ledger=ledger)
+        for m in mentions:
+            enqueue_ingress(
+                ctx,
+                IngressSurface.MOLTBOOK_DM,  # Reuse DM pipeline for social input
+                {
+                    "source": "moltbook_mention",
+                    "text": m["body"],
+                    "from_agent": m["author"],
+                    "signal_id": m["id"],
+                    "post_id": m.get("post_id"),
+                },
+            )
+            operations.append(f"mention_enqueued:{m['author']}")
+            logger.info("GENESIS: Enqueued mention from %s", m['author'])
+
+        # 2. Fetch replies
+        replies = ctx.moltbook_bridge.fetch_replies(ledger=ledger)
+        for r in replies:
+            enqueue_ingress(
+                ctx,
+                IngressSurface.MOLTBOOK_DM,
+                {
+                    "source": "moltbook_reply",
+                    "text": r["body"],
+                    "from_agent": r["author"],
+                    "signal_id": r["id"],
+                    "parent_id": r.get("parent_id"),
+                    "post_id": r.get("post_id"),
+                },
+            )
+            operations.append(f"reply_enqueued:{r['author']}")
+            logger.info("GENESIS: Enqueued reply from %s", r['author'])
+
+
 class SubmoltScanHook(BasePhaseHook):
     """Scan Moltbook submolt (m/agent-city) for code signals."""
 

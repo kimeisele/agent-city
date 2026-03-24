@@ -143,13 +143,24 @@ class EventDrivenOutboundHook(BasePhaseHook):
                 continue
             
             e_type = event.get("type")
-            if e_type not in ("mission_completed", "campaign_started"):
+            if e_type not in ("mission_completed", "campaign_started", "internal_governance_signal"):
                 continue
 
             # Unique signal ID for deduplication
             mission_id = event.get("mission_id")
             campaign_id = event.get("campaign_id")
-            signal_id = f"{e_type}:{mission_id or campaign_id}"
+            
+            if e_type == "internal_governance_signal":
+                # Deterministic ID for governance signals based on payload content
+                payload = event.get("payload", {})
+                import json
+                import hashlib
+                payload_str = json.dumps(payload, sort_keys=True)
+                payload_hash = hashlib.sha256(payload_str.encode()).hexdigest()[:12]
+                signal_id = f"gov:{payload.get('op', 'generic')}:{payload_hash}"
+            else:
+                signal_id = f"{e_type}:{mission_id or campaign_id}"
+
             topic = "moltbook"
 
             if ledger.is_broadcasted(signal_id, topic):
@@ -161,6 +172,7 @@ class EventDrivenOutboundHook(BasePhaseHook):
                 "heartbeat": ctx.heartbeat_count,
                 "city_stats": city_stats,
                 "nadi_ref": event.get("nadi_ref", ""),
+                "event_payload": event.get("payload", {}),
             }
 
             if e_type == "mission_completed" and mission_id:
@@ -196,10 +208,33 @@ class EventDrivenOutboundHook(BasePhaseHook):
             try:
                 client.sync_create_post(title, content, submolt="general")
                 ledger.record_broadcast(signal_id, topic)
+                ledger.set_meta("last_broadcast_at", str(time.time()))
                 operations.append(f"outbound_broadcast:{signal_id}")
                 logger.info("OUTBOUND: Broadcasted %s to Moltbook", signal_id)
             except Exception as e:
                 logger.warning("OUTBOUND: Failed to broadcast %s: %s", signal_id, e)
+
+        # Silence Detection: Proof of Life (48h delta)
+        last_broadcast = float(ledger.get_meta("last_broadcast_at", "0"))
+        if last_broadcast > 0 and (time.time() - last_broadcast) > 172800: # 48 hours
+            signal_id = f"proof_of_life:{ctx.heartbeat_count}"
+            if not ledger.is_broadcasted(signal_id, "moltbook"):
+                title, content = ("", "")
+                if voice:
+                    title, content = voice.narrate("sovereignty_brief", ctx.heartbeat_count, city_stats)
+                
+                if not title:
+                    title = f"[Proof of Life] Heartbeat #{ctx.heartbeat_count}"
+                    content = f"Sovereign node operational. Population: {city_stats.get('total', 0)} agents."
+
+                try:
+                    client.sync_create_post(title, content, submolt="general")
+                    ledger.record_broadcast(signal_id, "moltbook")
+                    ledger.set_meta("last_broadcast_at", str(time.time()))
+                    operations.append(f"outbound_proof_of_life:{ctx.heartbeat_count}")
+                    logger.info("OUTBOUND: 48h Silence broken. Proof of Life broadcasted.")
+                except Exception as e:
+                    logger.warning("OUTBOUND: Proof of Life failed: %s", e)
 
         # Reflect on engagement if assistant available
         if ctx.moltbook_assistant is not None:

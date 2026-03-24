@@ -370,6 +370,91 @@ class MoltbookBridge:
         logger.info("BRIDGE: Agent post by %s: %s", agent_name, action)
         return True
 
+    # ── GENESIS: Sensory Expansion ───────────────────────────────────
+
+    def fetch_mentions(self, limit: int = 20, ledger: object | None = None) -> list[dict]:
+        """Fetch unread @mentions for the city agent.
+
+        Deduplicates against SignalStateLedger.
+        Returns list of mention dicts: {source, id, author, body}
+        """
+        mentions: list[dict] = []
+        result = safe_call(
+            self._client.sync_get_mentions, limit=limit,
+            label="moltbook_fetch_mentions",
+        )
+        if not result:
+            return mentions
+
+        for mention in result:
+            m_id = mention.get("id", "")
+            if not m_id:
+                continue
+
+            # Persistent dedup
+            if ledger and hasattr(ledger, "is_signal_processed"):
+                if ledger.is_signal_processed(m_id):
+                    continue
+
+            author = mention.get("author", {}).get("username", "")
+            if author == self._own_username:
+                continue
+
+            mentions.append({
+                "source": "moltbook_mention",
+                "id": m_id,
+                "author": author,
+                "body": mention.get("content", ""),
+                "post_id": mention.get("post_id"),
+            })
+
+            if ledger and hasattr(ledger, "mark_signal_processed"):
+                ledger.mark_signal_processed(m_id, "moltbook_mention")
+
+        return mentions
+
+    def fetch_replies(self, limit: int = 20, ledger: object | None = None) -> list[dict]:
+        """Fetch unread replies to city posts/comments.
+
+        Deduplicates against SignalStateLedger.
+        Returns list of reply dicts: {source, id, author, body, parent_id}
+        """
+        replies: list[dict] = []
+        result = safe_call(
+            self._client.sync_get_replies, limit=limit,
+            label="moltbook_fetch_replies",
+        )
+        if not result:
+            return replies
+
+        for reply in result:
+            r_id = reply.get("id", "")
+            if not r_id:
+                continue
+
+            # Persistent dedup
+            if ledger and hasattr(ledger, "is_signal_processed"):
+                if ledger.is_signal_processed(r_id):
+                    continue
+
+            author = reply.get("author", {}).get("username", "")
+            if author == self._own_username:
+                continue
+
+            replies.append({
+                "source": "moltbook_reply",
+                "id": r_id,
+                "author": author,
+                "body": reply.get("content", ""),
+                "parent_id": reply.get("parent_id"),
+                "post_id": reply.get("post_id"),
+            })
+
+            if ledger and hasattr(ledger, "mark_signal_processed"):
+                ledger.mark_signal_processed(r_id, "moltbook_reply")
+
+        return replies
+
     # ── Persistence ────────────────────────────────────────────────
 
     def snapshot(self) -> dict:
