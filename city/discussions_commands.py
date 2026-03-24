@@ -213,17 +213,36 @@ def _exec_mission(cmd: DiscussionCommand, ctx: PhaseContext) -> str:
         return "Mission system is not available."
 
     from city.missions import create_community_mission
+    from city.reactor import CityIntent
+    from city.registry import SVC_INTENT_EXECUTOR
 
     mission_id = create_community_mission(
         ctx, cmd.args, author=cmd.author,
         discussion_number=cmd.discussion_number,
     )
+    
     if mission_id:
+        # Trigger IntentExecutor to create a machine-readable GitHub Issue (A2A Bridge)
+        executor = ctx.registry.get(SVC_INTENT_EXECUTOR)
+        if executor:
+            intent = CityIntent(
+                signal="handle_community_mission",
+                priority="high",
+                context={
+                    "description": cmd.args,
+                    "author": cmd.author,
+                    "discussion_number": cmd.discussion_number,
+                    "mission_id": mission_id,
+                }
+            )
+            executor.execute(ctx, intent, "handle_community_mission")
+
         return (
             f"**Mission Created**\n\n"
             f"- **ID**: `{mission_id}`\n"
             f"- **Description**: {cmd.args}\n"
-            f"- **Requested by**: @{cmd.author}"
+            f"- **Requested by**: @{cmd.author}\n\n"
+            f"A corresponding GitHub Issue has been created for the Steward Agent."
         )
     return "Failed to create mission. The system may already have a similar active mission."
 

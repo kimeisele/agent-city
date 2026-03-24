@@ -57,6 +57,10 @@ SVC_CONVERSATION_TRACKER = "conversation_tracker"
 SVC_ROUTER = "router"
 SVC_INTENT_EXECUTOR = "intent_executor"
 SVC_PRANA_ENGINE = "prana_engine"
+SVC_DISCOVERY_LEDGER = "discovery_ledger"
+SVC_SIGNAL_STATE_LEDGER = "signal_state_ledger"
+SVC_SIGNAL_COMPOSER = "signal_composer"
+
 
 
 class CityServiceRegistry:

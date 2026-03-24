@@ -96,6 +96,7 @@ def _build_registry() -> PromptRegistry:
     from city.prompt_builders.insight import InsightBuilder
     from city.prompt_builders.reflection import ReflectionBuilder
     from city.prompt_builders.signal import SignalBuilder
+    from city.prompt_builders.discovery import DiscoveryBuilder
 
     registry = PromptRegistry()
     registry.register(ComprehensionBuilder())
@@ -104,6 +105,7 @@ def _build_registry() -> PromptRegistry:
     registry.register(InsightBuilder())
     registry.register(CritiqueBuilder())
     registry.register(SignalBuilder())
+    registry.register(DiscoveryBuilder())
     return registry
 
 

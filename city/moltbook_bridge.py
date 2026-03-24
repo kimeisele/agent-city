@@ -102,7 +102,7 @@ class MoltbookBridge:
 
     # ── GENESIS: Scan submolt ──────────────────────────────────────
 
-    def scan_submolt(self, limit: int = 20) -> list[dict]:
+    def scan_submolt(self, limit: int = 20, signal_ledger: object | None = None) -> list[dict]:
         """Scan m/agent-city posts for signals.
 
         Filters: own posts, seen posts, city reports.
@@ -128,14 +128,26 @@ class MoltbookBridge:
                 continue
 
             post_id = post.get("id", "")
-            if not post_id or post_id in self._seen_post_ids:
+            if not post_id:
                 continue
-            self._seen_post_ids[post_id] = None
+
+            # Persistent dedup (Hardened: SVC_SIGNAL_STATE_LEDGER)
+            if signal_ledger and hasattr(signal_ledger, "is_signal_processed"):
+                if signal_ledger.is_signal_processed(post_id):
+                    continue
+            elif post_id in self._seen_post_ids:
+                continue
 
             # Filter: skip own posts
             author = post.get("author", {}).get("username", "")
             if author == self._own_username:
                 continue
+
+            # Mark as seen
+            if signal_ledger and hasattr(signal_ledger, "mark_signal_processed"):
+                signal_ledger.mark_signal_processed(post_id, "moltbook_bridge")
+            else:
+                self._seen_post_ids[post_id] = None
 
             # Filter: skip city reports (feedback loop prevention)
             title = post.get("title", "")
