@@ -54,7 +54,9 @@ class DiscoveryLedger:
                 processed_at TEXT,
                 relevance_score REAL DEFAULT 0.0,
                 semantic_fit_score REAL,
-                semantic_analysis TEXT
+                semantic_analysis TEXT,
+                evaluation_status TEXT,  -- FIT, REJECTED, NEEDS_HUMAN_REVIEW
+                evaluation_reason TEXT
             )
         """)
 
@@ -162,6 +164,37 @@ class DiscoveryLedger:
             cur.execute(
                 "UPDATE discovered_repos SET processed_at = ? WHERE full_name = ?",
                 (now, full_name),
+            )
+            self._conn.commit()
+
+    def get_unevaluated_repos(self, limit: int = 3) -> list[dict]:
+        """Get discovered repositories that haven't been semantically evaluated yet."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                SELECT full_name, url, description, stars, language, relevance_score
+                FROM discovered_repos
+                WHERE evaluation_status IS NULL
+                ORDER BY relevance_score DESC, stars DESC
+                LIMIT ?
+            """,
+                (limit,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def update_evaluation(self, full_name: str, status: str, reason: str) -> None:
+        """Set evaluation status and reason for a repository."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                UPDATE discovered_repos 
+                SET evaluation_status = ?, evaluation_reason = ?, processed_at = ? 
+                WHERE full_name = ?
+                """,
+                (status, reason, now, full_name),
             )
             self._conn.commit()
 
