@@ -107,6 +107,9 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
         network=network,
     )
 
+    from city.federation_propagation import get_propagation_engine
+    get_propagation_engine().set_pokedex(pokedex)
+
     # Wire MoltbookClient BEFORE factory — the assistant needs it during build
     _wire_moltbook_client_early(registry, log)
 

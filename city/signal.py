@@ -32,6 +32,32 @@ class SignalCoords:
     walk_direction: int  # +ascending, -descending, 0=steady
     dominant_element: int  # 0-4
 
+    def to_dict(self) -> dict:
+        return {
+            "rama_coordinates": list(self.rama_coordinates),
+            "element_walk": list(self.element_walk),
+            "element_histogram": list(self.element_histogram),
+            "basin_set": list(self._sorted_basins()),
+            "hkr_color": list(self.hkr_color),
+            "walk_direction": self.walk_direction,
+            "dominant_element": self.dominant_element,
+        }
+
+    def _sorted_basins(self) -> list[int]:
+        return sorted(self.basin_set)
+
+
+
+from enum import Enum
+
+class SemanticIntent(str, Enum):
+    """Core intents for Agent-to-Agent (A2A) communication."""
+    MISSION_PROPOSAL = "MISSION_PROPOSAL"
+    MISSION_ACCEPTED = "MISSION_ACCEPTED"
+    MISSION_COMPLETED = "MISSION_COMPLETED"
+    KNOWLEDGE_SHARE = "KNOWLEDGE_SHARE"
+    QUERY = "QUERY"
+
 
 @dataclass(frozen=True)
 class SemanticSignal:
@@ -54,7 +80,31 @@ class SemanticSignal:
     resonant_elements: tuple[str, ...]  # Element names of resonant words
     raw_text: str  # For edge composition ONLY
     priority: int  # Nadi priority (0-3)
+    # Default fields at the end
+    intent: SemanticIntent = SemanticIntent.MISSION_PROPOSAL
+    in_reply_to: str = ""
     hop_count: int = 0  # Reply chain depth (0=origin, incremented per reply)
+
+    def to_dict(self) -> dict:
+        return {
+            "sender_name": self.sender_name,
+            "sender_address": self.sender_address,
+            "correlation_id": self.correlation_id,
+            "intent": str(self.intent),
+            "in_reply_to": self.in_reply_to,
+            "coords": self.coords.to_dict(),
+            "sender_element": self.sender_element,
+            "sender_guardian": self.sender_guardian,
+            "sender_chapter": self.sender_chapter,
+            "sender_guna": self.sender_guna,
+            "sender_trinity": self.sender_trinity,
+            "concepts": list(self.concepts),
+            "resonant_elements": list(self.resonant_elements),
+            "raw_text": self.raw_text,
+            "priority": self.priority,
+            "hop_count": self.hop_count,
+        }
+
 
 
 @dataclass(frozen=True)

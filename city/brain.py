@@ -46,6 +46,7 @@ class ThoughtKind(StrEnum):
     REFLECTION = "reflection"        # End-of-cycle reflection
     INSIGHT = "insight"              # 8H: synthesized insight from missions
     CRITIQUE = "critique"            # 10B: critical evaluation of system output quality
+    DISCOVERY = "discovery"          # Step 3: semantic repo evaluation
 
 
 # ── Model Metabolism (Yantra Multi-Model Routing) ────────────────────
@@ -79,6 +80,7 @@ _KIND_TIER: dict[str, ModelTier] = {
     "reflection": ModelTier.STANDARD,
     "insight": ModelTier.STANDARD,
     "critique": ModelTier.PRO,
+    "discovery": ModelTier.STANDARD,
 }
 
 # The ONE cheap model on OpenRouter. All tiers use this until Google direct is ready.
@@ -608,6 +610,30 @@ class CityBrain:
             field_summary=field_summary,
         )
         return self._think("critique", ctx, memory=memory)
+
+    def evaluate_federation_fit(
+        self,
+        repo_name: str,
+        description: str,
+        readme_snippet: str,
+    ) -> Thought | None:
+        """Brain evaluates if a repo is a viable federation candidate.
+
+        Step 3: Semantic Peer Discovery.
+        Enforces 4000 char limit on README snippet.
+        """
+        from city.prompt_registry import PromptContext
+
+        # Senior Architect Mandate: Truncate to protect context/quota
+        truncated_readme = readme_snippet[:4000]
+
+        ctx = PromptContext(
+            discovery_repo=repo_name,
+            discovery_description=description,
+            discovery_readme=truncated_readme,
+        )
+        return self._think("discovery", ctx)
+
 
     def _invoke_and_parse(
         self,

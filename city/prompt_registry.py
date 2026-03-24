@@ -54,6 +54,11 @@ class PromptContext:
     # Critique-specific
     field_summary: str = ""
 
+    # Discovery-specific
+    discovery_repo: str = ""
+    discovery_description: str = ""
+    discovery_readme: str = ""
+
     # Echo chamber guard (all kinds)
     past_thoughts: list[dict] | None = None
 
