@@ -85,6 +85,10 @@ class PRScannerHook(BasePhaseHook):
             # Check if PR touches core files
             core_files_touched = CORE_FILES & set(files_changed)
 
+            import re
+            nadi_ref_match = re.search(r"NADI_REF:\s*([a-f0-9]{64})", body)
+            nadi_ref = nadi_ref_match.group(1) if nadi_ref_match else None
+
             # Emit NADI message for Steward review
             ctx.federation_nadi.emit(
                 source="genesis",
@@ -95,6 +99,7 @@ class PRScannerHook(BasePhaseHook):
                     "author": author,
                     "title": title,
                     "body": body[:2000],
+                    "origin_nadi_ref": nadi_ref,
                     "files_changed": files_changed,
                     "is_citizen": is_citizen,
                     "touches_core": bool(core_files_touched),
@@ -103,10 +108,10 @@ class PRScannerHook(BasePhaseHook):
                 priority=RAJAS,
             )
 
-            operations.append(f"pr_scanner:review_request:#{number}:{author}")
+            operations.append(f"pr_scanner:review_request:#{number}:{author}:{nadi_ref[:8] if nadi_ref else 'no_ref'}")
             logger.info(
-                "PR_SCANNER: Emitted review request for PR #%d by %s (core=%s)",
-                number, author, bool(core_files_touched),
+                "PR_SCANNER: Emitted review request for PR #%d by %s (ref=%s, core=%s)",
+                number, author, nadi_ref[:8] if nadi_ref else "none", bool(core_files_touched),
             )
 
     def _fetch_open_prs(self) -> list[dict]:

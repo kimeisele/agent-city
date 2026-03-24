@@ -28,8 +28,15 @@ def _make_ctx(*, has_council: bool = True, mayor: str = "sys_vyasa") -> MagicMoc
     ctx.offline_mode = False
     ctx.federation_nadi = MagicMock()
     ctx.heartbeat_count = 100
-    ctx._federation_messages = []
+    ctx.gateway_queue = []
     ctx.recent_events = []
+    ctx._compliance_reports = []
+
+    # Mock Identity Service for Zero Trust Verification
+    identity = MagicMock()
+    identity.verify.return_value = True
+    ctx.registry = MagicMock()
+    ctx.registry.get.side_effect = lambda name: identity if name == "identity" else None
 
     if has_council:
         ctx.council = MagicMock()
@@ -47,20 +54,21 @@ def _make_verdict_message(
     touches_core: bool = False,
     reason: str = "Looks good.",
     title: str = "Fix typo",
-) -> FederationMessage:
-    """Build a FederationMessage with pr_review_verdict operation."""
-    return FederationMessage(
-        source="steward-protocol",
-        target="agent-city",
-        operation="pr_review_verdict",
-        payload={
+) -> dict:
+    """Build a Gateway Queue message dict with pr_review_verdict + signature."""
+    return {
+        "membrane": {"surface": "federation"},
+        "federation_operation": "pr_review_verdict",
+        "signature": "mock_sig",
+        "signer_key": "mock_key",
+        "federation_payload": {
             "pr_number": pr_number,
             "verdict": verdict,
             "reason": reason,
             "title": title,
             "touches_core": touches_core,
         },
-    )
+    }
 
 
 def _make_non_verdict_message() -> FederationMessage:
@@ -84,7 +92,7 @@ class TestPRVerdictHook:
 
     def test_should_run_requires_nadi_and_online(self):
         ctx = _make_ctx()
-        ctx._federation_messages = [_make_verdict_message("approve")]
+        ctx.gateway_queue.append(_make_verdict_message("approve"))
         assert self.hook.should_run(ctx) is True
 
         ctx.federation_nadi = None
@@ -99,9 +107,7 @@ class TestPRVerdictHook:
         """Approve + non-core → comment + merge."""
         mock_gh.return_value = "merged"
         ctx = _make_ctx()
-        ctx._federation_messages = [
-            _make_verdict_message("approve", pr_number=10, touches_core=False),
-        ]
+        ctx.gateway_queue.append(_make_verdict_message("approve", pr_number=10, touches_core=False))
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -119,9 +125,7 @@ class TestPRVerdictHook:
         """Approve + core files → comment + council proposal, NO merge."""
         mock_gh.return_value = "ok"
         ctx = _make_ctx(has_council=True, mayor="sys_vyasa")
-        ctx._federation_messages = [
-            _make_verdict_message("approve", pr_number=20, touches_core=True, title="Big refactor"),
-        ]
+        ctx.gateway_queue.append(_make_verdict_message("approve", pr_number=20, touches_core=True, title="Big refactor"))
         ops: list[str] = []
 
         # Mock the council import inside _create_council_proposal
@@ -149,9 +153,7 @@ class TestPRVerdictHook:
         """Request changes → comment with reason."""
         mock_gh.return_value = "ok"
         ctx = _make_ctx()
-        ctx._federation_messages = [
-            _make_verdict_message("request_changes", pr_number=30, reason="Needs tests"),
-        ]
+        ctx.gateway_queue.append(_make_verdict_message("request_changes", pr_number=30, reason="Needs tests"))
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -167,9 +169,7 @@ class TestPRVerdictHook:
         """Reject → close PR with comment."""
         mock_gh.return_value = "ok"
         ctx = _make_ctx()
-        ctx._federation_messages = [
-            _make_verdict_message("reject", pr_number=40, reason="Violates governance"),
-        ]
+        ctx.gateway_queue.append(_make_verdict_message("reject", pr_number=40, reason="Violates governance"))
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -183,7 +183,10 @@ class TestPRVerdictHook:
     def test_non_verdict_messages_ignored(self):
         """Non-verdict NADI messages are silently skipped."""
         ctx = _make_ctx()
-        ctx._federation_messages = [_make_non_verdict_message()]
+        ctx.gateway_queue.append({
+            "membrane": {"surface": "federation"},
+            "federation_operation": "heartbeat_sync"
+        })
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -193,13 +196,13 @@ class TestPRVerdictHook:
     def test_missing_pr_number_handled(self):
         """Verdict without pr_number → warning, no crash."""
         ctx = _make_ctx()
-        msg = FederationMessage(
-            source="steward",
-            target="agent-city",
-            operation="pr_review_verdict",
-            payload={"verdict": "approve", "reason": "ok"},
-        )
-        ctx._federation_messages = [msg]
+        msg = {
+            "membrane": {"surface": "federation"},
+            "federation_operation": "pr_review_verdict",
+            "signature": "sig", "signer_key": "key",
+            "federation_payload": {"verdict": "approve", "reason": "ok"}
+        }
+        ctx.gateway_queue.append(msg)
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -210,9 +213,7 @@ class TestPRVerdictHook:
         """Approve + core + no council → comment only, no proposal."""
         mock_gh.return_value = "ok"
         ctx = _make_ctx(has_council=False)
-        ctx._federation_messages = [
-            _make_verdict_message("approve", pr_number=50, touches_core=True),
-        ]
+        ctx.gateway_queue.append(_make_verdict_message("approve", pr_number=50, touches_core=True))
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -227,9 +228,7 @@ class TestPRVerdictHook:
         # First call (comment) succeeds, second (merge) fails
         mock_gh.side_effect = ["ok", None]
         ctx = _make_ctx()
-        ctx._federation_messages = [
-            _make_verdict_message("approve", pr_number=60, touches_core=False),
-        ]
+        ctx.gateway_queue.append(_make_verdict_message("approve", pr_number=60, touches_core=False))
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -238,18 +237,15 @@ class TestPRVerdictHook:
 
     def test_compliance_report_recorded(self):
         ctx = _make_ctx()
-        ctx._federation_messages = [
-            FederationMessage(
-                source="steward",
-                target="agent-city",
-                operation="compliance_report",
-                payload={
-                    "status": "warning",
-                    "subject": "federation trust drift",
-                    "source": "legislator",
-                },
-            ),
-        ]
+        ctx.gateway_queue.append({
+            "membrane": {"surface": "federation"},
+            "federation_operation": "compliance_report",
+            "federation_payload": {
+                "status": "warning",
+                "subject": "federation trust drift",
+                "source": "legislator",
+            }
+        })
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)

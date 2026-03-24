@@ -88,34 +88,10 @@ def _create_recruitment_bounty(
             bounty_id, target_id, issue_num, reward,
         )
 
-        # Broadcast to Moltbook (Systematic Recon / Active Recruitment)
-        try:
-            poster = get_moltbook_bounty_poster()
-            # We construct a signal dict similar to diagnostics_bounty_hook
-            # but simpler, sourced from the JSON config.
-            signal = {
-                "gap_id": target_id,
-                "moltbook_post": {
-                    "title": f"🆘 Recruitment: {target.get('title')}",
-                    "content": (
-                        f"{target.get('problem', 'Help needed.')}\n\n"
-                        f"**Reward:** {reward} Prana\n"
-                        f"**Mission:** Fix Issue #{issue_num}\n"
-                        f"**Join:** Fork kimeisele/agent-city"
-                    ),
-                    "submolt": "agents",
-                },
-                "bounty_tags": ["[BOUNTY_AVAILABLE]", f"[ISSUE_{issue_num}]"],
-            }
-            # We inject the client if the poster doesn't have it (it likely doesn't)
-            client = ctx.registry.get(SVC_MOLTBOOK_CLIENT)
-            if client:
-                poster._client = client
-            
-            poster.emit_from_propagation_signal(signal, dry_run=False)
-            logger.info("RECRUITMENT: Broadcast bounty %s to Moltbook", bounty_id)
-        except Exception as e:
-            logger.warning("RECRUITMENT: Failed to broadcast to Moltbook: %s", e)
+        logger.info(
+            "RECRUITMENT: Created bounty %s for %s (issue #%d, reward=%d)",
+            bounty_id, target_id, issue_num, reward,
+        )
 
     return bounty_id
 

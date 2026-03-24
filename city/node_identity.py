@@ -36,16 +36,34 @@ class NodeIdentity:
         self._sk = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(private_key_hex))
         self._pk = self._sk.public_key()
 
-    def sign(self, payload: bytes) -> str:
-        """Sign payload, return hex-encoded signature."""
-        return self._sk.sign(payload).hex()
+    def _ensure_bytes(self, payload: bytes | dict | list) -> bytes:
+        if isinstance(payload, (dict, list)):
+            return json.dumps(payload, sort_keys=True).encode()
+        return payload
 
-    def verify(self, payload: bytes, signature_hex: str) -> bool:
-        """Verify hex-encoded signature against payload."""
+    def sign(self, payload: bytes | dict | list) -> str:
+        """Sign payload, return hex-encoded signature."""
+        data = self._ensure_bytes(payload)
+        return self._sk.sign(data).hex()
+
+    def verify(self, payload: bytes | dict | list, signature_hex: str, public_key_hex: str | None = None) -> bool:
+        """Verify hex-encoded signature against payload.
+        
+        If public_key_hex is provided, it uses that key (external verification).
+        If None, uses this node's own public key.
+        """
         from cryptography.exceptions import InvalidSignature
+        
+        data = self._ensure_bytes(payload)
+        pk = self._pk
+        if public_key_hex:
+            try:
+                pk = Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex))
+            except (ValueError, TypeError):
+                return False
 
         try:
-            self._pk.verify(bytes.fromhex(signature_hex), payload)
+            pk.verify(bytes.fromhex(signature_hex), data)
             return True
         except (InvalidSignature, ValueError):
             return False
