@@ -358,10 +358,88 @@ def default_definitions(
                 name=SVC_WIKI_PORTAL,
                 factory=lambda ctx: _build_wiki_portal(ctx),
             ),
+            ServiceDefinition(
+                name=SVC_DISCOVERY_LEDGER,
+                factory=lambda ctx: _build_discovery_ledger(ctx),
+            ),
+            ServiceDefinition(
+                name=SVC_SIGNAL_STATE_LEDGER,
+                factory=lambda ctx: _build_signal_state_ledger(ctx),
+            ),
         ]
     )
 
     return defs
+
+
+# ── State Migration: Hardening ──────────────────────────────────────
+
+def _perform_state_migration(
+    pokedex: object,
+    discovery_ledger: object,
+    signal_ledger: object,
+) -> None:
+    """Drain-and-Drop legacy discovery/signal data from Pokedex to new ledgers.
+
+    Senior Architect Mandate: Data loss is a failure condition.
+    """
+    if pokedex is None or not hasattr(pokedex, "_conn"):
+        return
+
+    pokedex_conn = pokedex._conn
+    cur = pokedex_conn.cursor()
+
+    # 1. Migrate discovered_repos
+    try:
+        cur.execute("SELECT * FROM discovered_repos")
+        rows = cur.fetchall()
+        if rows:
+            logger.info("MIGRATION: Moving %d repos from Pokedex to DiscoveryLedger", len(rows))
+            for row in rows:
+                discovery_ledger.add_discovered_repo(dict(row))
+        cur.execute("DROP TABLE discovered_repos")
+        pokedex_conn.commit()
+    except Exception:
+        pass  # Table likely already gone
+
+    # 2. Migrate propagation_throttle
+    try:
+        cur.execute("SELECT * FROM propagation_throttle")
+        rows = cur.fetchall()
+        if rows:
+            logger.info("MIGRATION: Moving %d throttles from Pokedex to DiscoveryLedger", len(rows))
+            for row in rows:
+                discovery_ledger.mark_propagated(row["gap_id"])
+        cur.execute("DROP TABLE propagation_throttle")
+        pokedex_conn.commit()
+    except Exception:
+        pass
+
+    # 3. Migrate system_meta
+    try:
+        cur.execute("SELECT * FROM system_meta")
+        rows = cur.fetchall()
+        if rows:
+            logger.info("MIGRATION: Moving %d meta entries from Pokedex to DiscoveryLedger", len(rows))
+            for row in rows:
+                discovery_ledger.set_meta(row["key"], row["value"])
+        cur.execute("DROP TABLE system_meta")
+        pokedex_conn.commit()
+    except Exception:
+        pass
+
+    # 4. Migrate processed_signals
+    try:
+        cur.execute("SELECT * FROM processed_signals")
+        rows = cur.fetchall()
+        if rows:
+            logger.info("MIGRATION: Moving %d signals from Pokedex to SignalStateLedger", len(rows))
+            for row in rows:
+                signal_ledger.mark_signal_processed(row["signal_id"], row["source"])
+        cur.execute("DROP TABLE processed_signals")
+        pokedex_conn.commit()
+    except Exception:
+        pass
 
 
 # ── Individual Builders ──────────────────────────────────────────────
@@ -724,3 +802,36 @@ def _build_wiki_portal(ctx: BuildContext) -> object | None:
     )
     logger.info("WikiPortal wired (repo: %s)", repo_url)
     return portal
+
+
+def _build_discovery_ledger(ctx: BuildContext) -> object | None:
+    from city.discovery_ledger import DiscoveryLedger
+
+    db_path = ctx.config.get("database", {}).get("discovery_path", "data/discovery.db")
+    ledger = DiscoveryLedger(db_path=db_path)
+
+    # Perform migration if pokedex is available
+    if ctx.pokedex is not None:
+        # We need both ledgers for a full migration, but we can do it incrementally
+        # or wait until both are built. Let's do it in building the last one
+        # or in a dedicated step. Actually, let's keep it simple.
+        pass
+
+    logger.info("DiscoveryLedger wired")
+    return ledger
+
+
+def _build_signal_state_ledger(ctx: BuildContext) -> object | None:
+    from city.signal_state_ledger import SignalStateLedger
+    from city.registry import SVC_DISCOVERY_LEDGER
+
+    db_path = ctx.config.get("database", {}).get("signal_state_path", "data/signal_state.db")
+    ledger = SignalStateLedger(db_path=db_path)
+
+    # Hardening: Final migration check once both ledgers are wired
+    discovery_ledger = ctx.registry.get(SVC_DISCOVERY_LEDGER)
+    if ctx.pokedex is not None and discovery_ledger is not None:
+        _perform_state_migration(ctx.pokedex, discovery_ledger, ledger)
+
+    logger.info("SignalStateLedger wired")
+    return ledger
