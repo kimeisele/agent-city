@@ -198,6 +198,8 @@ def default_definitions(
         SVC_PRANA_ENGINE,
         SVC_THREAD_STATE,
         SVC_WIKI_PORTAL,
+        SVC_IDENTITY,
+        SVC_SIGNAL_COMPOSER,
     )
 
     defs: list[ServiceDefinition] = []
@@ -365,6 +367,15 @@ def default_definitions(
             ServiceDefinition(
                 name=SVC_SIGNAL_STATE_LEDGER,
                 factory=lambda ctx: _build_signal_state_ledger(ctx),
+            ),
+            ServiceDefinition(
+                name=SVC_IDENTITY,
+                factory=lambda ctx: _build_node_identity(ctx),
+            ),
+            ServiceDefinition(
+                name=SVC_SIGNAL_COMPOSER,
+                factory=lambda ctx: _build_signal_composer(ctx),
+                deps=(SVC_IDENTITY,),
             ),
         ]
     )
@@ -835,3 +846,41 @@ def _build_signal_state_ledger(ctx: BuildContext) -> object | None:
 
     logger.info("SignalStateLedger wired")
     return ledger
+def _build_node_identity(ctx: BuildContext) -> object | None:
+    from city.node_identity import ensure_node_identity
+
+    fed_dir = ctx.db_path.parent / "federation"
+    # Senior Architect Mandate: Check production key at data/security/node.key first
+    prod_path = ctx.db_path.parent / "security" / "node.key"
+    # Fallback to test-key if explicitly in dev mode (we check if it exists)
+    dev_path = Path("tests/data/security/master.key")
+
+    identity_path = None
+    if prod_path.exists():
+        identity_path = prod_path
+        logger.info("Identity: Using production key at %s", prod_path)
+    elif dev_path.exists():
+        identity_path = dev_path
+        logger.info("Identity: Using developmental fallback key at %s", dev_path)
+
+    return ensure_node_identity(fed_dir, override_path=identity_path)
+
+
+def _build_signal_composer(ctx: BuildContext) -> object | None:
+    from city.signal_composer import SignalComposer
+    from city.registry import SVC_IDENTITY
+
+    identity = ctx.registry.get(SVC_IDENTITY)
+    if identity is None:
+        return None
+
+    # Mayor's Jiva name from config
+    mayor_name = ctx.config.get("executor", {}).get("git_author_name", "Mayor")
+
+    if ctx.pokedex is not None:
+        # Pokedex.get_jiva returns a Jiva instance
+        mayor_jiva = ctx.pokedex.get_jiva(mayor_name)
+        if mayor_jiva:
+            return SignalComposer(identity, mayor_jiva)
+
+    return None

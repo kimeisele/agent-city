@@ -20,8 +20,11 @@ from attention.py. Custom handlers can be registered at runtime.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 logger = logging.getLogger("AGENT_CITY.INTENT_EXECUTOR")
@@ -454,8 +457,15 @@ def _handle_brain_run_status(ctx: Any, intent: Any) -> str:
 
 
 def _handle_brain_propose_mission(ctx: Any, intent: Any) -> str:
-    """Handle a public mission proposal by creating a GitHub Issue."""
+    """Handle a public mission proposal.
+
+    Senior Architect Atomic Flow:
+    1. Construct Signal -> Sign -> Write to NADI Outbox.
+    2. Log failure and ABORT if NADI fails.
+    3. ELSE: Create GitHub Issue with SHA-256 NADI_REF.
+    """
     from city.issues import IssueType
+    from city.registry import SVC_FEDERATION_NADI, SVC_SIGNAL_COMPOSER
 
     target = intent.context.get("target", "unknown_proposal")
     detail = intent.context.get("detail", "")
@@ -465,38 +475,59 @@ def _handle_brain_propose_mission(ctx: Any, intent: Any) -> str:
     if ctx.issues is None:
         return "skip:no_issue_service"
 
+    composer = ctx.registry.get(SVC_SIGNAL_COMPOSER)
+    nadi = ctx.registry.get(SVC_FEDERATION_NADI)
+    if composer is None or nadi is None:
+        return "skip:missing_A2A_infrastructure"
+
+    # --- ATOMIC FLOW: Phase 1 (NADI Persistence) ---
+    try:
+        # 1. Compose versioned and signed signal package
+        signed_package = composer.compose_mission_proposal(
+            target=target,
+            detail=detail,
+            author=author,
+            correlation_id=str(disc_num),
+        )
+
+        # 2. Emit to NADI outbox
+        nadi.emit(
+            source="moksha",
+            operation="propose_mission",
+            payload=signed_package,
+            target="steward",
+        )
+
+        # 3. Flashing/Persistence (Senior Mandate #3: must happen BEFORE Issue)
+        nadi.flush()
+        logger.info("Atomic Flow: NADI outbox persistent for mission proposal")
+
+    except Exception as e:
+        logger.error("ATOMIC FLOW ABORTED: NADI failure: %s", e)
+        return f"abort:nadi_failure:{e}"
+
+    # --- ATOMIC FLOW: Phase 2 (GitHub Governance Receipt) ---
+    # Senior Mandate #4: NADI_REF is hex-encoded SHA-256 of signed message
+    package_json = json.dumps(signed_package, sort_keys=True)
+    nadi_ref = hashlib.sha256(package_json.encode()).hexdigest()
+
     title = f"[PROPOSAL] {target[:60]}"
-    
-    # Machine-readable payload for Steward Agent (A2A Bridge)
-    payload = {
-        "type": "mission_proposal",
-        "source": "agent-city-public",
-        "author": author,
-        "discussion_number": disc_num,
-        "target": target,
-        "detail": detail,
-        "intent": "propose_mission",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    
     body = (
         f"Proposal from @{author} via Discussion #{disc_num}\n\n"
         f"**Description:** {detail or target}\n\n"
-        f"**Status:** Awaiting Steward review.\n"
-        f"cc @steward\n\n"
-        f"```json\n{json.dumps(payload, indent=2)}\n```"
+        f"**Governance Record:** Awaiting Steward review (NADI-A2A).\n"
+        f"**NADI_REF:** `{nadi_ref}`\n\n"
+        f"cc @steward"
     )
 
     try:
-        # Create issue with 'proposal' label if service supports it
-        # Otherwise it just creates a standard iterative issue
         issue = ctx.issues.create_issue(
             title=title,
             body=body,
             issue_type=IssueType.ITERATIVE,
         )
         if issue:
-            return f"proposal_created:#{issue.get('number')}"
+            return f"proposal_created:#{issue.get('number')}:nadi_ref={nadi_ref[:8]}"
         return "issue_creation_failed"
     except Exception as e:
         logger.warning("IntentExecutor: failed to create proposal issue: %s", e)
@@ -506,10 +537,10 @@ def _handle_brain_propose_mission(ctx: Any, intent: Any) -> str:
 def _handle_community_mission(ctx: Any, intent: Any) -> str:
     """Handle a human /mission command from Discussions.
 
-    Similar to PROPOSE_MISSION but specifically for human-initiated commands.
-    Creates a GitHub Issue with a machine-readable block for the Steward.
+    Atomic Flow: Signed NADI Outbox → GitHub Issue Receipt.
     """
     from city.issues import IssueType
+    from city.registry import SVC_FEDERATION_NADI, SVC_SIGNAL_COMPOSER
 
     description = intent.context.get("description", "unknown_mission")
     author = intent.context.get("author", "unknown")
@@ -518,25 +549,44 @@ def _handle_community_mission(ctx: Any, intent: Any) -> str:
     if ctx.issues is None:
         return "skip:no_issue_service"
 
+    composer = ctx.registry.get(SVC_SIGNAL_COMPOSER)
+    nadi = ctx.registry.get(SVC_FEDERATION_NADI)
+    if composer is None or nadi is None:
+        return "skip:missing_A2A_infrastructure"
+
+    # --- ATOMIC FLOW: Phase 1 (NADI Persistence) ---
+    try:
+        signed_package = composer.compose_mission_proposal(
+            target="community_mission",
+            detail=description,
+            author=author,
+            correlation_id=str(disc_num),
+        )
+
+        nadi.emit(
+            source="moksha",
+            operation="community_mission",
+            payload=signed_package,
+            target="steward",
+        )
+        nadi.flush()
+        logger.info("Atomic Flow: NADI outbox persistent for community mission")
+
+    except Exception as e:
+        logger.error("ATOMIC FLOW ABORTED: NADI failure for community mission: %s", e)
+        return f"abort:nadi_failure:{e}"
+
+    # --- ATOMIC FLOW: Phase 2 (GitHub Governance Receipt) ---
+    package_json = json.dumps(signed_package, sort_keys=True)
+    nadi_ref = hashlib.sha256(package_json.encode()).hexdigest()
+
     title = f"[COMMUNITY MISSION] {description[:60]}"
-
-    # Machine-readable payload for Steward Agent
-    payload = {
-        "type": "community_mission",
-        "source": "discussion_command",
-        "author": author,
-        "discussion_number": disc_num,
-        "description": description,
-        "intent": "execute_community_mission",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
     body = (
         f"Community Mission request from @{author} via Discussion #{disc_num}\n\n"
         f"**Description:** {description}\n\n"
-        f"**Status:** Awaiting Steward review/execution.\n"
-        f"cc @steward\n\n"
-        f"```json\n{json.dumps(payload, indent=2)}\n```"
+        f"**Governance Record:** Awaiting Steward execution (NADI-A2A).\n"
+        f"**NADI_REF:** `{nadi_ref}`\n\n"
+        f"cc @steward"
     )
 
     try:
@@ -546,8 +596,9 @@ def _handle_community_mission(ctx: Any, intent: Any) -> str:
             issue_type=IssueType.ITERATIVE,
         )
         if issue:
-            return f"mission_issue_created:#{issue.get('number')}"
+            return f"mission_issue_created:#{issue.get('number')}:nadi_ref={nadi_ref[:8]}"
         return "issue_creation_failed"
     except Exception as e:
         logger.warning("IntentExecutor: failed to create community mission issue: %s", e)
         return f"error:{e}"
+
