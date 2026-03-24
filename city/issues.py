@@ -543,6 +543,35 @@ class CityIssueManager:
         """Return the currently bound mission id for an issue, if any."""
         return self._bound_missions.get(issue_number)
 
+    def find_issue_by_nadi_ref(self, nadi_ref: str) -> int | None:
+        """Search open issues for one containing the given NADI_REF.
+        
+        Returns the issue number or None if not found.
+        """
+        if not nadi_ref:
+            return None
+            
+        # Optimization: check local window first (gh issue list is fast)
+        # We search specifically for the NADI_REF in the body
+        out = _gh_run([
+            "issue", "list", 
+            "--state", "open",
+            "--search", f"NADI_REF: {nadi_ref}",
+            "--json", "number",
+            "--limit", "1"
+        ])
+        if not out:
+            return None
+            
+        try:
+            results = json.loads(out)
+            if results and isinstance(results, list):
+                return results[0].get("number")
+        except json.JSONDecodeError:
+            pass
+            
+        return None
+
     def stats(self) -> dict:
         """Issue manager statistics."""
         alive = sum(1 for c in self._issue_cells.values() if c.is_alive)
