@@ -145,6 +145,14 @@ class CampaignRegistry:
         active_ids = {getattr(mission, "id", "") for mission in active_missions}
 
         for campaign in self.get_active_campaigns():
+            # Emit explicit CAMPAIGN_STARTED signal for outbound membrane
+            if campaign.last_evaluated_heartbeat == 0:
+                ctx.recent_events.append({
+                    "type": "campaign_started",
+                    "campaign_id": campaign.id,
+                    "title": campaign.title,
+                })
+
             if not self._due(campaign, ctx.heartbeat_count):
                 continue
 
