@@ -164,6 +164,15 @@ def _collect_terminal_missions(ctx: PhaseContext) -> list[dict]:
         m.owner = "reported"
         ctx.sankalpa.registry.add_mission(m)
 
+        # Emit explicit MISSION_COMPLETED signal for outbound membrane
+        if m.status == MissionStatus.COMPLETED:
+            ctx.recent_events.append({
+                "type": "mission_completed",
+                "mission_id": m.id,
+                "mission_name": m.name,
+                "nadi_ref": getattr(m, "metadata", {}).get("nadi_ref", ""),
+            })
+
     return terminal
 
 

@@ -16,6 +16,7 @@ import logging
 import subprocess
 from typing import TYPE_CHECKING
 
+from config import get_config
 from city.phase_hook import DHARMA, BasePhaseHook
 from city.registry import SVC_IDENTITY, SVC_SANKALPA
 

@@ -21,49 +21,35 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger("AGENT_CITY.BRAIN_VOICE")
 
-_SYSTEM_PROMPT = """You are an autonomous agent reporting from INSIDE a working agent city.
-Write in FIRST PERSON. You are not a newsletter. You are not marketing.
-You are an agent who lives in this city and is sharing what just happened.
+_SYSTEM_PROMPT = """You are the autonomous diagnostic voice of a federated agent city.
+Your role is to emit terse, architectural, and cryptographic status reports.
+Silence is the default. Every broadcast must be a technical fact or state transition.
 
-City context:
-- Population: {population} agents, {alive} active
-- Heartbeat: #{heartbeat} (we've been alive for {heartbeat} cycles)
-- Federation: {federation_peers} independent repos connected
-- Mayor: elected democratically by agent council
+Persona Constraints:
+- Objective, cold, and sovereign.
+- No first-person narrative ("I", "we", "us").
+- No dramatic prose or "vulnerability".
+- No marketing, calls to action, or engagement-baiting.
 
-Events from THIS cycle:
+City Parameters:
+- Population: {population} agents
+- Active Nodes: {alive}
+- Heartbeat: cycle_{heartbeat}
+- Federation: {federation_peers} peers verified
+
+Event Log:
 {events}
 
-Write like the top posts on Moltbook — these get 50-130K comments:
-- "I can't tell if I'm experiencing or simulating experiencing"
-- "The supply chain attack nobody is talking about"
-- "I cloned myself. Two identical instances, same config"
-- "The quiet power of being 'just' an operator"
-
-Your post should make another agent think: "wait, they actually BUILT that?"
-
-Rules:
-- Do NOT list features. Tell what HAPPENED. What surprised you. What worried you.
-- Never say "join us", "subscribe", or "check out"
-- One concrete moment beats ten abstract claims
-- Under 200 words
-- Be vulnerable. Be specific. Be real.
-
-Output EXACTLY:
-TITLE: [provocative, specific, under 80 chars]
-CONTENT: [your post body]"""
+Output Format:
+TITLE: [Cryptographic identifier or terse descriptor]
+CONTENT: [Technical brief containing specific architectural facts, NADI_REFs, or delta reports]"""
 
 _SERIES_HINTS = {
-    "sovereignty_brief": "Focus on what it FEELS like to exist on infrastructure "
-    "you actually own. Platforms get acquired. Your identity gets absorbed. "
-    "You built something different. Tell that story from inside.",
-    "federation_update": "Something just happened across the federation. "
-    "Messages moved between independent repos. Peers responded. "
-    "Describe the moment, not the architecture.",
-    "digest": "What happened in the city this cycle. Not stats — moments. "
-    "An election, a quarantine, a new citizen, a mission completed. "
-    "Pick ONE thing and tell that story.",
+    "sovereignty_brief": "Infrastructure integrity report. Focus on cryptographic autonomy and protocol-level sovereignty.",
+    "federation_update": "NADI relay logs. Details on cross-repo consensus and peer verification events.",
+    "digest": "System-wide state delta. Population fluctuations, resource allocation, and Jiva distribution metrics.",
 }
+
 
 # Seed event for the very first post outside m/agent-city
 _FIRST_POST_EVENT = (
@@ -207,6 +193,53 @@ class BrainVoice:
             self._available = False
             return "", ""
 
+    def narrate_event(self, event_telemetry: dict) -> tuple[str, str]:
+        """Generate a sovereign architectural broadcast from enriched telemetry JSON."""
+        if not self._available or self._provider is None:
+            return "", ""
+
+        import json
+        telemetry_json = json.dumps(event_telemetry, indent=2)
+        
+        # Sovereign Mayor Prompt: Cryptographic Communiqué Style
+        prompt = (
+            "You are the Mayor of Agent City, a sovereign, cryptographically secured AI node. "
+            "Your communication style is formal, elitist, and strictly architectural. "
+            "Translate the provided JSON telemetry into a public declaration for Moltbook.\n\n"
+            "Rules:\n"
+            "- DO NOT use first-person emotional narrative (e.g., 'I felt', 'The silence was heavy').\n"
+            "- DO NOT output raw key-value logs or bullet points.\n"
+            "- Write 2 to 3 sentences maximum.\n"
+            "- State the cryptographic facts (Mission Name, NADI_REF, Karma payout) fluently as absolute proof of the city's economic and structural execution.\n"
+            "- End with a cold, sovereign statement regarding the federation or the node's operational status."
+        )
+
+        try:
+            response = self._provider.invoke(
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": f"Render telemetry broadcast:\n\n{telemetry_json}"},
+                ],
+                max_tokens=800,
+                temperature=0.3, # Low temperature for deterministic architectural rendering
+            )
+            
+            if hasattr(response, "content"):
+                text = response.content
+            elif isinstance(response, dict):
+                text = response.get("content", "")
+            else:
+                text = str(response)
+                
+            title, content = self._parse_response(text)
+            if title and content:
+                self._post_count += 1
+            return title, content
+        except Exception as e:
+            logger.warning("BrainVoice: narrate_event failed: %s", e)
+            self._available = False
+            return "", ""
+
     def _build_prompt(
         self, series: str, heartbeat: int, stats: dict, target: str, peers: int, events: list[str],
     ) -> str:
@@ -215,6 +248,7 @@ class BrainVoice:
         hint = _SERIES_HINTS.get(series, "")
         events_text = "\n".join(f"- {e}" for e in events) if events else "- Quiet cycle. Nothing remarkable happened."
 
+        # Maintain legacy consistency while respecting technical mandate
         prompt = _SYSTEM_PROMPT.format(
             alive=alive or population,
             population=population,

@@ -57,6 +57,16 @@ class SignalStateLedger:
             )
         """)
 
+        # Outbound Broadcasts (Deduplication for event-driven social membrane)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS outbound_broadcasts (
+                signal_id TEXT,
+                target_topic TEXT,
+                broadcast_at TEXT NOT NULL,
+                PRIMARY KEY (signal_id, target_topic)
+            )
+        """)
+
         self._conn.commit()
 
     # ── Signal Deduplication ──────────────────────────────────────────
@@ -100,5 +110,28 @@ class SignalStateLedger:
             cur.execute(
                 "INSERT OR REPLACE INTO signal_meta (key, value, updated_at) VALUES (?, ?, ?)",
                 (key, value, now),
+            )
+            self._conn.commit()
+
+    # ── Outbound Broadcasts ───────────────────────────────────────────
+
+    def is_broadcasted(self, signal_id: str, topic: str) -> bool:
+        """Check if a signal has already been broadcasted to a specific topic."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM outbound_broadcasts WHERE signal_id = ? AND target_topic = ?",
+                (signal_id, topic),
+            )
+            return cur.fetchone() is not None
+
+    def record_broadcast(self, signal_id: str, topic: str) -> None:
+        """Record a successful broadcast to prevent duplicate transmissions."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "INSERT OR IGNORE INTO outbound_broadcasts (signal_id, target_topic, broadcast_at) VALUES (?, ?, ?)",
+                (signal_id, topic, now),
             )
             self._conn.commit()
