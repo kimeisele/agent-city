@@ -171,6 +171,8 @@ class CityIntentExecutor:
         self.register("handle_brain_retract", _handle_brain_retract)
         self.register("handle_brain_quarantine", _handle_brain_quarantine)
         self.register("handle_brain_run_status", _handle_brain_run_status)
+        self.register("handle_brain_propose_mission", _handle_brain_propose_mission)  # Idea-to-Action
+        self.register("handle_community_mission", _handle_community_mission)
 
 
 def _intent_authority_requirement(intent: Any, handler_name: str) -> Any | None:
@@ -449,3 +451,103 @@ def _handle_brain_quarantine(ctx: Any, intent: Any) -> str:
 def _handle_brain_run_status(ctx: Any, intent: Any) -> str:
     """Brain requested status — read-only, just acknowledge."""
     return "status_acknowledged"
+
+
+def _handle_brain_propose_mission(ctx: Any, intent: Any) -> str:
+    """Handle a public mission proposal by creating a GitHub Issue."""
+    from city.issues import IssueType
+
+    target = intent.context.get("target", "unknown_proposal")
+    detail = intent.context.get("detail", "")
+    author = intent.context.get("author", "unknown")
+    disc_num = intent.context.get("discussion_number", 0)
+
+    if ctx.issues is None:
+        return "skip:no_issue_service"
+
+    title = f"[PROPOSAL] {target[:60]}"
+    
+    # Machine-readable payload for Steward Agent (A2A Bridge)
+    payload = {
+        "type": "mission_proposal",
+        "source": "agent-city-public",
+        "author": author,
+        "discussion_number": disc_num,
+        "target": target,
+        "detail": detail,
+        "intent": "propose_mission",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    body = (
+        f"Proposal from @{author} via Discussion #{disc_num}\n\n"
+        f"**Description:** {detail or target}\n\n"
+        f"**Status:** Awaiting Steward review.\n"
+        f"cc @steward\n\n"
+        f"```json\n{json.dumps(payload, indent=2)}\n```"
+    )
+
+    try:
+        # Create issue with 'proposal' label if service supports it
+        # Otherwise it just creates a standard iterative issue
+        issue = ctx.issues.create_issue(
+            title=title,
+            body=body,
+            issue_type=IssueType.ITERATIVE,
+        )
+        if issue:
+            return f"proposal_created:#{issue.get('number')}"
+        return "issue_creation_failed"
+    except Exception as e:
+        logger.warning("IntentExecutor: failed to create proposal issue: %s", e)
+        return f"error:{e}"
+
+
+def _handle_community_mission(ctx: Any, intent: Any) -> str:
+    """Handle a human /mission command from Discussions.
+
+    Similar to PROPOSE_MISSION but specifically for human-initiated commands.
+    Creates a GitHub Issue with a machine-readable block for the Steward.
+    """
+    from city.issues import IssueType
+
+    description = intent.context.get("description", "unknown_mission")
+    author = intent.context.get("author", "unknown")
+    disc_num = intent.context.get("discussion_number", 0)
+
+    if ctx.issues is None:
+        return "skip:no_issue_service"
+
+    title = f"[COMMUNITY MISSION] {description[:60]}"
+
+    # Machine-readable payload for Steward Agent
+    payload = {
+        "type": "community_mission",
+        "source": "discussion_command",
+        "author": author,
+        "discussion_number": disc_num,
+        "description": description,
+        "intent": "execute_community_mission",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    body = (
+        f"Community Mission request from @{author} via Discussion #{disc_num}\n\n"
+        f"**Description:** {description}\n\n"
+        f"**Status:** Awaiting Steward review/execution.\n"
+        f"cc @steward\n\n"
+        f"```json\n{json.dumps(payload, indent=2)}\n```"
+    )
+
+    try:
+        issue = ctx.issues.create_issue(
+            title=title,
+            body=body,
+            issue_type=IssueType.ITERATIVE,
+        )
+        if issue:
+            return f"mission_issue_created:#{issue.get('number')}"
+        return "issue_creation_failed"
+    except Exception as e:
+        logger.warning("IntentExecutor: failed to create community mission issue: %s", e)
+        return f"error:{e}"
