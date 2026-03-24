@@ -150,6 +150,8 @@ class FederationNadiHook(BasePhaseHook):
                     "federation_operation": msg.operation,
                     "federation_payload": msg.payload,
                     "correlation_id": msg.correlation_id,
+                    "signature": msg.signature,
+                    "signer_key": msg.signer_key,
                 },
             )
             operations.append(f"fed_nadi:{msg.source}:{msg.operation}")

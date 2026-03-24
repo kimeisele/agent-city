@@ -139,7 +139,14 @@ def _collect_terminal_missions(ctx: PhaseContext) -> list[dict]:
 
     terminal: list[dict] = []
     for m in all_missions:
-        if m.status not in (MissionStatus.COMPLETED, MissionStatus.ABANDONED):
+        if m.status == MissionStatus.ABANDONED:
+            pass # report these as usual
+        elif m.status == MissionStatus.COMPLETED:
+            # Deterministic Karma: ONLY for missions verified via NADI merge
+            if not getattr(m, "metadata", {}).get("nadi_verified"):
+                logger.debug("MISSION_LIFECYCLE: Skipping unverified completion for %s", m.id)
+                continue
+        else:
             continue
         # Only report missions we haven't already reported
         # Convention: owner changes to "reported" after posting

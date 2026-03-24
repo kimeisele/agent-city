@@ -16,8 +16,8 @@ import logging
 import subprocess
 from typing import TYPE_CHECKING
 
-from config import get_config
 from city.phase_hook import DHARMA, BasePhaseHook
+from city.registry import SVC_IDENTITY, SVC_SANKALPA
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext
@@ -137,8 +137,17 @@ class PRVerdictHook(BasePhaseHook):
                 logger.warning("PR_VERDICT: Missing pr_number in verdict message")
                 continue
 
+            # 0. Zero Trust Signature Verification
+            identity = ctx.registry.get(SVC_IDENTITY)
+            signature = msg.get("signature")
+            public_key = msg.get("signer_key")
+            # The payload we sign is the inner federation_payload
+            if not all([identity, signature, public_key]) or not identity.verify(payload, signature, public_key):
+                logger.warning("PR_VERDICT: Signature verification FAILED for PR #%s. Zero Trust rejection.", pr_number)
+                continue
+
             logger.info(
-                "PR_VERDICT: Processing verdict=%s for PR #%d (core=%s)",
+                "PR_VERDICT: Processing verified verdict=%s for PR #%d (core=%s)",
                 verdict, pr_number, touches_core,
             )
 
@@ -173,6 +182,11 @@ class PRVerdictHook(BasePhaseHook):
             if result is not None:
                 operations.append(f"pr_verdict:merged:#{pr_number}")
                 logger.info("PR_VERDICT: Auto-merged PR #%d", pr_number)
+                
+                # Karma Bridge: Update mission state to COMPLETED
+                nadi_ref = payload.get("origin_nadi_ref")
+                if nadi_ref:
+                    self._update_mission_state(ctx, nadi_ref, "completed")
             else:
                 operations.append(f"pr_verdict:merge_failed:#{pr_number}")
                 logger.warning("PR_VERDICT: Merge failed for PR #%d", pr_number)
@@ -262,3 +276,30 @@ class PRVerdictHook(BasePhaseHook):
             logger.info("PR_VERDICT: Council proposal created for PR #%d", pr_number)
         else:
             logger.warning("PR_VERDICT: Council proposal failed for PR #%d", pr_number)
+
+    def _update_mission_state(self, ctx: PhaseContext, nadi_ref: str, status: str) -> None:
+        """Update mission state in Sankalpa registry based on NADI_REF."""
+        sankalpa = ctx.registry.get(SVC_SANKALPA)
+        if not sankalpa:
+            return
+
+        try:
+            from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
+            
+            # Find mission by NADI_REF (implicit matching in registry or searching)
+            # For now, we search active missions for the matching ref in metadata
+            all_missions = sankalpa.registry.list_missions()
+            for m in all_missions:
+                # We assume missions created via NADI have origin_nadi_ref in their metadata/id
+                if nadi_ref in m.id or (hasattr(m, "metadata") and m.metadata.get("nadi_ref") == nadi_ref):
+                    m.status = MissionStatus.COMPLETED if status == "completed" else m.status
+                    if status == "completed":
+                        if not hasattr(m, "metadata") or m.metadata is None:
+                            m.metadata = {}
+                        m.metadata["nadi_verified"] = True
+                    
+                    sankalpa.registry.add_mission(m)
+                    logger.info("PR_VERDICT: Karma Bridge — Marked mission %s as %s (verified)", m.id, status)
+                    break
+        except Exception as e:
+            logger.warning("PR_VERDICT: Karma Bridge failed updating mission %s: %s", nadi_ref, e)
