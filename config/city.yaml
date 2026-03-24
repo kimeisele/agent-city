@@ -97,6 +97,8 @@ network:
 database:
   default_path: "data/city.db"
   economy_path: "data/economy.db"
+  discovery_path: "data/discovery.db"
+  signal_state_path: "data/signal_state.db"
 
 # ============================================================================
 # ACCESS CLASSES — Capability-based access levels for operators
