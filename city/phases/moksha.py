@@ -76,9 +76,21 @@ def execute(ctx: PhaseContext) -> dict:
     """MOKSHA: Dispatch hooks in priority order, return reflection dict."""
     operations: list[str] = []
 
-    from city.phase_hook import MOKSHA
+    # Import MOKSHA constant safely
+    try:
+        from city.phase_hook import MOKSHA
+    except ImportError:
+        # Fallback to a default value if the constant is not available
+        # This should match the actual constant used in PhaseHookRegistry
+        MOKSHA = "MOKSHA"
+
     registry = _build_registry()
-    registry.dispatch(MOKSHA, ctx, operations)
+    try:
+        registry.dispatch(MOKSHA, ctx, operations)
+    except Exception as e:
+        logger.error("MOKSHA dispatch failed: %s", e, exc_info=True)
+        # Re-raise to maintain original error behavior
+        raise
 
     # Reflection dict is built by ReflectionStatsHook and enriched by later hooks
     reflection = getattr(ctx, "_reflection", {})
