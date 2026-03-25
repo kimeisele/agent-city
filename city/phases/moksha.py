@@ -84,6 +84,23 @@ def execute(ctx: PhaseContext) -> dict:
         # This should match the actual constant used in PhaseHookRegistry
         MOKSHA = "MOKSHA"
 
+    # Ensure ctx has required ledgers after DI refactoring
+    # Try to obtain ledgers from runtime or registry and attach them to ctx
+    if hasattr(ctx, 'runtime'):
+        runtime = ctx.runtime
+        # Attach common ledgers if they exist on runtime
+        for ledger_name in ['discovery_ledger', 'signal_state_ledger', 
+                            'reflection_ledger', 'mission_ledger']:
+            if hasattr(runtime, ledger_name) and not hasattr(ctx, ledger_name):
+                setattr(ctx, ledger_name, getattr(runtime, ledger_name))
+    elif hasattr(ctx, 'registry'):
+        registry = ctx.registry
+        # Similar logic for registry if ledgers are stored there
+        for ledger_name in ['discovery_ledger', 'signal_state_ledger',
+                            'reflection_ledger', 'mission_ledger']:
+            if hasattr(registry, ledger_name) and not hasattr(ctx, ledger_name):
+                setattr(ctx, ledger_name, getattr(registry, ledger_name))
+
     registry = _build_registry()
     try:
         registry.dispatch(MOKSHA, ctx, operations)
