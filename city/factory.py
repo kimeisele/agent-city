@@ -836,17 +836,16 @@ def _build_discovery_ledger(ctx: BuildContext) -> object | None:
 
 
 def _build_signal_state_ledger(ctx: BuildContext) -> object | None:
-    from city.signal_state_ledger import SignalStateLedger
-    from city.registry import SVC_DISCOVERY_LEDGER
+    from city.registry import SVC_SIGNAL_STATE_LEDGER
+    # If already registered (e.g., by runtime), reuse it
+    existing = ctx.registry.get(SVC_SIGNAL_STATE_LEDGER)
+    if existing is not None:
+        logger.info("SignalStateLedger reused (already registered)")
+        return existing
 
+    from city.signal_state_ledger import SignalStateLedger
     db_path = ctx.config.get("database", {}).get("signal_state_path", "data/signal_state.db")
     ledger = SignalStateLedger(db_path=db_path)
-
-    # Hardening: Final migration check once both ledgers are wired
-    discovery_ledger = ctx.registry.get(SVC_DISCOVERY_LEDGER)
-    if ctx.pokedex is not None and discovery_ledger is not None:
-        _perform_state_migration(ctx.pokedex, discovery_ledger, ledger)
-
     logger.info("SignalStateLedger wired")
     return ledger
 def _build_node_identity(ctx: BuildContext) -> object | None:

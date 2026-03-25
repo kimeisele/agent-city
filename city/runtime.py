@@ -82,7 +82,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     bootstrap_steward_substrate(log)
 
     from vibe_core.cartridges.system.civic.tools.economy import CivicBank
-    from city.factory import BuildContext, CityServiceFactory, default_definitions
+    from city.factory import BuildContext, CityServiceFactory, default_definitions, _perform_state_migration
     from city.gateway import CityGateway
     from city.mayor import Mayor
     from city.mayor.lifecycle import MayorLifecycleBridge
@@ -95,7 +95,12 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     state_paths = RuntimeStatePaths.from_db_path(db_path)
 
     from city.discovery_ledger import DiscoveryLedger
+    from city.signal_state_ledger import SignalStateLedger
+
     discovery_ledger = DiscoveryLedger(db_path=str(state_paths.discovery_db_path))
+    signal_state_ledger = SignalStateLedger(
+        db_path=str(db_path.parent / "signal_state.db")
+    )
 
     bank = CivicBank(db_path=str(db_path.parent / "economy.db"))
     pokedex = Pokedex(db_path=str(db_path), bank=bank)
@@ -103,6 +108,11 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
 
     registry = CityServiceRegistry()
+    # Register ledgers early so factory can reuse them
+    from city.registry import SVC_DISCOVERY_LEDGER, SVC_SIGNAL_STATE_LEDGER
+    registry.register(SVC_DISCOVERY_LEDGER, discovery_ledger)
+    registry.register(SVC_SIGNAL_STATE_LEDGER, signal_state_ledger)
+
     build_ctx = BuildContext(
         registry=registry,
         db_path=db_path,
@@ -116,6 +126,10 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
 
     from city.federation_propagation import get_propagation_engine
     get_propagation_engine().set_discovery_ledger(discovery_ledger)
+
+    # Perform state migration once both ledgers are ready
+    from city.factory import _perform_state_migration
+    _perform_state_migration(pokedex, discovery_ledger, signal_state_ledger)
 
     # Wire MoltbookClient BEFORE factory — the assistant needs it during build
     _wire_moltbook_client_early(registry, log)
