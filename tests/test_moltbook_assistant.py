@@ -162,7 +162,8 @@ def test_on_dharma_plans_series_after_cooldown():
     assistant, _ = _make_assistant([_agent("a")])
     assistant._last_post_time = 0.0  # long ago
     assistant.on_dharma(1)
-    assert assistant._planned_series != ""
+    # Series planning is now GUTTED (event-driven from outbound.py)
+    assert assistant._planned_series == ""
 
 
 def test_on_dharma_no_series_during_cooldown():
@@ -285,9 +286,9 @@ def test_select_series_zone_report_imbalanced():
               + [_agent("m0", zone="moksha")])
     assistant, _ = _make_assistant(agents)
     assistant._ops["posts"] = 1  # not first post anymore
-    # 10 karma vs 1 moksha → imbalanced
+    # zone_report is currently DISABLED (template spam prevention)
     series = assistant._select_series()
-    assert series == "zone_report"
+    assert series == ""
 
 
 def test_select_series_round_robin():

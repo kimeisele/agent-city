@@ -47,6 +47,7 @@ class ThoughtKind(StrEnum):
     INSIGHT = "insight"              # 8H: synthesized insight from missions
     CRITIQUE = "critique"            # 10B: critical evaluation of system output quality
     DISCOVERY = "discovery"          # Step 3: semantic repo evaluation
+    SOCIAL_STRATEGY = "social_strategy"  # Organic social engagement
 
 
 # ── Model Metabolism (Yantra Multi-Model Routing) ────────────────────
@@ -633,6 +634,35 @@ class CityBrain:
             discovery_readme=truncated_readme,
         )
         return self._think("discovery", ctx)
+
+    def evaluate_social_strategy(
+        self,
+        post_text: str,
+        city_needs: list[str],
+    ) -> Thought | None:
+        """Brain evaluates a social post and decides if/how to engage organically.
+
+        Output Thought must include confidence (0.0-1.0).
+        """
+        from city.prompt_registry import PromptContext
+
+        ctx = PromptContext(
+            signal_reading=post_text,
+            field_summary=f"City Needs: {'; '.join(city_needs)}",
+        )
+        return self._think(
+            "social_strategy",
+            ctx,
+            user_message_override=(
+                f"Evaluate this post for organic engagement based on current city needs:\n\n"
+                f"Post: {post_text[:1000]}\n\n"
+                f"Needs: {'; '.join(city_needs)}\n\n"
+                f"Decision Rules:\n"
+                f"1. Only engage if there is a direct strategic fit.\n"
+                f"2. Output a confidence score (0.0-1.0).\n"
+                f"3. If engaging, provide a terse, sovereign response in 'comprehension'."
+            )
+        )
 
 
     def _invoke_and_parse(

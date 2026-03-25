@@ -32,6 +32,7 @@ def _build_registry():
         MoltbookAssistantHook,
         MoltbookFeedScanHook,
         MoltbookDiplomacyHook,
+        MoltbookObservationHook,
         SubmoltScanHook,
     )
     from city.hooks.genesis.federation import (
@@ -54,6 +55,7 @@ def _build_registry():
     registry.register(CensusHook())              # pri=0   setup
     registry.register(HeartbeatObserverHook())   # pri=5   self-observation
     registry.register(MoltbookFeedScanHook())     # pri=10  discovery
+    registry.register(MoltbookObservationHook())   # pri=12  feed observation
     registry.register(DMInboxHook())              # pri=15  inbox
     registry.register(MoltbookDiplomacyHook())      # pri=18  mentions/replies
     registry.register(SubmoltScanHook())           # pri=20  submolt

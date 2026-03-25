@@ -11,6 +11,7 @@ All structural hardening steps for the Agent City Federation have been successfu
 5. **Step 5: Discovery Registry** - `discovered_repos` table isolates scouting from civic state.
 6. **Step 6: Outbound Membrane** - Finalized stateful, event-driven outbound communication.
 7. **Step 7: Diplomatic Membrane** - Cured sensory blindness. Implemented isolated @mentions and replies fetching with decoupled internal governance signals.
+8. **Step 8: Dynamic Social Cognition** - Implemented an organic Read-Synthesize-Act loop. The City now proactively observes the Moltbook feed, assembles context, and uses the Brain to decide on organic engagements with a mandatory 85% confidence safety gate for Steward protection.
 
 ## Verification
 - Core NADI and State Ledgers verified via `pytest`.
