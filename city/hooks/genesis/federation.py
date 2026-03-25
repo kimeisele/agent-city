@@ -100,6 +100,21 @@ def _execute_directive(ctx: PhaseContext, directive: object) -> bool:
         )
         return True
 
+    if dtype == "bottleneck_resolution":
+        dedup_key = params.get("dedup_key")
+        if not dedup_key:
+            return False
+        if ctx.sankalpa is not None:
+            missions = ctx.sankalpa.registry.get_active_missions()
+            for mission in missions:
+                if mission.id.startswith(f"bottleneck_{dedup_key}_") or \
+                   mission.id == dedup_key:
+                    mission.status = "completed"
+                    logger.info("Directive: resolved bottleneck mission %s", mission.id)
+                    return True
+        logger.warning("Directive: bottleneck_resolution %s received but mission not found", dedup_key)
+        return True
+
     logger.warning("Unknown directive type: %s", dtype)
     return False
 
@@ -124,6 +139,7 @@ class FederationNadiHook(BasePhaseHook):
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         fed_messages = ctx.federation_nadi.receive()
+        ctx._federation_messages = list(fed_messages)
         for msg in fed_messages:
             enqueue_ingress(
                 ctx,
@@ -131,8 +147,11 @@ class FederationNadiHook(BasePhaseHook):
                 {
                     "source": f"federation:{msg.source}",
                     "text": msg.operation,
+                    "federation_operation": msg.operation,
                     "federation_payload": msg.payload,
                     "correlation_id": msg.correlation_id,
+                    "signature": msg.signature,
+                    "signer_key": msg.signer_key,
                 },
             )
             operations.append(f"fed_nadi:{msg.source}:{msg.operation}")

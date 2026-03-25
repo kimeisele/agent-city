@@ -139,7 +139,14 @@ def _collect_terminal_missions(ctx: PhaseContext) -> list[dict]:
 
     terminal: list[dict] = []
     for m in all_missions:
-        if m.status not in (MissionStatus.COMPLETED, MissionStatus.ABANDONED):
+        if m.status == MissionStatus.ABANDONED:
+            pass # report these as usual
+        elif m.status == MissionStatus.COMPLETED:
+            # Deterministic Karma: ONLY for missions verified via NADI merge
+            if not getattr(m, "metadata", {}).get("nadi_verified"):
+                logger.debug("MISSION_LIFECYCLE: Skipping unverified completion for %s", m.id)
+                continue
+        else:
             continue
         # Only report missions we haven't already reported
         # Convention: owner changes to "reported" after posting
@@ -156,6 +163,15 @@ def _collect_terminal_missions(ctx: PhaseContext) -> list[dict]:
         # Mark as reported to prevent re-posting
         m.owner = "reported"
         ctx.sankalpa.registry.add_mission(m)
+
+        # Emit explicit MISSION_COMPLETED signal for outbound membrane
+        if m.status == MissionStatus.COMPLETED:
+            ctx.recent_events.append({
+                "type": "mission_completed",
+                "mission_id": m.id,
+                "mission_name": m.name,
+                "nadi_ref": getattr(m, "metadata", {}).get("nadi_ref", ""),
+            })
 
     return terminal
 
@@ -323,6 +339,15 @@ def _mint_mission_rewards(ctx: PhaseContext, terminal_missions: list[dict]) -> l
     }
 
     minted: list[dict] = []
+    try:
+        from city.bounty import resolve_bounties_for_missions
+
+        bounty_claims = resolve_bounties_for_missions(ctx, terminal_missions)
+        if bounty_claims:
+            minted.extend(bounty_claims)
+    except Exception as e:
+        logger.warning("MOKSHA: Failed to resolve bounties: %s", e)
+
     for mission in terminal_missions:
         owner = mission.get("owner", "")
         if not owner or owner in ("reported", "unknown"):

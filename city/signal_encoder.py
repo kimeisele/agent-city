@@ -30,6 +30,8 @@ def encode_signal(
     text: str,
     sender: Jiva,
     correlation_id: str = "",
+    in_reply_to: str = "",
+    intent: str | None = None,
 ) -> SemanticSignal:
     """Encode text + sender Jiva into a SemanticSignal. Deterministic."""
     from vibe_core.mahamantra.substrate.encoding.phonetic_encoder import encode_text
@@ -42,6 +44,7 @@ def encode_signal(
     from vibe_core.mahamantra.substrate.encoding.maha_llm_kernel import resonate
 
     from city.semantic import _extract_concepts
+    from city.signal import SemanticIntent
 
     # ── RAMA coordinates ──
     rama_coords = encode_text(text)
@@ -77,6 +80,14 @@ def encode_signal(
         dominant_element=dominant,
     )
 
+    # Resolve intent
+    sem_intent = SemanticIntent.MISSION_PROPOSAL
+    if intent:
+        try:
+            sem_intent = SemanticIntent(intent)
+        except ValueError:
+            pass
+
     return SemanticSignal(
         sender_name=sender.name,
         sender_address=sender.address,
@@ -91,6 +102,8 @@ def encode_signal(
         resonant_elements=resonant_elements,
         raw_text=text,
         priority=1,  # Default RAJAS
+        intent=sem_intent,
+        in_reply_to=in_reply_to,
     )
 
 

@@ -25,7 +25,9 @@ logger = logging.getLogger("AGENT_CITY.KARMA.COGNITION")
 # Minimum venu energy to run cognition (0-63 scale).
 # 16 = quarter-point — more permissive than heal (32) but still
 # gates out the lowest-energy ticks where the city should rest.
-_COGNITION_VENU_THRESHOLD: int = 16
+# At 15-min heartbeats, every tick is precious. Cognition runs EVERY heartbeat.
+# VENU gating is for sub-second orchestration, not 96-ticks-per-day cadence.
+_COGNITION_VENU_THRESHOLD: int = 0
 
 # Maps buddhi function × agent capability → existing city operation.
 _ACTION_MAP: dict[str, dict[str, str]] = {
@@ -117,6 +119,10 @@ def _route_to_cartridges(
     except Exception:
         return
 
+    # Sort: initiative missions first (agent-created work before external work),
+    # then by priority (HIGH before MEDIUM before LOW).
+    active.sort(key=lambda m: (0 if m.id.startswith("initiative_") else 1, getattr(m.priority, 'value', 99)))
+
     autonomy_cfg = get_config().get("autonomy", {})
     max_cognitive_actions = autonomy_cfg.get("max_actions_per_cycle", 3)
     cognitive_count = 0
@@ -129,21 +135,39 @@ def _route_to_cartridges(
         if mission.id.startswith(("issue_", "exec_")):
             continue
 
-        result = route_mission(
-            mission, all_specs, ctx.active_agents,
-            all_inventories, router=router,
-        )
-
-        if result["blocked"]:
-            operations.append(f"route_blocked:{mission.id}:no_qualified_agent")
-            logger.info(
-                "KARMA: Mission %s blocked — %d agents failed capability gate",
-                mission.id, result["blocked_count"],
+        # Initiative missions route directly to their owner (Svadharma: the agent
+        # who created the mission IS the qualified agent by definition).
+        if mission.id.startswith("initiative_") and mission.owner in ctx.active_agents:
+            agent_name = mission.owner
+            result = {"agent_name": agent_name, "blocked": False, "score": 1.0}
+            logger.debug("KARMA: Initiative %s → owner %s (direct)", mission.id, agent_name)
+        else:
+            result = route_mission(
+                mission, all_specs, ctx.active_agents,
+                all_inventories, router=router,
             )
-            continue
+
+            if result["blocked"]:
+                operations.append(f"route_blocked:{mission.id}:no_qualified_agent")
+                logger.info(
+                    "KARMA: Mission %s blocked — %d agents failed capability gate",
+                    mission.id, result["blocked_count"],
+                )
+                continue
 
         agent_name = result["agent_name"]
         if agent_name is None:
+            continue
+
+        # ── Prana Gate: agent must afford the mission ──────────────────
+        # Deterministic economic check. No LLM. Agents with low prana
+        # skip expensive work → natural load distribution.
+        from city.seed_constants import METABOLIC_COST
+        _MISSION_PRANA_COST = METABOLIC_COST * 2  # 6 prana per mission attempt
+        agent_prana = _get_agent_prana(ctx, agent_name)
+        if agent_prana < _MISSION_PRANA_COST:
+            operations.append(f"prana_gate:{agent_name}:balance={agent_prana}<{_MISSION_PRANA_COST}")
+            logger.debug("KARMA: %s skipped %s — prana %d < %d", agent_name, mission.id, agent_prana, _MISSION_PRANA_COST)
             continue
 
         cartridge = loader.get(agent_name)
@@ -173,8 +197,11 @@ def _route_to_cartridges(
             decision_mode = runtime_result.get("decision_mode", "?")
 
             # Map runtime result to cognitive_action format for downstream
-            if decision_mode == "micro_brain" and runtime_result.get("action") == "respond":
-                # MicroBrain thought — use its response
+            micro_brain_acted = decision_mode == "micro_brain" and runtime_result.get("action")
+            is_initiative = mission.id.startswith("initiative_")
+            if micro_brain_acted and (runtime_result.get("action") == "respond" or is_initiative):
+                # MicroBrain thought — for initiative missions, ANY action counts as cognized
+                # (the agent took initiative, reasoned, and chose — that's success)
                 cognitive_action = {
                     "status": "cognized",
                     "function": runtime_result.get("action", "respond"),
@@ -196,10 +223,20 @@ def _route_to_cartridges(
                 operations.append(f"cognition_throttled:{agent_name}")
                 continue
 
-            operation_name = _execute_cognitive_action(
-                ctx, cognitive_action, mission, operations,
-            )
-            executed = operation_name is not None
+            # Initiative missions: the MicroBrain decision IS the work.
+            # The agent thought about its domain and chose an action — that's success.
+            # Regular missions go through _execute_cognitive_action for side effects.
+            if is_initiative and micro_brain_acted:
+                executed = True
+                operations.append(
+                    f"initiative_executed:{agent_name}:{cognitive_action.get('function', '?')}"
+                )
+            else:
+                operation_name = _execute_cognitive_action(
+                    ctx, cognitive_action, mission, operations,
+                )
+                executed = operation_name is not None
+
             # Runtime learning: per-agent per-mission outcome
             runtime.record_outcome(f"mission:{mission.id}", executed)
             _learn(
@@ -207,8 +244,19 @@ def _route_to_cartridges(
                 cognitive_action["function"], success=executed,
             )
 
+            # ── Prana Reward: work pays ───────────────────────────────
+            # Success = full reward. Failure = participation credit.
+            # Initiative success gets extra bonus (eigeninitiative).
+            from city.seed_constants import MISSION_COMPLETION_PRANA, MISSION_FAILED_PRANA
             if executed:
+                reward = MISSION_COMPLETION_PRANA  # 27
+                if is_initiative:
+                    reward += MISSION_COMPLETION_PRANA // 2  # +13 initiative bonus = 40
+                _credit_agent_prana(ctx, agent_name, reward)
+                operations.append(f"prana_reward:{agent_name}:+{reward}")
                 cognitive_count += 1
+            else:
+                _credit_agent_prana(ctx, agent_name, MISSION_FAILED_PRANA)  # 3
 
             operations.append(
                 f"routed:{agent_name}:{mission.id}:score={result['score']:.2f}"
@@ -376,3 +424,19 @@ def _get_agent_spec(ctx: PhaseContext, agent_name: str) -> dict | None:
     if factory is None:
         return None
     return factory.get_spec(agent_name)
+
+
+def _get_agent_prana(ctx: PhaseContext, agent_name: str) -> int:
+    """Get agent's prana balance from CivicBank."""
+    try:
+        return ctx.pokedex._bank.get_balance(agent_name)
+    except Exception:
+        return 0
+
+
+def _credit_agent_prana(ctx: PhaseContext, agent_name: str, amount: int) -> None:
+    """Credit prana to agent via CivicBank."""
+    try:
+        ctx.pokedex._bank.credit(agent_name, amount)
+    except Exception:
+        pass

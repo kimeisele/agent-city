@@ -78,6 +78,63 @@ class MoltbookFeedScanHook(BasePhaseHook):
                 logger.info("GENESIS: Discovered agent %s", author)
 
 
+class MoltbookObservationHook(BasePhaseHook):
+    """Broad feed observation (Sensory Sampling).
+
+    Fetches the wider feed and stores unread posts in a transient
+    sensory buffer for the Brain to evaluate in DHARMA.
+    """
+
+    @property
+    def name(self) -> str:
+        return "moltbook_observation"
+
+    @property
+    def phase(self) -> str:
+        return GENESIS
+
+    @property
+    def priority(self) -> int:
+        return 12  # between feed scan and dm inbox
+
+    def should_run(self, ctx: PhaseContext) -> bool:
+        return ctx.moltbook_client is not None and not ctx.offline_mode
+
+    def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
+        from city.registry import SVC_SIGNAL_STATE_LEDGER
+        ledger = ctx.registry.get(SVC_SIGNAL_STATE_LEDGER)
+        
+        limit = get_config().get("moltbook_bridge", {}).get("observation_limit", 30)
+        feed = safe_call(
+            ctx.moltbook_client.sync_get_feed, limit=limit,
+            label="moltbook_observation_feed",
+        )
+        if feed is None:
+            return
+
+        # Initialize transient buffer
+        if not hasattr(ctx, "_sensory_buffer"):
+            ctx._sensory_buffer = []
+
+        new_observations = 0
+        for post in feed:
+            post_id = post.get("id", "")
+            if not post_id:
+                continue
+
+            # Skip if already processed or replied
+            if ledger and ledger.is_signal_processed(post_id):
+                continue
+
+            # Store unread post for cognitive evaluation in DHARMA
+            ctx._sensory_buffer.append(post)
+            new_observations += 1
+
+        if new_observations:
+            operations.append(f"observed:{new_observations}_posts")
+            logger.info("GENESIS: Observed %d new posts for cognitive evaluation", new_observations)
+
+
 class DMInboxHook(BasePhaseHook):
     """Poll Moltbook DMs: approve requests + enqueue unread messages."""
 
@@ -167,9 +224,12 @@ class DMInboxHook(BasePhaseHook):
 
             for msg in messages:
                 msg_id = msg.get("id", "")
-                if msg_id in _seen_message_ids:
+                if not msg_id:
                     continue
-                _seen_message_ids[msg_id] = None
+                
+                # Persistent dedup (Phase 6E: stop shitposting)
+                if ctx.pokedex.is_signal_processed(msg_id):
+                    continue
 
                 sender = msg.get("from", {}).get("username", msg.get("sender", ""))
                 content = msg.get("content", msg.get("text", ""))
@@ -186,12 +246,68 @@ class DMInboxHook(BasePhaseHook):
                         "from_agent": sender,
                     },
                 )
+                
+                ctx.pokedex.mark_signal_processed(msg_id, "moltbook_dm")
                 operations.append(f"dm_enqueued:{sender}")
                 logger.info("GENESIS: Enqueued DM from %s", sender)
 
-        # FIFO eviction: remove oldest entries first
-        while len(_seen_message_ids) > _SEEN_MESSAGE_IDS_MAX:
-            _seen_message_ids.popitem(last=False)
+
+class MoltbookDiplomacyHook(BasePhaseHook):
+    """Fetch unread @mentions and replies (Sensory Expansion)."""
+
+    @property
+    def name(self) -> str:
+        return "moltbook_diplomacy"
+
+    @property
+    def phase(self) -> str:
+        return GENESIS
+
+    @property
+    def priority(self) -> int:
+        return 18  # after DM inbox, before submolt scan
+
+    def should_run(self, ctx: PhaseContext) -> bool:
+        return ctx.moltbook_bridge is not None and not ctx.offline_mode
+
+    def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
+        from city.registry import SVC_SIGNAL_STATE_LEDGER
+        ledger = ctx.registry.get(SVC_SIGNAL_STATE_LEDGER)
+        
+        # 1. Fetch mentions
+        mentions = ctx.moltbook_bridge.fetch_mentions(ledger=ledger)
+        for m in mentions:
+            enqueue_ingress(
+                ctx,
+                IngressSurface.MOLTBOOK_MENTION,  # Public Mention
+                {
+                    "source": "moltbook_mention",
+                    "text": m["body"],
+                    "from_agent": m["author"],
+                    "signal_id": m["id"],
+                    "post_id": m.get("post_id"),
+                },
+            )
+            operations.append(f"mention_enqueued:{m['author']}")
+            logger.info("GENESIS: Enqueued mention from %s", m['author'])
+
+        # 2. Fetch replies
+        replies = ctx.moltbook_bridge.fetch_replies(ledger=ledger)
+        for r in replies:
+            enqueue_ingress(
+                ctx,
+                IngressSurface.MOLTBOOK_REPLY,  # Public Reply
+                {
+                    "source": "moltbook_reply",
+                    "text": r["body"],
+                    "from_agent": r["author"],
+                    "signal_id": r["id"],
+                    "parent_id": r.get("parent_id"),
+                    "post_id": r.get("post_id"),
+                },
+            )
+            operations.append(f"reply_enqueued:{r['author']}")
+            logger.info("GENESIS: Enqueued reply from %s", r['author'])
 
 
 class SubmoltScanHook(BasePhaseHook):
@@ -214,7 +330,7 @@ class SubmoltScanHook(BasePhaseHook):
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         _scan_limit = get_config().get("moltbook_bridge", {}).get("feed_scan_limit", 20)
-        submolt_signals = ctx.moltbook_bridge.scan_submolt(limit=_scan_limit)
+        submolt_signals = ctx.moltbook_bridge.scan_submolt(limit=_scan_limit, pokedex=ctx.pokedex)
         for signal in submolt_signals:
             # Discover authors from submolt posts
             author = signal.get("author", "")

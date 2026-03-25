@@ -76,6 +76,58 @@ class Pokedex:
     Economy via CivicBank (steward-protocol). No copies.
     """
 
+    def _reverse_bank_transfer(
+        self,
+        sender: str,
+        recipient: str,
+        amount: int,
+        reason: str,
+        category: str,
+    ) -> bool:
+        if amount <= 0:
+            return True
+        try:
+            self._bank.transfer(sender, recipient, amount, reason, category)
+            return True
+        except Exception as exc:
+            logger.critical(
+                "SETTLEMENT: compensation failed %s -> %s amount=%d reason=%s error=%s",
+                sender,
+                recipient,
+                amount,
+                reason,
+                exc,
+            )
+            return False
+
+    def _safe_sqlite_commit(self, *, context: str) -> None:
+        try:
+            self._conn.commit()
+        except Exception:
+            logger.exception("SETTLEMENT: sqlite commit failed during %s", context)
+            raise
+
+    def _maybe_revive_after_prana_credit(self, name: str, previous_status: str, reason: str) -> None:
+        if previous_status != "frozen":
+            return
+
+        cur = self._conn.cursor()
+        cur.execute("SELECT prana FROM agents WHERE name = ?", (name,))
+        row = cur.fetchone()
+        if row is None:
+            return
+
+        from city.seed_constants import HIBERNATION_THRESHOLD
+
+        if row["prana"] > HIBERNATION_THRESHOLD:
+            self.revive(
+                name,
+                prana_dose=0,
+                sponsor="system",
+                reason=reason,
+                membrane=self._internal_root_membrane(source_class="economy"),
+            )
+
     def __init__(
         self,
         db_path: str = "data/city.db",
@@ -441,7 +493,7 @@ class Pokedex:
                 jiva.cell.prana,
                 jiva.cell.age,
                 1 if jiva.cell.is_alive else 0,
-                classify_prana_class(jiva.cell.prana),
+                "immortal" if "template" in name else classify_prana_class(jiva.cell.prana),
             ),
         )
         self._record_event(name, "discover", None, "discovered", json.dumps(moltbook_profile or {}))
@@ -1977,6 +2029,146 @@ class Pokedex:
         )
         return order_id
 
+    def _create_bounty_order(
+        self,
+        target: str,
+        reward: int,
+        heartbeat: int,
+        expiry_hb: int = 20,
+        source: str = "brain",
+        description: str = "",
+        asset_id: str | None = None,
+    ) -> int | None:
+        """Create a bounty order (no asset escrow — reward from treasury).
+
+        Bounties are marketplace orders with asset_type='bounty'.
+        The "seller" is 'treasury' (public escrow), "price" is the reward.
+        Anyone can fill (claim) the bounty to receive the reward.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        asset_id = asset_id or f"fix:{target[:100]}"
+
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """INSERT INTO marketplace_orders
+                   (seller, asset_type, asset_id, quantity, price,
+                    created_at, created_heartbeat, expires_heartbeat, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open')""",
+                (
+                    f"treasury:{source}",
+                    "bounty",
+                    asset_id,
+                    1,
+                    reward,
+                    now,
+                    heartbeat,
+                    heartbeat + expiry_hb,
+                ),
+            )
+            order_id = cur.lastrowid
+            self._conn.commit()
+
+        logger.info(
+            "MARKETPLACE: Bounty #%d — reward=%d target='%s' source=%s expires=%d",
+            order_id, reward, target[:60], source, heartbeat + expiry_hb,
+        )
+        return order_id
+
+    def fill_bounty_order(self, order_id: int, claimer: str, heartbeat: int) -> dict | None:
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT * FROM marketplace_orders WHERE id = ? AND status = 'open' AND asset_type = 'bounty'",
+                (order_id,),
+            )
+            order = cur.fetchone()
+            if not order:
+                return None
+
+            claimer_row = self._require(claimer)
+            price = int(order["price"] or 0)
+            if price <= 0:
+                return None
+
+            seller = order["seller"]
+            now = datetime.now(timezone.utc).isoformat()
+            tx_id: str | None = None
+
+            try:
+                tx_id = self._bank.transfer(
+                    SYSTEM_TREASURY, claimer, price, f"bounty_order_{order_id}", "bounty"
+                )
+                cur.execute(
+                    """UPDATE marketplace_orders
+                       SET status = 'filled', buyer = ?, filled_at = ?
+                       WHERE id = ?""",
+                    (claimer, now, order_id),
+                )
+                cur.execute(
+                    "UPDATE agents SET prana = prana + ? WHERE name = ?",
+                    (price, claimer),
+                )
+
+                cur.execute(
+                    "UPDATE marketplace_orders SET tx_id = ? WHERE id = ?",
+                    (tx_id, order_id),
+                )
+                self._record_event(
+                    claimer,
+                    "bounty_claim",
+                    claimer_row["status"],
+                    claimer_row["status"],
+                    json.dumps({
+                        "order_id": order_id,
+                        "asset_id": order["asset_id"],
+                        "amount": price,
+                        "heartbeat": heartbeat,
+                        "seller": seller,
+                    }),
+                )
+                self._safe_sqlite_commit(context=f"bounty_order:{order_id}")
+            except Exception:
+                self._conn.rollback()
+                if tx_id is not None:
+                    self._reverse_bank_transfer(
+                        claimer,
+                        SYSTEM_TREASURY,
+                        price,
+                        f"bounty_order_reversal_{order_id}",
+                        "settlement_reversal",
+                    )
+                return None
+
+            if self._prana_engine is not None and self._prana_engine.has(claimer):
+                self._prana_engine.credit(claimer, price)
+
+            self._maybe_revive_after_prana_credit(
+                claimer,
+                str(claimer_row["status"]),
+                f"revive:bounty_claim:{order['asset_id']}",
+            )
+
+        logger.info(
+            "MARKETPLACE: Bounty #%d — %s claimed %s for %d prana",
+            order_id,
+            claimer,
+            order["asset_id"],
+            price,
+        )
+        return {
+            "order_id": order_id,
+            "seller": seller,
+            "buyer": claimer,
+            "asset_type": order["asset_type"],
+            "asset_id": order["asset_id"],
+            "quantity": order["quantity"],
+            "price": price,
+            "commission": 0,
+            "seller_receives": 0,
+            "tx_id": tx_id,
+        }
+
     def fill_order(
         self,
         order_id: int,
@@ -1993,6 +2185,13 @@ class Pokedex:
         Transaction safety: SQLite staged first, bank transfer attempted,
         SQLite committed only if bank succeeds. Rollback on bank failure.
         """
+        # Short-circuit bounty claims to avoid taking payment from the claimer
+        cur = self._conn.cursor()
+        cur.execute("SELECT asset_type FROM marketplace_orders WHERE id = ?", (order_id,))
+        row = cur.fetchone()
+        if row and row["asset_type"] == "bounty":
+            return self.fill_bounty_order(order_id, buyer, heartbeat)
+
         from city.seed_constants import TRADE_COMMISSION_PERCENT
 
         with self._lock:
@@ -2031,6 +2230,8 @@ class Pokedex:
             zone_account = ZONE_TREASURIES.get(zone, "ZONE_DISCOVERY")
 
             now = datetime.now(timezone.utc).isoformat()
+            tx_id: str | None = None
+            commission_tx_done = False
 
             # 2. SQLITE STAGE (not yet committed) — inline grant, not via grant_asset()
             cur.execute(
@@ -2072,16 +2273,54 @@ class Pokedex:
                     self._bank.transfer(
                         buyer, zone_account, commission, f"trade_commission_{order_id}", "tax"
                     )
-            except Exception:
+                    commission_tx_done = True
+                # 4. COMMIT SQLITE (only if bank succeeded)
+                cur.execute(
+                    "UPDATE marketplace_orders SET tx_id = ? WHERE id = ?",
+                    (tx_id, order_id),
+                )
+                try:
+                    self._safe_sqlite_commit(context=f"trade_order:{order_id}")
+                except Exception as e:
+                    # Best-effort compensation for post-bank SQL failures
+                    self._conn.rollback()
+                    if commission > 0 and commission_tx_done:
+                        self._reverse_bank_transfer(
+                            zone_account,
+                            buyer,
+                            commission,
+                            f"trade_commission_reversal_{order_id}",
+                            "settlement_reversal",
+                        )
+                    if tx_id is not None:
+                        self._reverse_bank_transfer(
+                            seller,
+                            buyer,
+                            seller_receives,
+                            f"trade_order_reversal_{order_id}",
+                            "settlement_reversal",
+                        )
+                    logger.error(f"Failed to commit SQLite: {e}")
+                    return None
+            except Exception as e:
                 self._conn.rollback()
+                if commission > 0 and commission_tx_done:
+                    self._reverse_bank_transfer(
+                        zone_account,
+                        buyer,
+                        commission,
+                        f"trade_commission_reversal_{order_id}",
+                        "settlement_reversal",
+                    )
+                if tx_id is not None:
+                    self._reverse_bank_transfer(
+                        seller,
+                        buyer,
+                        seller_receives,
+                        f"trade_order_reversal_{order_id}",
+                        "settlement_reversal",
+                    )
                 return None
-
-            # 4. COMMIT SQLITE (only if bank succeeded)
-            cur.execute(
-                "UPDATE marketplace_orders SET tx_id = ? WHERE id = ?",
-                (tx_id, order_id),
-            )
-            self._conn.commit()
 
         logger.info(
             "MARKETPLACE: Trade #%d — %s bought %s:%s from %s for %d prana (commission %d)",
@@ -2127,6 +2366,9 @@ class Pokedex:
             )
             self._conn.commit()
 
+            if order["asset_type"] == "bounty":
+                return True
+
         # Return escrowed asset (outside lock — grant_asset has its own lock)
         self.grant_asset(
             agent,
@@ -2160,6 +2402,8 @@ class Pokedex:
 
         # Return escrowed assets (outside lock)
         for order in expired_orders:
+            if order["asset_type"] == "bounty":
+                continue
             self.grant_asset(
                 order["seller"],
                 order["asset_type"],

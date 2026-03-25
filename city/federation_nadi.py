@@ -46,6 +46,8 @@ class FederationMessage:
     payload: dict  # Message data
     priority: int = RAJAS
     correlation_id: str = ""
+    signature: str = ""
+    signer_key: str = ""
     timestamp: float = field(default_factory=time.time)
     ttl_s: float = NADI_FEDERATION_TTL_S
 
@@ -61,6 +63,8 @@ class FederationMessage:
             "payload": self.payload,
             "priority": self.priority,
             "correlation_id": self.correlation_id,
+            "signature": self.signature,
+            "signer_key": self.signer_key,
             "timestamp": self.timestamp,
             "ttl_s": self.ttl_s,
         }
@@ -74,6 +78,8 @@ class FederationMessage:
             payload=data.get("payload", {}),
             priority=data.get("priority", RAJAS),
             correlation_id=data.get("correlation_id", ""),
+            signature=data.get("signature", ""),
+            signer_key=data.get("signer_key", ""),
             timestamp=data.get("timestamp", time.time()),
             ttl_s=data.get("ttl_s", NADI_FEDERATION_TTL_S),
         )
@@ -99,12 +105,19 @@ class FederationNadi:
             self._city_id = self._load_city_id()
 
     def _load_city_id(self) -> str:
-        """Load city_id from peer.json — the federation identity."""
+        """Load federation identity from peer.json.
+
+        Prefers node_id (deterministic DID) over city_id for cryptographic
+        identity binding.  Falls back to city_id/slug for backward compat.
+        """
         peer_path = self._federation_dir / "peer.json"
         if peer_path.exists():
             try:
                 data = json.loads(peer_path.read_text())
                 identity = data.get("identity", {})
+                node_id = identity.get("node_id", "")
+                if node_id:
+                    return node_id
                 return identity.get("city_id", "") or identity.get("slug", "")
             except (json.JSONDecodeError, OSError):
                 pass

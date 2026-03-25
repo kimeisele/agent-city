@@ -51,6 +51,7 @@ class ActionVerb(StrEnum):
     CHECK_HEALTH = "check_health"
 
     # infer — propose new work
+    PROPOSE_MISSION = "propose_mission"  # Public suggestion
     INVESTIGATE = "investigate"
     CREATE_MISSION = "create_mission"
 
@@ -79,6 +80,7 @@ _VERB_AUTH: dict[ActionVerb, AuthTier] = {
     ActionVerb.RUN_STATUS: AuthTier.PUBLIC,
     ActionVerb.FLAG_BOTTLENECK: AuthTier.PUBLIC,
     ActionVerb.CHECK_HEALTH: AuthTier.PUBLIC,
+    ActionVerb.PROPOSE_MISSION: AuthTier.PUBLIC,  # Anyone can suggest
     ActionVerb.INVESTIGATE: AuthTier.CITIZEN,
     ActionVerb.CREATE_MISSION: AuthTier.CITIZEN,
     ActionVerb.ASSIGN_AGENT: AuthTier.CITIZEN,

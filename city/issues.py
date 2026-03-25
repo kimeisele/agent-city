@@ -527,12 +527,50 @@ class CityIssueManager:
         }
 
     def is_issue_open(self, issue_number: int) -> bool:
-        """Return whether the issue is still tracked as open by the city."""
-        return issue_number in self._issue_cells
+        """Return whether the issue is still tracked as open.
+        
+        Checks local cache first, then falls back to GitHub API for 
+        issues outside the local tracking window (Issue #743 fix).
+        """
+        if issue_number in self._issue_cells:
+            return True
+            
+        # Fallback: Check GitHub directly for issues outside local 100-issue window
+        out = _gh_run(["issue", "view", str(issue_number), "--json", "state", "-q", ".state"])
+        return out == "OPEN"
 
     def get_bound_mission(self, issue_number: int) -> str | None:
         """Return the currently bound mission id for an issue, if any."""
         return self._bound_missions.get(issue_number)
+
+    def find_issue_by_nadi_ref(self, nadi_ref: str) -> int | None:
+        """Search open issues for one containing the given NADI_REF.
+        
+        Returns the issue number or None if not found.
+        """
+        if not nadi_ref:
+            return None
+            
+        # Optimization: check local window first (gh issue list is fast)
+        # We search specifically for the NADI_REF in the body
+        out = _gh_run([
+            "issue", "list", 
+            "--state", "open",
+            "--search", f"NADI_REF: {nadi_ref}",
+            "--json", "number",
+            "--limit", "1"
+        ])
+        if not out:
+            return None
+            
+        try:
+            results = json.loads(out)
+            if results and isinstance(results, list):
+                return results[0].get("number")
+        except json.JSONDecodeError:
+            pass
+            
+        return None
 
     def stats(self) -> dict:
         """Issue manager statistics."""

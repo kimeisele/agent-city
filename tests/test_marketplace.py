@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -357,6 +358,169 @@ class TestTransactionSafety(unittest.TestCase):
         receipt = pokedex.fill_order(oid, "buyer", heartbeat=2)
         self.assertIsNotNone(receipt)
         self.assertEqual(receipt["commission"], 6)
+
+    def test_fill_order_commit_failure_reverses_bank_transfers(self):
+        from city.pokedex import ZONE_TREASURIES
+
+        pokedex = _make_pokedex()
+        _register(pokedex, "seller")
+        _register(pokedex, "buyer")
+        pokedex.grant_asset("seller", "capability_token", "execute", quantity=2, source="mint")
+
+        oid = pokedex.create_order("seller", "capability_token", "execute", 1, 100, heartbeat=1)
+        zone_account = ZONE_TREASURIES.get(pokedex.get("seller")["zone"], "ZONE_DISCOVERY")
+
+        buyer_balance = pokedex._bank.get_balance("buyer")
+        seller_balance = pokedex._bank.get_balance("seller")
+        zone_balance = pokedex._bank.get_balance(zone_account)
+        original_commit = pokedex._safe_sqlite_commit
+        pokedex._safe_sqlite_commit = MagicMock(side_effect=sqlite3.OperationalError("disk full"))
+        self.addCleanup(setattr, pokedex, "_safe_sqlite_commit", original_commit)
+
+        receipt = pokedex.fill_order(oid, "buyer", heartbeat=2)
+
+        self.assertIsNone(receipt)
+        self.assertEqual(pokedex._bank.get_balance("buyer"), buyer_balance)
+        self.assertEqual(pokedex._bank.get_balance("seller"), seller_balance)
+        self.assertEqual(pokedex._bank.get_balance(zone_account), zone_balance)
+        self.assertFalse(pokedex.has_asset("buyer", "capability_token", "execute"))
+        orders = pokedex.get_active_orders()
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]["status"], "open")
+
+    def test_fill_order_commission_failure_reverses_seller_transfer(self):
+        pokedex = _make_pokedex()
+        _register(pokedex, "seller")
+        _register(pokedex, "buyer")
+        pokedex.grant_asset("seller", "capability_token", "execute", quantity=2, source="mint")
+
+        oid = pokedex.create_order("seller", "capability_token", "execute", 1, 100, heartbeat=1)
+        buyer_balance = pokedex._bank.get_balance("buyer")
+        seller_balance = pokedex._bank.get_balance("seller")
+        original_transfer = pokedex._bank.transfer
+
+        def transfer_side_effect(sender, recipient, amount, reason, category):
+            if reason.startswith("trade_commission_"):
+                raise Exception("commission offline")
+            return original_transfer(sender, recipient, amount, reason, category)
+
+        pokedex._bank.transfer = MagicMock(side_effect=transfer_side_effect)
+        self.addCleanup(setattr, pokedex._bank, "transfer", original_transfer)
+
+        receipt = pokedex.fill_order(oid, "buyer", heartbeat=2)
+
+        self.assertIsNone(receipt)
+        self.assertEqual(pokedex._bank.get_balance("buyer"), buyer_balance)
+        self.assertEqual(pokedex._bank.get_balance("seller"), seller_balance)
+        self.assertFalse(pokedex.has_asset("buyer", "capability_token", "execute"))
+        orders = pokedex.get_active_orders()
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]["status"], "open")
+
+
+class TestBountySettlement(unittest.TestCase):
+    def test_fill_bounty_order_pays_claimer_without_asset_trade(self):
+        pokedex = _make_pokedex()
+        _register(pokedex, "solver")
+
+        pokedex._bank.transfer("MINT", "SYSTEM_TREASURY", 200, "bounty_fund", "funding")
+        oid = pokedex._create_bounty_order(
+            target="ruff_clean contract",
+            reward=54,
+            heartbeat=1,
+            asset_id="fix:ruff_clean",
+        )
+
+        before_prana = pokedex.get_prana("solver")
+        before_balance = pokedex._bank.get_balance("solver")
+        receipt = pokedex.fill_bounty_order(oid, "solver", heartbeat=2)
+
+        self.assertIsNotNone(receipt)
+        self.assertEqual(receipt["asset_type"], "bounty")
+        self.assertEqual(receipt["asset_id"], "fix:ruff_clean")
+        self.assertEqual(pokedex.get_prana("solver"), before_prana + 54)
+        self.assertEqual(pokedex._bank.get_balance("solver"), before_balance + 54)
+        self.assertFalse(pokedex.has_asset("solver", "bounty", "fix:ruff_clean"))
+
+    def test_fill_bounty_order_commit_failure_reverses_bank_transfer(self):
+        from city.pokedex import SYSTEM_TREASURY
+
+        pokedex = _make_pokedex()
+        _register(pokedex, "solver")
+
+        pokedex._bank.transfer("MINT", "SYSTEM_TREASURY", 200, "bounty_fund", "funding")
+        oid = pokedex._create_bounty_order(
+            target="ruff_clean contract",
+            reward=54,
+            heartbeat=1,
+            asset_id="fix:ruff_clean",
+        )
+
+        before_prana = pokedex.get_prana("solver")
+        before_balance = pokedex._bank.get_balance("solver")
+        before_treasury = pokedex._bank.get_balance(SYSTEM_TREASURY)
+        original_commit = pokedex._safe_sqlite_commit
+        pokedex._safe_sqlite_commit = MagicMock(side_effect=sqlite3.OperationalError("disk full"))
+        self.addCleanup(setattr, pokedex, "_safe_sqlite_commit", original_commit)
+
+        receipt = pokedex.fill_bounty_order(oid, "solver", heartbeat=2)
+
+        self.assertIsNone(receipt)
+        self.assertEqual(pokedex.get_prana("solver"), before_prana)
+        self.assertEqual(pokedex._bank.get_balance("solver"), before_balance)
+        self.assertEqual(pokedex._bank.get_balance(SYSTEM_TREASURY), before_treasury)
+        self.assertEqual(len(pokedex.get_active_orders(asset_type="bounty")), 1)
+
+    def test_expire_bounty_does_not_return_fake_asset(self):
+        pokedex = _make_pokedex()
+        _register(pokedex, "solver")
+
+        pokedex._create_bounty_order(
+            target="tests_pass failing",
+            reward=27,
+            heartbeat=1,
+            expiry_hb=1,
+            asset_id="fix:tests_pass",
+        )
+
+        expired = pokedex.expire_orders(heartbeat=3)
+
+        self.assertEqual(expired, 1)
+        self.assertFalse(pokedex.has_asset("treasury:brain", "bounty", "fix:tests_pass"))
+
+    def test_resolve_bounties_for_completed_brain_bottleneck_mission(self):
+        from city.bounty import resolve_bounties_for_missions
+
+        pokedex = _make_pokedex()
+        _register(pokedex, "solver")
+        pokedex._bank.transfer("MINT", "SYSTEM_TREASURY", 200, "bounty_fund", "funding")
+        pokedex._create_bounty_order(
+            target="ruff_clean contract",
+            reward=108,
+            heartbeat=1,
+            asset_id="fix:ruff_clean",
+        )
+
+        ctx = MagicMock()
+        ctx.pokedex = pokedex
+        ctx.heartbeat_count = 9
+
+        claims = resolve_bounties_for_missions(
+            ctx,
+            [
+                {
+                    "id": "brain_bottleneck_fix_ruff_clean_contract_9",
+                    "name": "Brain bottleneck: fix ruff_clean contract",
+                    "status": "completed",
+                    "owner": "solver",
+                }
+            ],
+        )
+
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["agent"], "solver")
+        self.assertEqual(claims[0]["bounty"], "fix:ruff_clean")
+        self.assertEqual(len(pokedex.get_active_orders(asset_type="bounty")), 0)
 
 
 # ── Stats + Constants Tests ─────────────────────────────────────────

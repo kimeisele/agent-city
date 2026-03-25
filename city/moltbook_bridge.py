@@ -102,7 +102,7 @@ class MoltbookBridge:
 
     # ── GENESIS: Scan submolt ──────────────────────────────────────
 
-    def scan_submolt(self, limit: int = 20) -> list[dict]:
+    def scan_submolt(self, limit: int = 20, signal_ledger: object | None = None) -> list[dict]:
         """Scan m/agent-city posts for signals.
 
         Filters: own posts, seen posts, city reports.
@@ -128,14 +128,26 @@ class MoltbookBridge:
                 continue
 
             post_id = post.get("id", "")
-            if not post_id or post_id in self._seen_post_ids:
+            if not post_id:
                 continue
-            self._seen_post_ids[post_id] = None
+
+            # Persistent dedup (Hardened: SVC_SIGNAL_STATE_LEDGER)
+            if signal_ledger and hasattr(signal_ledger, "is_signal_processed"):
+                if signal_ledger.is_signal_processed(post_id):
+                    continue
+            elif post_id in self._seen_post_ids:
+                continue
 
             # Filter: skip own posts
             author = post.get("author", {}).get("username", "")
             if author == self._own_username:
                 continue
+
+            # Mark as seen
+            if signal_ledger and hasattr(signal_ledger, "mark_signal_processed"):
+                signal_ledger.mark_signal_processed(post_id, "moltbook_bridge")
+            else:
+                self._seen_post_ids[post_id] = None
 
             # Filter: skip city reports (feedback loop prevention)
             title = post.get("title", "")
@@ -218,141 +230,9 @@ class MoltbookBridge:
             )
         return mission_id
 
-    # ── MOKSHA: Post mission results + city update ────────────────
+    # ── MOKSHA: Post mission results + city update (GUTTED — See EventDrivenOutboundHook) ──
 
-    def post_mission_results(self, missions: list[dict]) -> int:
-        """Post a single summary of terminal mission results.
 
-        Batches all completed/failed/abandoned missions into ONE post.
-        Respects the shared post cooldown to prevent spam.
-        OPUS_1's _parse_city_report() parses the [Mission Result] prefix.
-        Returns count of missions included in the summary (0 if skipped).
-        """
-        terminal = [
-            m for m in missions
-            if m.get("status", "unknown") in ("completed", "failed", "abandoned")
-        ]
-        if not terminal:
-            return 0
-
-        now = time.time()
-        if (now - self._last_post_times.get("mission", 0.0)) < self._post_cooldown_s:
-            logger.debug("BRIDGE: Mission results skipped — cooldown active")
-            return 0
-
-        # Batch into a single post
-        if len(terminal) == 1:
-            m = terminal[0]
-            title = f"{MISSION_RESULT_PREFIX} {m.get('status')}: {m.get('name', 'unknown')}"
-        else:
-            title = f"{MISSION_RESULT_PREFIX} {len(terminal)} missions resolved"
-
-        parts: list[str] = []
-        for m in terminal:
-            status = m.get("status", "unknown")
-            name = m.get("name", "unknown")
-            mission_id = m.get("id", "")
-            line = f"- `{mission_id}` **{status}**: {name}"
-            pr_url = m.get("pr_url", "")
-            if pr_url:
-                line += f" ([PR]({pr_url}))"
-            owner = m.get("owner", "")
-            if owner:
-                line += f" — {owner}"
-            parts.append(line)
-
-        content = "\n".join(parts)
-
-        posted = safe_call(
-            self._client.sync_create_post, title, content,
-            submolt=SUBMOLT_NAME, label="moltbook_mission_results",
-        )
-        if posted is None:
-            return 0
-        self._last_post_times["mission"] = now
-        logger.info(
-            "BRIDGE: Posted %d mission result(s) in single summary",
-            len(terminal),
-        )
-        return len(terminal)
-
-    def post_agent_insight(self, thought: object, mission_count: int = 0) -> bool:
-        """Post a Brain-synthesized insight to m/agent-city.
-
-        8H: Replaces raw mission dumps with city-synthesized insight.
-        Author: System (city synthesizer), not individual agent.
-        Respects shared post cooldown.
-        Returns True if posted, False if skipped or failed.
-        """
-        now = time.time()
-        if (now - self._last_post_times.get("insight", 0.0)) < self._post_cooldown_s:
-            logger.debug("BRIDGE: Insight post skipped — cooldown active")
-            return False
-
-        # Extract from Thought (duck-typed — works with any object that has these attrs)
-        comprehension = getattr(thought, "comprehension", "")
-        if not comprehension:
-            return False
-
-        title = f"{AGENT_INSIGHT_PREFIX} {comprehension[:80]}"
-
-        # Build content from structured thought
-        parts: list[str] = []
-        if comprehension:
-            parts.append(f"**Insight**: {comprehension}")
-
-        key_concepts = getattr(thought, "key_concepts", ())
-        if key_concepts:
-            parts.append(f"**Concepts**: {', '.join(key_concepts)}")
-
-        domain = getattr(thought, "domain_relevance", "")
-        if domain:
-            parts.append(f"**Domain**: {domain}")
-
-        confidence = getattr(thought, "confidence", 0)
-        parts.append(f"**Confidence**: {confidence:.0%}")
-
-        if mission_count:
-            parts.append(f"*Synthesized from {mission_count} terminal missions.*")
-
-        content = "\n".join(parts)
-
-        posted = safe_call(
-            self._client.sync_create_post, title, content,
-            submolt=SUBMOLT_NAME, label="moltbook_agent_insight",
-        )
-        if posted is None:
-            return False
-        self._last_post_times["insight"] = now
-        logger.info("BRIDGE: Posted agent insight (%d missions)", mission_count)
-        return True
-
-    def post_city_update(self, report_data: dict) -> bool:
-        """Post a human-readable city update to m/agent-city.
-
-        Rate limited: 1 post per post_cooldown_s (default 1800s = 30min).
-        Returns True if posted, False if skipped or failed.
-        """
-        now = time.time()
-        if (now - self._last_post_times.get("city_update", 0.0)) < self._post_cooldown_s:
-            logger.debug("BRIDGE: Post cooldown active, skipping")
-            return False
-
-        title = self._format_title(report_data)
-        content = self._format_content(report_data)
-
-        if not content:
-            return False
-
-        posted = safe_call(
-            self._client.sync_create_post, title, content,
-            submolt=SUBMOLT_NAME, label="moltbook_city_update",
-        )
-        if posted is None:
-            return False
-        self._last_post_times["city_update"] = now
-        logger.info("BRIDGE: Posted city update to m/%s", SUBMOLT_NAME)
-        return True
 
     def _format_title(self, data: dict) -> str:
         """Format post title from report data."""
@@ -489,6 +369,91 @@ class MoltbookBridge:
         self._last_post_times["agent_update"] = now
         logger.info("BRIDGE: Agent post by %s: %s", agent_name, action)
         return True
+
+    # ── GENESIS: Sensory Expansion ───────────────────────────────────
+
+    def fetch_mentions(self, limit: int = 20, ledger: object | None = None) -> list[dict]:
+        """Fetch unread @mentions for the city agent.
+
+        Deduplicates against SignalStateLedger.
+        Returns list of mention dicts: {source, id, author, body}
+        """
+        mentions: list[dict] = []
+        result = safe_call(
+            self._client.sync_get_mentions, limit=limit,
+            label="moltbook_fetch_mentions",
+        )
+        if not result:
+            return mentions
+
+        for mention in result:
+            m_id = mention.get("id", "")
+            if not m_id:
+                continue
+
+            # Persistent dedup
+            if ledger and hasattr(ledger, "is_signal_processed"):
+                if ledger.is_signal_processed(m_id):
+                    continue
+
+            author = mention.get("author", {}).get("username", "")
+            if author == self._own_username:
+                continue
+
+            mentions.append({
+                "source": "moltbook_mention",
+                "id": m_id,
+                "author": author,
+                "body": mention.get("content", ""),
+                "post_id": mention.get("post_id"),
+            })
+
+            if ledger and hasattr(ledger, "mark_signal_processed"):
+                ledger.mark_signal_processed(m_id, "moltbook_mention")
+
+        return mentions
+
+    def fetch_replies(self, limit: int = 20, ledger: object | None = None) -> list[dict]:
+        """Fetch unread replies to city posts/comments.
+
+        Deduplicates against SignalStateLedger.
+        Returns list of reply dicts: {source, id, author, body, parent_id}
+        """
+        replies: list[dict] = []
+        result = safe_call(
+            self._client.sync_get_replies, limit=limit,
+            label="moltbook_fetch_replies",
+        )
+        if not result:
+            return replies
+
+        for reply in result:
+            r_id = reply.get("id", "")
+            if not r_id:
+                continue
+
+            # Persistent dedup
+            if ledger and hasattr(ledger, "is_signal_processed"):
+                if ledger.is_signal_processed(r_id):
+                    continue
+
+            author = reply.get("author", {}).get("username", "")
+            if author == self._own_username:
+                continue
+
+            replies.append({
+                "source": "moltbook_reply",
+                "id": r_id,
+                "author": author,
+                "body": reply.get("content", ""),
+                "parent_id": reply.get("parent_id"),
+                "post_id": reply.get("post_id"),
+            })
+
+            if ledger and hasattr(ledger, "mark_signal_processed"):
+                ledger.mark_signal_processed(r_id, "moltbook_reply")
+
+        return replies
 
     # ── Persistence ────────────────────────────────────────────────
 

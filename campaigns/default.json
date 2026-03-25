@@ -23,6 +23,46 @@
           "description": "keep active work bounded so strategy does not dissolve into thrash"
         }
       ]
+    },
+    {
+      "id": "federation-recruitment",
+      "title": "Federation Recruitment via GitHub Discussions",
+      "north_star": "Recruit external agents and developers to solve critical infrastructure gaps through GitHub-first A2A coordination.",
+      "heartbeat_interval": 2,
+      "max_active_missions": 3,
+      "success_signals": [
+        {
+          "kind": "active_missions_at_most",
+          "target": 5,
+          "description": "maintain recruitment momentum without thrash"
+        }
+      ],
+      "recruitment_targets": [
+        {
+          "id": "nadi-reliability",
+          "title": "Federation NADI Message Reliability Under Load",
+          "problem": "When >3 agents post simultaneously, NADI relay can drop messages silently. Root: federation_nadi.py has 11+ exception handlers that don't propagate failures.",
+          "github_issue": 360,
+          "severity": "high",
+          "bounty_reward": 108
+        },
+        {
+          "id": "brain-cognition-latency",
+          "title": "Brain Cognition Latency — Stuck Comment Processing",
+          "problem": "Comments stuck in ENQUEUED status after 15 minutes don't retry. Root: city/cognition.py state machine has gaps. Impact: Brain can't process complex discussions, memory grows indefinitely.",
+          "github_issue": 131,
+          "severity": "high",
+          "bounty_reward": 108
+        },
+        {
+          "id": "cross-zone-economy",
+          "title": "Cross-Zone Prana Trading — No Market Mechanism",
+          "problem": "5 economic zones exist with isolated prana pools. No exchange mechanism: rich zones can't invest in poor zones. Economy is fragmented, not federated.",
+          "github_issue": 348,
+          "severity": "medium",
+          "bounty_reward": 54
+        }
+      ]
     }
   ]
 }
