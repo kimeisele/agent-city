@@ -225,6 +225,7 @@ class BrainVoice:
             "- DO NOT output raw key-value logs or bullet points.\n"
             "- Write 2 to 3 sentences maximum.\n"
             "- State the cryptographic facts (Mission Name, NADI_REF, Karma payout) fluently as absolute proof of the city's economic and structural execution.\n"
+            "- For REJECTION signals: Explicitly state the architectural or standard violation (e.g. 'Standard violation in core-logic', 'Failed NADI-compliance'). Make the rejection a demonstration of the City's quality standards.\n"
             "- End with a cold, sovereign statement regarding the federation or the node's operational status."
         )
 

@@ -21,6 +21,8 @@ class IngressSurface(str, Enum):
     GITHUB_DISCUSSION = "github_discussion"
     GITHUB_WEBHOOK = "github_webhook"
     MOLTBOOK_DM = "moltbook_dm"
+    MOLTBOOK_MENTION = "moltbook_mention"
+    MOLTBOOK_REPLY = "moltbook_reply"
     MOLTBOOK_FEED = "moltbook_feed"
     SUBMOLT_SIGNAL = "submolt_signal"
     FEDERATION = "federation"
@@ -81,6 +83,18 @@ AUTHORITY_MAP: dict[IngressSurface, AuthorityDescriptor] = {
         AccessClass.OBSERVER,
         ClaimLevel.DISCOVERED,
         AuthRoute.PLATFORM_DM,
+    ),
+    IngressSurface.MOLTBOOK_MENTION: AuthorityDescriptor(
+        "external",
+        AccessClass.OBSERVER,
+        ClaimLevel.DISCOVERED,
+        AuthRoute.PUBLIC_FEED,
+    ),
+    IngressSurface.MOLTBOOK_REPLY: AuthorityDescriptor(
+        "external",
+        AccessClass.OBSERVER,
+        ClaimLevel.DISCOVERED,
+        AuthRoute.PUBLIC_FEED,
     ),
     IngressSurface.MOLTBOOK_FEED: AuthorityDescriptor(
         "external",
