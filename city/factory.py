@@ -46,6 +46,7 @@ class BuildContext:
     args: object  # argparse.Namespace
     config: dict = field(default_factory=dict)
     pokedex: object = None  # Pokedex (for services needing direct access)
+    discovery_ledger: object = None  # DiscoveryLedger
     network: object = None  # CityNetwork (for services needing direct access)
 
 
@@ -200,6 +201,8 @@ def default_definitions(
         SVC_WIKI_PORTAL,
         SVC_IDENTITY,
         SVC_SIGNAL_COMPOSER,
+        SVC_DISCOVERY_LEDGER,
+        SVC_SIGNAL_STATE_LEDGER,
     )
 
     defs: list[ServiceDefinition] = []
