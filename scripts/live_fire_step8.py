@@ -89,6 +89,9 @@ def run():
     )
     # Ensure sensory buffer attribute exists
     ctx._sensory_buffer = []
+    # Manually set brain and sankalpa attributes (in case PhaseContext doesn't store them)
+    ctx.brain = brain
+    ctx.sankalpa = sankalpa
 
     # Ensure missions are loaded from DB
     if ctx.sankalpa:
@@ -98,14 +101,36 @@ def run():
     ops = []
 
     print("\n--- [PHASE 1: GENESIS - SENSORY SAMPLING] ---")
-    hook = MoltbookObservationHook()
-    hook.execute(ctx, ops)
+    try:
+        hook = MoltbookObservationHook()
+        hook.execute(ctx, ops)
+        logger.info("MoltbookObservationHook executed successfully")
+    except Exception as e:
+        logger.warning("MoltbookObservationHook failed: %s", e)
+        # Fallback: try to fetch posts directly via client
+        if hasattr(client, "sync_get_feed"):
+            try:
+                feed = client.sync_get_feed(limit=20)
+                ctx._sensory_buffer = feed
+                logger.info("Fallback: Fetched %d posts via client.sync_get_feed", len(feed))
+            except Exception as feed_err:
+                logger.error("Fallback feed fetch also failed: %s", feed_err)
+        else:
+            logger.error("Client has no sync_get_feed method")
 
     if not hasattr(ctx, "_sensory_buffer") or not ctx._sensory_buffer:
         print("Result: No unread posts found in live feed.")
         return
 
     print(f"Result: Observed {len(ctx._sensory_buffer)} unread posts.")
+    # Print first post details as required by Senior Architect
+    first_post = ctx._sensory_buffer[0]
+    print("\n--- LIVE POST EVALUATED ---")
+    print(f"Post ID: {first_post.get('id', 'N/A')}")
+    print(f"Author: {first_post.get('author', {}).get('username', 'N/A')}")
+    content_preview = f"{first_post.get('title', '')} {first_post.get('content', '')}"
+    print(f"Content preview: {content_preview[:200]}...")
+    print("---------------------------")
 
     print("\n--- [PHASE 2: DHARMA - STRATEGIC EVALUATION] ---")
     assistant.on_dharma(ctx)
@@ -115,8 +140,14 @@ def run():
         e.get("type") == "internal_governance_signal" for e in ctx.recent_events
     ):
         print("Result: No engagement planned (likely no active missions or low relevance).")
+        # Print city_needs for debugging
+        if ctx.sankalpa:
+            active = ctx.sankalpa.registry.list_missions(status="active")
+            city_needs = [m.name for m in active[:5]]
+            print(f"Active missions: {city_needs}")
         return
 
+    # Print detailed evaluation for each plan
     for plan in assistant._engagement_plan:
         post = next((p for p in ctx._sensory_buffer if p["id"] == plan["post_id"]), {})
         print(f"\n--- EVALUATION: HIGH CONFIDENCE (ENGAGING) ---")
@@ -128,6 +159,7 @@ def run():
         print(f"STRATEGY:  {plan['strategy']}")
         print(f"DRAFT:     {plan['response'][:200]}...")
 
+    # Print low confidence audits
     for event in ctx.recent_events:
         if event.get("type") == "internal_governance_signal":
             payload = event.get("payload", {})
@@ -154,7 +186,15 @@ def run():
         ctx.registry.register(SVC_MOLTBOOK_BRIDGE, bridge)
 
     res = assistant.on_karma(ctx, runtime.pokedex.stats())
-    print(f"Result: {res}")
+    print(f"Raw result: {res}")
+
+    # Detailed output for organic engagements
+    if res.get('organic_engagements', 0) > 0:
+        print("\n--- ORGANIC ENGAGEMENTS EXECUTED ---")
+        for plan in assistant._engagement_plan:
+            print(f"  Post {plan['post_id'][:8]}: {plan['strategy']}")
+    else:
+        print("\nNo organic engagements executed (confidence < 0.85 or other reasons).")
 
     # Summary
     print("\n=== LIVE FIRE RESULTS ===")
