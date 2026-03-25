@@ -67,6 +67,15 @@ class SignalStateLedger:
             )
         """)
 
+        # Public Replies (Prevent double-replying to same mention/reply)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS public_replies (
+                signal_id TEXT PRIMARY KEY,
+                post_id TEXT NOT NULL,
+                replied_at TEXT NOT NULL
+            )
+        """)
+
         self._conn.commit()
 
     # ── Signal Deduplication ──────────────────────────────────────────
@@ -133,5 +142,28 @@ class SignalStateLedger:
             cur.execute(
                 "INSERT OR IGNORE INTO outbound_broadcasts (signal_id, target_topic, broadcast_at) VALUES (?, ?, ?)",
                 (signal_id, topic, now),
+            )
+            self._conn.commit()
+
+    # ── Public Replies ───────────────────────────────────────────────
+
+    def is_public_reply_sent(self, signal_id: str) -> bool:
+        """Check if a public reply has already been sent for this signal."""
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM public_replies WHERE signal_id = ?",
+                (signal_id,),
+            )
+            return cur.fetchone() is not None
+
+    def record_public_reply(self, signal_id: str, post_id: str) -> None:
+        """Record a successful public reply."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "INSERT OR IGNORE INTO public_replies (signal_id, post_id, replied_at) VALUES (?, ?, ?)",
+                (signal_id, post_id, now),
             )
             self._conn.commit()

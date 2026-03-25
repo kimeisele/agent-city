@@ -222,7 +222,7 @@ class MoltbookDiplomacyHook(BasePhaseHook):
         for m in mentions:
             enqueue_ingress(
                 ctx,
-                IngressSurface.MOLTBOOK_DM,  # Reuse DM pipeline for social input
+                IngressSurface.MOLTBOOK_MENTION,  # Public Mention
                 {
                     "source": "moltbook_mention",
                     "text": m["body"],
@@ -239,7 +239,7 @@ class MoltbookDiplomacyHook(BasePhaseHook):
         for r in replies:
             enqueue_ingress(
                 ctx,
-                IngressSurface.MOLTBOOK_DM,
+                IngressSurface.MOLTBOOK_REPLY,  # Public Reply
                 {
                     "source": "moltbook_reply",
                     "text": r["body"],
