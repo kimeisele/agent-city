@@ -46,6 +46,7 @@ class CampaignRecord:
     title: str
     north_star: str
     success_signals: list[CampaignSignal] = field(default_factory=list)
+    recruitment_targets: list[dict] = field(default_factory=list)
     heartbeat_interval: int = 4
     max_active_missions: int = 1
     status: CampaignStatus = CampaignStatus.ACTIVE
@@ -71,6 +72,7 @@ class CampaignRecord:
                 CampaignSignal(**signal)
                 for signal in data.get("success_signals", [])
             ],
+            recruitment_targets=list(data.get("recruitment_targets", [])),
             heartbeat_interval=int(data.get("heartbeat_interval", 4)),
             max_active_missions=int(data.get("max_active_missions", 1)),
             status=CampaignStatus(data.get("status", CampaignStatus.ACTIVE.value)),
@@ -143,6 +145,14 @@ class CampaignRegistry:
         active_ids = {getattr(mission, "id", "") for mission in active_missions}
 
         for campaign in self.get_active_campaigns():
+            # Emit explicit CAMPAIGN_STARTED signal for outbound membrane
+            if campaign.last_evaluated_heartbeat == 0:
+                ctx.recent_events.append({
+                    "type": "campaign_started",
+                    "campaign_id": campaign.id,
+                    "title": campaign.title,
+                })
+
             if not self._due(campaign, ctx.heartbeat_count):
                 continue
 
@@ -217,6 +227,18 @@ class CampaignRegistry:
                     )
             else:
                 gaps.append(signal.description or f"unknown signal:{signal.kind}")
+
+        # Check recruitment targets (Forensic Wiring)
+        for target in campaign.recruitment_targets:
+            issue_id = target.get("github_issue")
+            if not issue_id:
+                continue
+            if self._is_issue_open(ctx, int(issue_id)):
+                # Generate unique gap signature for the hook
+                t_id = target.get("id", "unknown")
+                t_title = target.get("title", "unknown")
+                gaps.append(f"recruitment_gap:{t_id}:{issue_id}:{t_title}")
+
         return gaps
 
     def _compile_issue_mission(

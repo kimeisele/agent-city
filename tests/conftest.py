@@ -31,24 +31,30 @@ _repo_root = Path(__file__).parent.parent
 _steward_root_sibling = _repo_root.parent / "steward-protocol"
 _steward_root_federation = _repo_root / ".vibe" / "federation-cache" / "steward-protocol"
 
+_steward_root = None
 if _steward_root_sibling.is_dir():
     _steward_root = _steward_root_sibling
 elif _steward_root_federation.is_dir():
     _steward_root = _steward_root_federation
-else:
-    raise RuntimeError(
-        f"steward-protocol not found at {_steward_root_sibling} "
-        f"or {_steward_root_federation}"
-    )
 
-if str(_steward_root) not in sys.path:
-    sys.path.insert(0, str(_steward_root))
+# In CI, steward-protocol may not be available. This is OK for pure python tests.
+# Only require it when a test actually tries to import vibe_core.
+# Detection: If steward-protocol is missing AND we can't import vibe_core via pip,
+# tests that don't need it (like wiki tests) will still run.
+_steward_available = _steward_root is not None
+
+if _steward_available:
+    if str(_steward_root) not in sys.path:
+        sys.path.insert(0, str(_steward_root))
+        
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
 # Also set PYTHONPATH so subprocess-based tests (campaign CLI, heartbeat)
 # can find vibe_core and city modules without explicit path manipulation.
-_pythonpath_entries = [str(_steward_root), str(_repo_root)]
+_pythonpath_entries = [str(_repo_root)]
+if _steward_available:
+    _pythonpath_entries.insert(0, str(_steward_root))
 _existing = os.environ.get("PYTHONPATH", "")
 _needed = [p for p in _pythonpath_entries if p not in _existing]
 if _needed:

@@ -125,6 +125,11 @@ class GatewayHandler(BaseKarmaHandler):
                     )
                     continue
 
+                # Moltbook Public Mentions/Replies
+                if source in ("moltbook_mention", "moltbook_reply"):
+                    _handle_public_moltbook_item(ctx, item, result, operations)
+                    continue
+
                 # DM messages
                 if conversation_id and from_agent and ctx.moltbook_client is not None:
                     from city.inbox import InboxMessage, dispatch
@@ -636,6 +641,59 @@ def _handle_agent_intro(
             _learn(ctx, "agent_intro", "post", success=True)
         else:
             operations.append(f"intro_rate_limited:{agent_name}")
+
+
+def _handle_public_moltbook_item(
+    ctx: PhaseContext,
+    item: dict,
+    result: dict,
+    operations: list[str],
+) -> None:
+    """Handle a public Moltbook mention or reply by posting a public comment."""
+    from city.registry import SVC_SIGNAL_STATE_LEDGER, SVC_MOLTBOOK_CLIENT
+    from city.inbox import InboxMessage, dispatch
+
+    ledger = ctx.registry.get(SVC_SIGNAL_STATE_LEDGER)
+    client = ctx.registry.get(SVC_MOLTBOOK_CLIENT)
+    if client is None:
+        return
+
+    source = item.get("source", "unknown")
+    signal_id = item.get("signal_id")
+    post_id = item.get("post_id")
+    from_agent = item.get("from_agent", "unknown")
+    text = item.get("text", "")
+
+    if not signal_id or not post_id:
+        return
+
+    # Check if we already replied publicly
+    if ledger and hasattr(ledger, "is_public_reply_sent"):
+        if ledger.is_public_reply_sent(signal_id):
+            operations.append(f"public_replied_already:{signal_id[:8]}")
+            return
+
+    msg = InboxMessage(
+        from_agent=from_agent,
+        text=text,
+        conversation_id=post_id, # Use post_id as context
+    )
+    # Use standard dispatch to generate agent response
+    response = dispatch(msg, result, ctx.pokedex)
+
+    try:
+        # Post PUBLICLY as a comment on the post
+        client.sync_comment_with_verification(post_id, response.text)
+        
+        if ledger and hasattr(ledger, "record_public_reply"):
+            ledger.record_public_reply(signal_id, post_id)
+            
+        operations.append(f"public_replied:{from_agent}:seed={result['seed']}")
+        _learn(ctx, source, "public_reply", success=True)
+    except Exception as e:
+        operations.append(f"public_reply_failed:{from_agent}:{e}")
+        _learn(ctx, source, "public_reply", success=False)
+        logger.warning("KARMA: Public Moltbook reply failed for %s: %s", from_agent, e)
 
 
 # 6C-9: Track executed action_hints per comment_id to prevent duplicate fires on edits.

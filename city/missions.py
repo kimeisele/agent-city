@@ -434,20 +434,19 @@ def create_brain_mission(
         SankalpaMission,
     )
 
-    target_key = target.replace(" ", "_")[:30]
-    prefix = f"brain_{verb}_{target_key}"
+    prefix = f"brain_{verb}_"
     for existing in ctx.sankalpa.registry.get_active_missions():
         if existing.id.startswith(prefix) and existing.status == MissionStatus.ACTIVE:
             logger.debug(
-                "Brain mission for %s/%s already exists (%s), skipping",
-                verb, target, existing.id,
+                "Brain mission for %s already exists (%s), skipping",
+                verb, existing.id,
             )
             return existing.id
 
     priority_map = {"high": MissionPriority.HIGH, "critical": MissionPriority.CRITICAL}
     priority = priority_map.get(severity, MissionPriority.MEDIUM)
     hb = getattr(ctx, "heartbeat_count", 0)
-    mission_id = f"brain_{verb}_{target_key}_{hb}"
+    mission_id = f"{prefix}{hb}"
     mission = SankalpaMission(
         id=mission_id,
         name=f"Brain {verb}: {target[:50]}",

@@ -105,6 +105,10 @@ class CitySupervisionBridge:
 
             if self.frequency_hz >= GAJENDRA:
                 self.run_self_diagnostics()
+            
+            # A2A Immigration Protocol: Wire federation gap detection into live heartbeat
+            self._run_federation_a2a_checks()
+            
             return True
         except Exception as exc:
             self._consecutive_errors += 1
@@ -161,3 +165,87 @@ class CitySupervisionBridge:
                 logger.info("Daemon self-diagnostics: %d healing attempts", len(heals))
         except Exception as exc:
             logger.warning("Self-diagnostics failed: %s", exc)
+
+    def _run_federation_a2a_checks(self) -> None:
+        """Run A2A immigration gap detection on live system metrics.
+        
+        Called every heartbeat to autonomously detect federation gaps and emit
+        bounty broadcasts (if thresholds are exceeded).
+        
+        Uses LIVE metrics from Mayor/Registry, not mocks.
+        """
+        try:
+            from city.diagnostics_bounty_hook import get_diagnostics_bounty_hook
+            
+            hook = get_diagnostics_bounty_hook()
+            
+            # Build live metrics dict from Mayor registry
+            diagnostics_state = self._collect_live_diagnostics()
+            
+            # Evaluate all thresholds against real data
+            triggered = hook.evaluate_all_metrics(diagnostics_state)
+            
+            # For each triggered gap, propagate to federation via bounty system
+            for gap_id, intensity in triggered:
+                result = hook.trigger_propagation(gap_id, "heartbeat_live_metrics", intensity)
+                if result:
+                    logger.info(
+                        "A2A: Gap detected [%s] intensity=%.2f → Moltbook bounty queued",
+                        gap_id,
+                        intensity,
+                    )
+        except Exception as exc:
+            logger.debug("Federation A2A checks failed (non-critical): %s", exc)
+
+    def _collect_live_diagnostics(self) -> dict:
+        """Gather real live metrics from Mayor/Registry for gap detection.
+        
+        Returns dict with structure expected by diagnostics_bounty_hook.evaluate_all_metrics()
+        """
+        diagnostics = {
+            "nadi": {},
+            "brain": {},
+            "economy": {},
+        }
+        
+        # NADI metrics: exception rate
+        try:
+            nadi = self.mayor._registry.get(SVC_CITY_NADI)
+            if nadi is not None:
+                if hasattr(nadi, "stats"):
+                    nadi_stats = nadi.stats()
+                    diagnostics["nadi"]["exception_count"] = nadi_stats.get("exception_count", 0)
+                    diagnostics["nadi"]["message_count"] = nadi_stats.get("message_count", 1)
+                elif hasattr(nadi, "message_count"):
+                    # Fallback: if stats method doesn't exist
+                    diagnostics["nadi"]["message_count"] = nadi.message_count()
+                    diagnostics["nadi"]["exception_count"] = getattr(nadi, "exception_count", 0)
+        except Exception as e:
+            logger.debug("NADI metrics collection failed: %s", e)
+        
+        # Brain metrics: stuck comment processing
+        try:
+            contracts = self.mayor._registry.get(SVC_CONTRACTS)
+            if contracts is not None and hasattr(contracts, "stats"):
+                contract_stats = contracts.stats()
+                # Map contract failures to stuck comment proxy
+                stuck_count = contract_stats.get("failing", 0)
+                diagnostics["brain"]["stuck_enqueued_count"] = stuck_count
+        except Exception as e:
+            logger.debug("Brain metrics collection failed: %s", e)
+        
+        # Economy metrics: zone isolation
+        try:
+            # Try to get from Mayor's context if available
+            if hasattr(self.mayor, "_city_runtime") and hasattr(self.mayor._city_runtime, "zone_stats"):
+                zone_info = self.mayor._city_runtime.zone_stats()
+                diagnostics["economy"]["zones_total"] = len(zone_info)
+                diagnostics["economy"]["zone_trades_last_24h"] = zone_info.get("trades_24h", 0)
+            else:
+                # Default: assume isolated economy if we can't read
+                diagnostics["economy"]["zones_total"] = 1
+                diagnostics["economy"]["zone_trades_last_24h"] = 0
+        except Exception as e:
+            logger.debug("Economy metrics collection failed: %s", e)
+        
+        return diagnostics

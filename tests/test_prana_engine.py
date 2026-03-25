@@ -143,13 +143,28 @@ class TestMetabolize:
         assert engine.get_cycle("a1") == 1
         assert len(dormant) == 0
 
-    def test_active_agent_bonus(self, tmp_path):
+    def test_no_free_active_bonus(self, tmp_path):
+        """Active agents pay metabolic cost — no free bonus. Earn through work."""
         conn = _make_db(tmp_path, [{"name": "a1", "prana": 100}])
         engine = PranaEngine()
         engine.boot(conn, AGENT_CLASSES)
 
         dormant = engine.metabolize_batch(active_agents={"a1"})
-        assert engine.get("a1") == 107  # 100 - 3 + 10
+        assert engine.get("a1") == 97  # 100 - 3 (work rewards come from KARMA)
+
+    def test_domain_differentiated_cost(self, tmp_path):
+        """Domain-specific metabolic costs: engineering costs more than research."""
+        conn = _make_db(tmp_path, [
+            {"name": "eng1", "prana": 100},
+            {"name": "res1", "prana": 100},
+        ])
+        engine = PranaEngine()
+        engine.boot(conn, AGENT_CLASSES)
+
+        domain_costs = {"eng1": 4, "res1": 2}
+        engine.metabolize_batch(domain_costs=domain_costs)
+        assert engine.get("eng1") == 96  # 100 - 4 (engineering)
+        assert engine.get("res1") == 98  # 100 - 2 (research)
 
     def test_prana_exhaustion(self, tmp_path):
         conn = _make_db(tmp_path, [{"name": "dying", "prana": 2}])

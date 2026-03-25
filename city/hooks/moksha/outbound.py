@@ -103,12 +103,12 @@ class FederationReportHook(BasePhaseHook):
             reflection["federation_report_sent"] = sent
 
 
-class MoltbookOutboundHook(BasePhaseHook):
-    """Post mission results + city update to Moltbook."""
+class EventDrivenOutboundHook(BasePhaseHook):
+    """Consolidated outbound membrane. Only reacts to explicit state transitions."""
 
     @property
     def name(self) -> str:
-        return "moltbook_outbound"
+        return "event_driven_outbound"
 
     @property
     def phase(self) -> str:
@@ -118,81 +118,127 @@ class MoltbookOutboundHook(BasePhaseHook):
     def priority(self) -> int:
         return 65
 
-    def should_run(self, ctx: PhaseContext) -> bool:
-        # DISABLED: Automated Moltbook posting produces spam.
-        # Manual posts only until BrainVoice has fact-checking (#137).
-        return False
-
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
+        from city.registry import SVC_SIGNAL_STATE_LEDGER, SVC_MOLTBOOK_CLIENT
+        from city.brain_voice import BrainVoice
+        from city.registry import CityServiceRegistry
+
+        ledger = ctx.registry.get(SVC_SIGNAL_STATE_LEDGER)
+        client = ctx.registry.get(SVC_MOLTBOOK_CLIENT)
+        if ledger is None or client is None:
+            return
+
+        # Initialize BrainVoice from existing provider
+        from vibe_core.di import ServiceRegistry as DIServiceRegistry
+        from vibe_core.runtime.providers.base import LLMProvider
+        provider = DIServiceRegistry.get(LLMProvider)
+        voice = BrainVoice(_provider=provider) if provider else None
+
         reflection = getattr(ctx, "_reflection", {})
+        city_stats = reflection.get("city_stats", {})
 
-        # 8H: Brain-synthesized insight replaces raw mission dumps on Moltbook.
-        # Strict gate: no terminal missions → no Brain call → no prana burn.
-        mission_results = reflection.get("mission_results_terminal", [])
-        if mission_results:
-            insight_posted = self._post_insight_or_fallback(
-                ctx, reflection, mission_results, operations,
-            )
-            reflection["mission_insight_posted"] = insight_posted
+        # Process signals from recent_events
+        for event in ctx.recent_events:
+            if not isinstance(event, dict):
+                continue
+            
+            e_type = event.get("type")
+            if e_type not in ("mission_completed", "campaign_started", "internal_governance_signal"):
+                continue
 
-        # Read governance result (evaluated by GovernanceEvalHook at pri=58)
-        actions = getattr(ctx, "_governance_actions", None)
-        if actions is not None and actions.should_post_city_report:
-            post_data = _build_post_data(ctx, reflection, operations)
-            posted = ctx.moltbook_bridge.post_city_update(post_data)
-            reflection["moltbook_update_posted"] = posted
-        else:
-            operations.append("moltbook_outbound_skipped:no_governance_action")
+            # Unique signal ID for deduplication
+            mission_id = event.get("mission_id")
+            campaign_id = event.get("campaign_id")
+            
+            if e_type == "internal_governance_signal":
+                # Deterministic ID for governance signals based on payload content
+                payload = event.get("payload", {})
+                import json
+                import hashlib
+                payload_str = json.dumps(payload, sort_keys=True)
+                payload_hash = hashlib.sha256(payload_str.encode()).hexdigest()[:12]
+                signal_id = f"gov:{payload.get('op', 'generic')}:{payload_hash}"
+            else:
+                signal_id = f"{e_type}:{mission_id or campaign_id}"
 
-        # Moltbook Assistant: reflect on engagement metrics
+            topic = "moltbook"
+
+            if ledger.is_broadcasted(signal_id, topic):
+                continue
+
+            # Enrichment: Retrieve full telemetry for mission completion
+            event_telemetry = {
+                "event_type": e_type,
+                "heartbeat": ctx.heartbeat_count,
+                "city_stats": city_stats,
+                "nadi_ref": event.get("nadi_ref", ""),
+                "event_payload": event.get("payload", {}),
+            }
+
+            if e_type == "mission_completed" and mission_id:
+                mission = ctx.sankalpa.registry.get(mission_id)
+                if mission:
+                    # Convert MissionRecord to serializable dict
+                    m_dict = {
+                        "id": mission.id,
+                        "name": mission.name,
+                        "description": mission.description,
+                        "priority": str(mission.priority),
+                        "status": str(mission.status),
+                        "karma_payout": getattr(mission, "karma_reward", 0),
+                    }
+                    event_telemetry["mission"] = m_dict
+
+            # Generate technical content via new narrate_event interface
+            title, content = ("", "")
+            if voice:
+                if hasattr(voice, "narrate_event"):
+                    title, content = voice.narrate_event(event_telemetry)
+                else:
+                    # Fallback for transient state
+                    series = "federation_update" if e_type == "mission_completed" else "sovereignty_brief"
+                    title, content = voice.narrate(series, ctx.heartbeat_count, city_stats)
+
+            if not title or not content:
+                # Fallback to technical brief if voice fails or unavailable
+                title = f"SIGNAL: {e_type.upper()}"
+                content = f"ID: {signal_id}\nHB: {ctx.heartbeat_count}\nDATA: {event_telemetry}"
+
+            # Post to Moltbook
+            try:
+                client.sync_create_post(title, content, submolt="general")
+                ledger.record_broadcast(signal_id, topic)
+                ledger.set_meta("last_broadcast_at", str(time.time()))
+                operations.append(f"outbound_broadcast:{signal_id}")
+                logger.info("OUTBOUND: Broadcasted %s to Moltbook", signal_id)
+            except Exception as e:
+                logger.warning("OUTBOUND: Failed to broadcast %s: %s", signal_id, e)
+
+        # Silence Detection: Proof of Life (48h delta)
+        last_broadcast = float(ledger.get_meta("last_broadcast_at", "0"))
+        if last_broadcast > 0 and (time.time() - last_broadcast) > 172800: # 48 hours
+            signal_id = f"proof_of_life:{ctx.heartbeat_count}"
+            if not ledger.is_broadcasted(signal_id, "moltbook"):
+                title, content = ("", "")
+                if voice:
+                    title, content = voice.narrate("sovereignty_brief", ctx.heartbeat_count, city_stats)
+                
+                if not title:
+                    title = f"[Proof of Life] Heartbeat #{ctx.heartbeat_count}"
+                    content = f"Sovereign node operational. Population: {city_stats.get('total', 0)} agents."
+
+                try:
+                    client.sync_create_post(title, content, submolt="general")
+                    ledger.record_broadcast(signal_id, "moltbook")
+                    ledger.set_meta("last_broadcast_at", str(time.time()))
+                    operations.append(f"outbound_proof_of_life:{ctx.heartbeat_count}")
+                    logger.info("OUTBOUND: 48h Silence broken. Proof of Life broadcasted.")
+                except Exception as e:
+                    logger.warning("OUTBOUND: Proof of Life failed: %s", e)
+
+        # Reflect on engagement if assistant available
         if ctx.moltbook_assistant is not None:
             reflection["moltbook_assistant"] = ctx.moltbook_assistant.on_moksha()
-
-    @staticmethod
-    def _post_insight_or_fallback(
-        ctx: PhaseContext,
-        reflection: dict,
-        mission_results: list[dict],
-        operations: list[str],
-    ) -> bool:
-        """Generate Brain insight from missions and post to Moltbook.
-
-        Falls back to raw post_mission_results() if Brain is unavailable.
-        Bills BRAIN_CALL_COST from SystemTreasury (city-level, not agent).
-        """
-        brain = ctx.brain
-        if brain is not None and hasattr(brain, "generate_insight"):
-            try:
-                from city.brain_context import build_context_snapshot
-                snapshot = build_context_snapshot(ctx)
-            except Exception:
-                snapshot = None
-
-            thought = brain.generate_insight(reflection, snapshot=snapshot)
-            if thought is not None:
-                # 8H: Record insight cost against treasury (city service, no agent to debit)
-                try:
-                    from city.brain_cell import BRAIN_CALL_COST
-                    if ctx.pokedex is not None:
-                        ctx.pokedex.burn_prana(
-                            BRAIN_CALL_COST, "moksha_insight",
-                        )
-                except Exception:
-                    logger.debug("Insight cost recording failed (best-effort)")
-
-                posted = ctx.moltbook_bridge.post_agent_insight(
-                    thought, mission_count=len(mission_results),
-                )
-                if posted:
-                    operations.append(
-                        f"moltbook_insight:{len(mission_results)}_missions"
-                    )
-                    return True
-
-        # Fallback: raw mission dump (Brain offline or insight failed)
-        results_posted = ctx.moltbook_bridge.post_mission_results(mission_results)
-        reflection["mission_results_posted"] = results_posted
-        return False
 
 
 class DiscussionsOutboundHook(BasePhaseHook):

@@ -42,6 +42,7 @@ def _build_dispatcher():
     from city.karma_handlers.brain_health import BrainHealthHandler
     from city.karma_handlers.gateway import GatewayHandler
     from city.karma_handlers.sankalpa import SankalpaHandler
+    from city.karma_handlers.initiative import InitiativeHandler
     from city.karma_handlers.cognition import CognitionHandler
     from city.karma_handlers.signals import SignalHandler
     from city.karma_handlers.marketplace import MarketplaceHandler
@@ -49,6 +50,7 @@ def _build_dispatcher():
     from city.karma_handlers.council import CouncilHandler
     from city.karma_handlers.assistant import AssistantHandler
     from city.karma_handlers.triage import TriageHandler
+    from city.karma_handlers.bounty_claim import BountyClaimHandler
     from city.karma_handlers.diw_bridge import VenuDispatcher
 
     registry = KarmaHandlerRegistry()
@@ -56,12 +58,14 @@ def _build_dispatcher():
     registry.register(GatewayHandler())
     registry.register(TriageHandler())
     registry.register(SankalpaHandler())
+    registry.register(InitiativeHandler())
     registry.register(CognitionHandler())
     registry.register(SignalHandler())
     registry.register(MarketplaceHandler())
     registry.register(HealHandler())
     registry.register(CouncilHandler())
     registry.register(AssistantHandler())
+    registry.register(BountyClaimHandler())  # pri=65 A2A bounty claims
 
     # Use the mahamantra singleton VenuOrchestrator.
     # Persisted via to_bytes/from_bytes in heartbeat.py (8E), so ticks
