@@ -96,7 +96,7 @@ class MoltbookAssistantDharmaHook(BasePhaseHook):
         return ctx.moltbook_assistant is not None
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        ctx.moltbook_assistant.on_dharma(ctx.heartbeat_count)
+        ctx.moltbook_assistant.on_dharma(ctx)
 
 
 class CommunityTriageHook(BasePhaseHook):

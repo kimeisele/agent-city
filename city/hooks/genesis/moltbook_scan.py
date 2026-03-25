@@ -78,6 +78,63 @@ class MoltbookFeedScanHook(BasePhaseHook):
                 logger.info("GENESIS: Discovered agent %s", author)
 
 
+class MoltbookObservationHook(BasePhaseHook):
+    """Broad feed observation (Sensory Sampling).
+
+    Fetches the wider feed and stores unread posts in a transient
+    sensory buffer for the Brain to evaluate in DHARMA.
+    """
+
+    @property
+    def name(self) -> str:
+        return "moltbook_observation"
+
+    @property
+    def phase(self) -> str:
+        return GENESIS
+
+    @property
+    def priority(self) -> int:
+        return 12  # between feed scan and dm inbox
+
+    def should_run(self, ctx: PhaseContext) -> bool:
+        return ctx.moltbook_client is not None and not ctx.offline_mode
+
+    def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
+        from city.registry import SVC_SIGNAL_STATE_LEDGER
+        ledger = ctx.registry.get(SVC_SIGNAL_STATE_LEDGER)
+        
+        limit = get_config().get("moltbook_bridge", {}).get("observation_limit", 30)
+        feed = safe_call(
+            ctx.moltbook_client.sync_get_feed, limit=limit,
+            label="moltbook_observation_feed",
+        )
+        if feed is None:
+            return
+
+        # Initialize transient buffer
+        if not hasattr(ctx, "_sensory_buffer"):
+            ctx._sensory_buffer = []
+
+        new_observations = 0
+        for post in feed:
+            post_id = post.get("id", "")
+            if not post_id:
+                continue
+
+            # Skip if already processed or replied
+            if ledger and ledger.is_signal_processed(post_id):
+                continue
+
+            # Store unread post for cognitive evaluation in DHARMA
+            ctx._sensory_buffer.append(post)
+            new_observations += 1
+
+        if new_observations:
+            operations.append(f"observed:{new_observations}_posts")
+            logger.info("GENESIS: Observed %d new posts for cognitive evaluation", new_observations)
+
+
 class DMInboxHook(BasePhaseHook):
     """Poll Moltbook DMs: approve requests + enqueue unread messages."""
 
