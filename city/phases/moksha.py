@@ -93,7 +93,24 @@ def execute(ctx: PhaseContext) -> dict:
         raise
 
     # Reflection dict is built by ReflectionStatsHook and enriched by later hooks
-    reflection = getattr(ctx, "_reflection", {})
+    # Try multiple possible locations due to DI refactoring
+    reflection = {}
+    if hasattr(ctx, "_reflection"):
+        reflection = ctx._reflection
+    elif hasattr(ctx, "reflection"):
+        reflection = ctx.reflection
+    else:
+        # Try to get from runtime if available
+        runtime = getattr(ctx, "runtime", None)
+        if runtime is not None:
+            reflection = getattr(runtime, "_reflection", getattr(runtime, "reflection", {}))
+        else:
+            # Last resort: check if ctx itself is a dict-like object
+            try:
+                if isinstance(ctx, dict):
+                    reflection = ctx.get("_reflection", ctx.get("reflection", {}))
+            except:
+                pass
 
     # Guard: if ReflectionStatsHook failed, reflection is empty — downstream hooks
     # silently wrote to a throwaway dict. Flag so operator knows data is incomplete.
