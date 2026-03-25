@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from config import get_config
 from city.phase_hook import DHARMA, BasePhaseHook
 from city.registry import SVC_IDENTITY, SVC_SANKALPA
+from city.registry import SVC_IDENTITY, SVC_SANKALPA
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext
@@ -153,7 +154,7 @@ class PRVerdictHook(BasePhaseHook):
             )
 
             if verdict == "approve":
-                self._handle_approve(ctx, pr_number, title, touches_core, reason, operations)
+                self._handle_approve(ctx, pr_number, title, touches_core, reason, operations, payload)
             elif verdict == "request_changes":
                 self._handle_request_changes(pr_number, reason, operations)
             elif verdict == "reject":
@@ -169,6 +170,7 @@ class PRVerdictHook(BasePhaseHook):
         touches_core: bool,
         reason: str,
         operations: list[str],
+        payload: dict,
     ) -> None:
         """Handle an approve verdict — auto-merge or escalate to council."""
         if not touches_core:
@@ -256,6 +258,19 @@ class PRVerdictHook(BasePhaseHook):
 
         operations.append(f"pr_verdict:rejected:#{pr_number}")
         logger.info("PR_VERDICT: Rejected and closed PR #%d", pr_number)
+
+    def _emit_governance_signal(self, ctx: PhaseContext, payload: dict) -> None:
+        """Emit a generic governance event to the internal recent_events bus."""
+        event = {
+            "type": "internal_governance_signal",
+            "heartbeat": getattr(ctx, "heartbeat_count", 0),
+            "payload": payload,
+        }
+        events = getattr(ctx, "recent_events", None)
+        if not isinstance(events, list):
+            events = []
+            ctx.recent_events = events
+        events.append(event)
 
     def _emit_governance_signal(self, ctx: PhaseContext, payload: dict) -> None:
         """Emit a generic governance event to the internal recent_events bus."""
