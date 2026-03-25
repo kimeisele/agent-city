@@ -819,18 +819,16 @@ def _build_wiki_portal(ctx: BuildContext) -> object | None:
 
 
 def _build_discovery_ledger(ctx: BuildContext) -> object | None:
-    from city.discovery_ledger import DiscoveryLedger
+    from city.registry import SVC_DISCOVERY_LEDGER
+    # If already registered (e.g., by runtime), reuse it
+    existing = ctx.registry.get(SVC_DISCOVERY_LEDGER)
+    if existing is not None:
+        logger.info("DiscoveryLedger reused (already registered)")
+        return existing
 
+    from city.discovery_ledger import DiscoveryLedger
     db_path = ctx.config.get("database", {}).get("discovery_path", "data/discovery.db")
     ledger = DiscoveryLedger(db_path=db_path)
-
-    # Perform migration if pokedex is available
-    if ctx.pokedex is not None:
-        # We need both ledgers for a full migration, but we can do it incrementally
-        # or wait until both are built. Let's do it in building the last one
-        # or in a dedicated step. Actually, let's keep it simple.
-        pass
-
     logger.info("DiscoveryLedger wired")
     return ledger
 
