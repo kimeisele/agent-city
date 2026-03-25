@@ -144,7 +144,7 @@ class MoltbookAssistant:
 
         return newly_followed
 
-    def on_dharma(self, ctx: PhaseContext) -> None:
+    def on_dharma(self, ctx: PhaseContext | int) -> None:
         """DHARMA: Plan KARMA actions based on city state and feed observation.
 
         Jiva-driven invite ranking + Brain-driven organic engagement.
@@ -157,7 +157,11 @@ class MoltbookAssistant:
         self._invite_queue = self._rank_invite_candidates()
 
         # 2. Organic Engagement Loop (Brain-driven)
-        if hasattr(ctx, "_sensory_buffer") and ctx._sensory_buffer and ctx.brain:
+        # Skip if legacy integer heartbeat passed or missing core services
+        if isinstance(ctx, int) or not hasattr(ctx, "brain") or not ctx.brain:
+            return
+
+        if hasattr(ctx, "_sensory_buffer") and ctx._sensory_buffer:
             # Collect current city needs from active missions
             city_needs = []
             if ctx.sankalpa:
@@ -165,7 +169,8 @@ class MoltbookAssistant:
                 city_needs = [m.name for m in active[:5]]
             
             if not city_needs:
-                city_needs = ["AI Sovereignty", "Decentralized Federation", "Agent-to-Agent Protocols"]
+                logger.info("DHARMA: Organic silence enforced (no active missions).")
+                return
 
             for post in ctx._sensory_buffer[:5]: # Cap per cycle
                 post_text = f"{post.get('title', '')} {post.get('content', '')}"
