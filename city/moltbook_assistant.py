@@ -253,6 +253,10 @@ class MoltbookAssistant:
                         )
                     except Exception as e:
                         logger.warning("KARMA: Organic engagement failed for post %s: %s", post_id[:8], e)
+            else:
+                logger.warning("KARMA: MoltbookBridge not available, organic engagements skipped")
+        else:
+            logger.debug("KARMA: No engagement plan to execute")
 
         return result
 

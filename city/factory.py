@@ -46,6 +46,8 @@ class BuildContext:
     args: object  # argparse.Namespace
     config: dict = field(default_factory=dict)
     pokedex: object = None  # Pokedex (for services needing direct access)
+    discovery_ledger: object = None  # DiscoveryLedger
+    signal_state_ledger: object = None  # SignalStateLedger
     network: object = None  # CityNetwork (for services needing direct access)
 
 
@@ -200,6 +202,8 @@ def default_definitions(
         SVC_WIKI_PORTAL,
         SVC_IDENTITY,
         SVC_SIGNAL_COMPOSER,
+        SVC_DISCOVERY_LEDGER,
+        SVC_SIGNAL_STATE_LEDGER,
     )
 
     defs: list[ServiceDefinition] = []
@@ -816,34 +820,45 @@ def _build_wiki_portal(ctx: BuildContext) -> object | None:
 
 
 def _build_discovery_ledger(ctx: BuildContext) -> object | None:
-    from city.discovery_ledger import DiscoveryLedger
+    from city.registry import SVC_DISCOVERY_LEDGER
+    # If already registered (e.g., by runtime), reuse it
+    existing = ctx.registry.get(SVC_DISCOVERY_LEDGER)
+    if existing is not None:
+        logger.info("DiscoveryLedger reused (already registered)")
+        return existing
+    
+    # Also check if discovery_ledger is already set in BuildContext
+    if ctx.discovery_ledger is not None:
+        logger.info("DiscoveryLedger reused (from BuildContext)")
+        # Register it in the registry for consistency
+        ctx.registry.register(SVC_DISCOVERY_LEDGER, ctx.discovery_ledger)
+        return ctx.discovery_ledger
 
+    from city.discovery_ledger import DiscoveryLedger
     db_path = ctx.config.get("database", {}).get("discovery_path", "data/discovery.db")
     ledger = DiscoveryLedger(db_path=db_path)
-
-    # Perform migration if pokedex is available
-    if ctx.pokedex is not None:
-        # We need both ledgers for a full migration, but we can do it incrementally
-        # or wait until both are built. Let's do it in building the last one
-        # or in a dedicated step. Actually, let's keep it simple.
-        pass
-
     logger.info("DiscoveryLedger wired")
     return ledger
 
 
 def _build_signal_state_ledger(ctx: BuildContext) -> object | None:
-    from city.signal_state_ledger import SignalStateLedger
-    from city.registry import SVC_DISCOVERY_LEDGER
+    from city.registry import SVC_SIGNAL_STATE_LEDGER
+    # If already registered (e.g., by runtime), reuse it
+    existing = ctx.registry.get(SVC_SIGNAL_STATE_LEDGER)
+    if existing is not None:
+        logger.info("SignalStateLedger reused (already registered)")
+        return existing
+    
+    # Also check if signal_state_ledger is already set in BuildContext
+    if ctx.signal_state_ledger is not None:
+        logger.info("SignalStateLedger reused (from BuildContext)")
+        # Register it in the registry for consistency
+        ctx.registry.register(SVC_SIGNAL_STATE_LEDGER, ctx.signal_state_ledger)
+        return ctx.signal_state_ledger
 
+    from city.signal_state_ledger import SignalStateLedger
     db_path = ctx.config.get("database", {}).get("signal_state_path", "data/signal_state.db")
     ledger = SignalStateLedger(db_path=db_path)
-
-    # Hardening: Final migration check once both ledgers are wired
-    discovery_ledger = ctx.registry.get(SVC_DISCOVERY_LEDGER)
-    if ctx.pokedex is not None and discovery_ledger is not None:
-        _perform_state_migration(ctx.pokedex, discovery_ledger, ledger)
-
     logger.info("SignalStateLedger wired")
     return ledger
 def _build_node_identity(ctx: BuildContext) -> object | None:
