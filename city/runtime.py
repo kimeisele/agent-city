@@ -122,6 +122,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
         config=config,
         pokedex=pokedex,
         discovery_ledger=discovery_ledger,
+        signal_state_ledger=signal_state_ledger,
         network=network,
     )
 

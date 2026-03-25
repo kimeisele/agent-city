@@ -47,6 +47,7 @@ class BuildContext:
     config: dict = field(default_factory=dict)
     pokedex: object = None  # Pokedex (for services needing direct access)
     discovery_ledger: object = None  # DiscoveryLedger
+    signal_state_ledger: object = None  # SignalStateLedger
     network: object = None  # CityNetwork (for services needing direct access)
 
 
@@ -825,6 +826,13 @@ def _build_discovery_ledger(ctx: BuildContext) -> object | None:
     if existing is not None:
         logger.info("DiscoveryLedger reused (already registered)")
         return existing
+    
+    # Also check if discovery_ledger is already set in BuildContext
+    if ctx.discovery_ledger is not None:
+        logger.info("DiscoveryLedger reused (from BuildContext)")
+        # Register it in the registry for consistency
+        ctx.registry.register(SVC_DISCOVERY_LEDGER, ctx.discovery_ledger)
+        return ctx.discovery_ledger
 
     from city.discovery_ledger import DiscoveryLedger
     db_path = ctx.config.get("database", {}).get("discovery_path", "data/discovery.db")
@@ -840,6 +848,13 @@ def _build_signal_state_ledger(ctx: BuildContext) -> object | None:
     if existing is not None:
         logger.info("SignalStateLedger reused (already registered)")
         return existing
+    
+    # Also check if signal_state_ledger is already set in BuildContext
+    if ctx.signal_state_ledger is not None:
+        logger.info("SignalStateLedger reused (from BuildContext)")
+        # Register it in the registry for consistency
+        ctx.registry.register(SVC_SIGNAL_STATE_LEDGER, ctx.signal_state_ledger)
+        return ctx.signal_state_ledger
 
     from city.signal_state_ledger import SignalStateLedger
     db_path = ctx.config.get("database", {}).get("signal_state_path", "data/signal_state.db")
