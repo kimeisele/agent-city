@@ -32,10 +32,12 @@ class AssistantHandler(BaseKarmaHandler):
         # CANNOT gate on governance_actions here — they don't exist yet.
         # The assistant has its own cooldown logic in on_dharma().
         assistant_result = ctx.moltbook_assistant.on_karma(
-            ctx.heartbeat_count,
+            ctx,
             ctx.pokedex.stats(),
         )
         if assistant_result.get("invites_sent"):
             operations.append(f"assistant:invites={assistant_result['invites_sent']}")
+        if assistant_result.get("organic_engagements"):
+            operations.append(f"assistant:organic={assistant_result['organic_engagements']}")
         if assistant_result.get("post_created"):
             operations.append("assistant:post_created")
