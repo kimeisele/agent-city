@@ -94,7 +94,7 @@ def run():
     ctx.sankalpa = sankalpa
 
     # Ensure missions are loaded from DB
-    if ctx.sankalpa:
+    if ctx.sankalpa and hasattr(ctx.sankalpa, 'on_heartbeat'):
         ctx.sankalpa.on_heartbeat(ctx.heartbeat_count)
 
     # 2. Trigger Organic Loop
@@ -141,10 +141,14 @@ def run():
     ):
         print("Result: No engagement planned (likely no active missions or low relevance).")
         # Print city_needs for debugging
-        if ctx.sankalpa:
-            active = ctx.sankalpa.registry.list_missions(status="active")
-            city_needs = [m.name for m in active[:5]]
-            print(f"Active missions: {city_needs}")
+        city_needs = []
+        if ctx.sankalpa and hasattr(ctx.sankalpa, 'registry'):
+            try:
+                active = ctx.sankalpa.registry.list_missions(status="active")
+                city_needs = [m.name for m in active[:5]]
+            except Exception as e:
+                logger.warning("Could not retrieve active missions: %s", e)
+        print(f"Active missions: {city_needs}")
         return
 
     # Print detailed evaluation for each plan

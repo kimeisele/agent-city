@@ -273,6 +273,7 @@ def _wire_moltbook_bridge(*, runtime: CityRuntime, config: dict, log: logging.Lo
 
     try:
         from city.moltbook_bridge import MoltbookBridge
+        from city.registry import SVC_MOLTBOOK_BRIDGE
 
         own_username = config.get("moltbook_bridge", {}).get("own_username", "")
         bridge = MoltbookBridge(
@@ -282,7 +283,9 @@ def _wire_moltbook_bridge(*, runtime: CityRuntime, config: dict, log: logging.Lo
         if runtime.state_paths.bridge_state_path.exists():
             bridge.restore(json.loads(runtime.state_paths.bridge_state_path.read_text()))
         runtime.mayor._moltbook_bridge = bridge
-        log.info("Moltbook bridge wired for m/agent-city")
+        # Register bridge in registry for other services (e.g., MoltbookAssistant)
+        runtime.registry.register(SVC_MOLTBOOK_BRIDGE, bridge)
+        log.info("Moltbook bridge wired for m/agent-city and registered in registry")
     except Exception as exc:
         log.warning("Moltbook bridge init failed: %s", exc)
 
