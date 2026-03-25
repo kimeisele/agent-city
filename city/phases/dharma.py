@@ -82,6 +82,29 @@ def execute(ctx: PhaseContext) -> list[str]:
             logger.debug("DHARMA: drained %d items from city_nadi into gateway_queue", len(new_items))
 
     from city.phase_hook import DHARMA
+    
+    # Ensure ctx has required ledgers after DI refactoring
+    # Try to obtain ledgers from runtime or registry and attach them to ctx
+    # First, try to get the runtime from ctx (new DI structure)
+    runtime = getattr(ctx, 'runtime', None)
+    if runtime is not None:
+        # Attach common ledgers if they exist on runtime
+        for ledger_name in ['discovery_ledger', 'signal_state_ledger', 
+                            'reflection_ledger', 'mission_ledger']:
+            if hasattr(runtime, ledger_name) and not hasattr(ctx, ledger_name):
+                setattr(ctx, ledger_name, getattr(runtime, ledger_name))
+    else:
+        # Fallback: try to get registry from ctx (older DI)
+        registry = getattr(ctx, 'registry', None)
+        if registry is not None:
+            for ledger_name in ['discovery_ledger', 'signal_state_ledger',
+                                'reflection_ledger', 'mission_ledger']:
+                if hasattr(registry, ledger_name) and not hasattr(ctx, ledger_name):
+                    setattr(ctx, ledger_name, getattr(registry, ledger_name))
+        else:
+            # If neither runtime nor registry exists, log a warning
+            logger.warning("DHARMA: ctx has no runtime or registry attribute; ledgers may be missing.")
+    
     registry = _build_registry()
     registry.dispatch(DHARMA, ctx, actions)
 
