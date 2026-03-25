@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class RuntimeStatePaths:
     db_path: Path
+    discovery_db_path: Path
     mayor_state_path: Path
     bridge_state_path: Path
     campaigns_state_path: Path
@@ -38,6 +39,7 @@ class RuntimeStatePaths:
         root = db_path.parent
         return cls(
             db_path=db_path,
+            discovery_db_path=root / "discovery.db",
             mayor_state_path=root / "mayor_state.json",
             bridge_state_path=root / "bridge_state.json",
             campaigns_state_path=root / "campaigns_state.json",
@@ -54,6 +56,7 @@ class CityRuntime:
     registry: CityServiceRegistry
     mayor: Mayor
     pokedex: Pokedex
+    discovery_ledger: DiscoveryLedger
     factory_stats: dict
     state_paths: RuntimeStatePaths
     mayor_lifecycle: MayorLifecycleBridge | None = None
@@ -91,6 +94,9 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     db_path.parent.mkdir(parents=True, exist_ok=True)
     state_paths = RuntimeStatePaths.from_db_path(db_path)
 
+    from city.discovery_ledger import DiscoveryLedger
+    discovery_ledger = DiscoveryLedger(db_path=str(state_paths.discovery_db_path))
+
     bank = CivicBank(db_path=str(db_path.parent / "economy.db"))
     pokedex = Pokedex(db_path=str(db_path), bank=bank)
     gateway = CityGateway()
@@ -104,11 +110,12 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
         args=args,
         config=config,
         pokedex=pokedex,
+        discovery_ledger=discovery_ledger,
         network=network,
     )
 
     from city.federation_propagation import get_propagation_engine
-    get_propagation_engine().set_pokedex(pokedex)
+    get_propagation_engine().set_discovery_ledger(discovery_ledger)
 
     # Wire MoltbookClient BEFORE factory — the assistant needs it during build
     _wire_moltbook_client_early(registry, log)
@@ -139,6 +146,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
         registry=registry,
         mayor=mayor,
         pokedex=pokedex,
+        discovery_ledger=discovery_ledger,
         factory_stats=factory.stats(),
         mayor_lifecycle=mayor_lifecycle,
         supervision=CitySupervisionBridge(mayor=mayor),
