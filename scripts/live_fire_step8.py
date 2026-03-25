@@ -37,6 +37,9 @@ logger.setLevel(logging.INFO)
 
 def run():
     # Safety check
+    import os
+    print("DEBUG: MOLTBOOK_API_KEY exists:", 'MOLTBOOK_API_KEY' in os.environ)
+    print("DEBUG: Value length:", len(os.environ.get("MOLTBOOK_API_KEY", "")))
     if not os.environ.get("MOLTBOOK_API_KEY"):
         print("ERROR: MOLTBOOK_API_KEY environment variable not set.")
         print("Live Fire requires a real Moltbook API key.")
