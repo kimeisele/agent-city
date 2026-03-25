@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from city.discovery_ledger import DiscoveryLedger
 from city.registry import (
     SVC_CAMPAIGNS,
     SVC_DISCUSSIONS,
