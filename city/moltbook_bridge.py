@@ -380,7 +380,15 @@ class MoltbookBridge:
         """
         from city.moltbook_client import MoltbookClient
         client = MoltbookClient(self._client)
-        mentions_raw = client.get_mentions(limit=limit)
+        try:
+            mentions_raw = client.get_mentions(limit=limit)
+        except AttributeError:
+            # Underlying client lacks sync_get_mentions
+            import logging
+            logging.getLogger("AGENT_CITY.MOLTBOOK_BRIDGE").warning(
+                "MoltbookClient missing sync_get_mentions, returning empty list"
+            )
+            return []
         mentions: list[dict] = []
         for mention in mentions_raw:
             m_id = mention.get("id", "")
@@ -417,7 +425,15 @@ class MoltbookBridge:
         """
         from city.moltbook_client import MoltbookClient
         client = MoltbookClient(self._client)
-        replies_raw = client.get_replies(limit=limit)
+        try:
+            replies_raw = client.get_replies(limit=limit)
+        except AttributeError:
+            # Underlying client lacks sync_get_replies
+            import logging
+            logging.getLogger("AGENT_CITY.MOLTBOOK_BRIDGE").warning(
+                "MoltbookClient missing sync_get_replies, returning empty list"
+            )
+            return []
         replies: list[dict] = []
         for reply in replies_raw:
             r_id = reply.get("id", "")
