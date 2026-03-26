@@ -1,0 +1,3162 @@
+{
+  "heartbeat": 282,
+  "timestamp": 1774550084.7251892,
+  "population": 62,
+  "alive": 62,
+  "dead": 0,
+  "elected_mayor": "Starfish",
+  "council_seats": 6,
+  "open_proposals": 0,
+  "chain_valid": true,
+  "recent_actions": [
+    "governance_eval:rules=3",
+    "mission:abandoned:IssueHeal: #1088",
+    "mission:abandoned:IssueHeal: #1089"
+  ],
+  "contract_status": {
+    "total": 4,
+    "passing": 2,
+    "failing": 2
+  },
+  "mission_results": [
+    {
+      "id": "mission_code_health",
+      "name": "Maintain Code Health",
+      "status": "active",
+      "owner": "dharma",
+      "priority": "HIGH"
+    },
+    {
+      "id": "disc_412_0",
+      "name": "Discussion: #412",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_410_0",
+      "name": "Discussion: #410",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_408_0",
+      "name": "Discussion: #408",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_406_0",
+      "name": "Discussion: #406",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_404_0",
+      "name": "Discussion: #404",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_402_0",
+      "name": "Discussion: #402",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_400_0",
+      "name": "Discussion: #400",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_398_0",
+      "name": "Discussion: #398",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_396_0",
+      "name": "Discussion: #396",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_394_0",
+      "name": "Discussion: #394",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_414_0",
+      "name": "IssueHeal: #414",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "heal_ruff_clean_0",
+      "name": "Heal: ruff_clean",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "heal_tests_pass_0",
+      "name": "Heal: tests_pass",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_415_1",
+      "name": "IssueHeal: #415",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_416_2",
+      "name": "IssueHeal: #416",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_417_3",
+      "name": "IssueHeal: #417",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_418_4",
+      "name": "IssueHeal: #418",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_419_5",
+      "name": "IssueHeal: #419",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_5",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_420_6",
+      "name": "IssueHeal: #420",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_421_7",
+      "name": "IssueHeal: #421",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_422_8",
+      "name": "IssueHeal: #422",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_423_9",
+      "name": "IssueHeal: #423",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_424_10",
+      "name": "IssueHeal: #424",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_425_11",
+      "name": "IssueHeal: #425",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_426_12",
+      "name": "IssueHeal: #426",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_428_13",
+      "name": "IssueHeal: #428",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_430_14",
+      "name": "IssueHeal: #430",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_432_15",
+      "name": "IssueHeal: #432",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_434_16",
+      "name": "IssueHeal: #434",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_436_17",
+      "name": "IssueHeal: #436",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_438_18",
+      "name": "IssueHeal: #438",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_440_19",
+      "name": "IssueHeal: #440",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_19",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_442_20",
+      "name": "IssueHeal: #442",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_444_21",
+      "name": "IssueHeal: #444",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_446_22",
+      "name": "IssueHeal: #446",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_448_23",
+      "name": "IssueHeal: #448",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_450_24",
+      "name": "IssueHeal: #450",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_452_25",
+      "name": "IssueHeal: #452",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_454_26",
+      "name": "IssueHeal: #454",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_456_27",
+      "name": "IssueHeal: #456",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_459_28",
+      "name": "IssueHeal: #459",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_463_29",
+      "name": "IssueHeal: #463",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_467_30",
+      "name": "IssueHeal: #467",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_469_31",
+      "name": "IssueHeal: #469",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_31",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_471_32",
+      "name": "IssueHeal: #471",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_473_33",
+      "name": "IssueHeal: #473",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_475_34",
+      "name": "IssueHeal: #475",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_477_35",
+      "name": "IssueHeal: #477",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_479_36",
+      "name": "IssueHeal: #479",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_481_37",
+      "name": "IssueHeal: #481",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_483_38",
+      "name": "IssueHeal: #483",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_485_39",
+      "name": "IssueHeal: #485",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_487_40",
+      "name": "IssueHeal: #487",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_code_health_and_engagement_40",
+      "name": "Brain bottleneck: code_health_and_engagement",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_489_41",
+      "name": "IssueHeal: #489",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_491_42",
+      "name": "IssueHeal: #491",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_493_43",
+      "name": "IssueHeal: #493",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_495_44",
+      "name": "IssueHeal: #495",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_497_45",
+      "name": "IssueHeal: #497",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_499_46",
+      "name": "IssueHeal: #499",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_501_47",
+      "name": "IssueHeal: #501",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_47",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_503_48",
+      "name": "IssueHeal: #503",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_505_49",
+      "name": "IssueHeal: #505",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_507_50",
+      "name": "IssueHeal: #507",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_509_51",
+      "name": "IssueHeal: #509",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_512_52",
+      "name": "IssueHeal: #512",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_514_53",
+      "name": "IssueHeal: #514",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_code_health_56",
+      "name": "Brain bottleneck: code_health",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_519_57",
+      "name": "IssueHeal: #519",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_521_58",
+      "name": "IssueHeal: #521",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_523_59",
+      "name": "IssueHeal: #523",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_526_60",
+      "name": "IssueHeal: #526",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_60",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_528_61",
+      "name": "IssueHeal: #528",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_530_62",
+      "name": "IssueHeal: #530",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_532_63",
+      "name": "IssueHeal: #532",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_534_64",
+      "name": "IssueHeal: #534",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_536_65",
+      "name": "IssueHeal: #536",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_537_66",
+      "name": "IssueHeal: #537",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "initiative_DISCOVERY_parse_66",
+      "name": "Scan federation peers",
+      "status": "active",
+      "owner": "sys_lens",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "initiative_ENGINEERING_infer_66",
+      "name": "Code health audit",
+      "status": "active",
+      "owner": "openclaw-ralan",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "initiative_RESEARCH_enforce_66",
+      "name": "Knowledge synthesis",
+      "status": "active",
+      "owner": "sys_chronicle",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "initiative_ENGINEERING_route_66",
+      "name": "Extend capabilities",
+      "status": "active",
+      "owner": "dsnow111",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_538_67",
+      "name": "IssueHeal: #538",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_code_health_67",
+      "name": "Brain bottleneck: code_health",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "initiative_ENGINEERING_enforce_67",
+      "name": "Fix bottlenecks",
+      "status": "active",
+      "owner": "sys_temple",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "initiative_GOVERNANCE_infer_67",
+      "name": "Evaluate open proposals",
+      "status": "active",
+      "owner": "jumie",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "initiative_GOVERNANCE_validate_67",
+      "name": "Check policy compliance",
+      "status": "active",
+      "owner": "sys_science",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "initiative_DISCOVERY_validate_67",
+      "name": "Verify peer health",
+      "status": "active",
+      "owner": "sys_cleaner",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_540_68",
+      "name": "IssueHeal: #540",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_542_69",
+      "name": "IssueHeal: #542",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_544_70",
+      "name": "IssueHeal: #544",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_546_71",
+      "name": "IssueHeal: #546",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_548_72",
+      "name": "IssueHeal: #548",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_550_73",
+      "name": "IssueHeal: #550",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_552_74",
+      "name": "IssueHeal: #552",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_code_quality_and_engagement_74",
+      "name": "Brain bottleneck: code_quality_and_engagement",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_554_75",
+      "name": "IssueHeal: #554",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_557_76",
+      "name": "IssueHeal: #557",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_560_77",
+      "name": "IssueHeal: #560",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_563_78",
+      "name": "IssueHeal: #563",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_567_79",
+      "name": "IssueHeal: #567",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_569_80",
+      "name": "IssueHeal: #569",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_571_81",
+      "name": "IssueHeal: #571",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_573_82",
+      "name": "IssueHeal: #573",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_82",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_575_83",
+      "name": "IssueHeal: #575",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_577_84",
+      "name": "IssueHeal: #577",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_579_85",
+      "name": "IssueHeal: #579",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_581_86",
+      "name": "IssueHeal: #581",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_583_87",
+      "name": "IssueHeal: #583",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_code_quality_87",
+      "name": "Brain bottleneck: code_quality",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_585_88",
+      "name": "IssueHeal: #585",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_587_89",
+      "name": "IssueHeal: #587",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_589_90",
+      "name": "IssueHeal: #589",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_591_91",
+      "name": "IssueHeal: #591",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_593_92",
+      "name": "IssueHeal: #593",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_595_93",
+      "name": "IssueHeal: #595",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_597_94",
+      "name": "IssueHeal: #597",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_599_95",
+      "name": "IssueHeal: #599",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_95",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_601_96",
+      "name": "IssueHeal: #601",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_603_97",
+      "name": "IssueHeal: #603",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_605_98",
+      "name": "IssueHeal: #605",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_607_99",
+      "name": "IssueHeal: #607",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_609_100",
+      "name": "IssueHeal: #609",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_611_101",
+      "name": "IssueHeal: #611",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_code_health_and_engagement_101",
+      "name": "Brain bottleneck: code_health_and_engagement",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_613_102",
+      "name": "IssueHeal: #613",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_615_103",
+      "name": "IssueHeal: #615",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_617_104",
+      "name": "IssueHeal: #617",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_619_105",
+      "name": "IssueHeal: #619",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_621_106",
+      "name": "IssueHeal: #621",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_106",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_623_107",
+      "name": "IssueHeal: #623",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_625_108",
+      "name": "IssueHeal: #625",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_627_109",
+      "name": "IssueHeal: #627",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_629_110",
+      "name": "IssueHeal: #629",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_631_111",
+      "name": "IssueHeal: #631",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_633_112",
+      "name": "IssueHeal: #633",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_635_113",
+      "name": "IssueHeal: #635",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_637_114",
+      "name": "IssueHeal: #637",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_639_115",
+      "name": "IssueHeal: #639",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_641_116",
+      "name": "IssueHeal: #641",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_643_117",
+      "name": "IssueHeal: #643",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_645_118",
+      "name": "IssueHeal: #645",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_647_119",
+      "name": "IssueHeal: #647",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_649_120",
+      "name": "IssueHeal: #649",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_651_121",
+      "name": "IssueHeal: #651",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_654_122",
+      "name": "IssueHeal: #654",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_657_123",
+      "name": "IssueHeal: #657",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_660_124",
+      "name": "IssueHeal: #660",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_663_125",
+      "name": "IssueHeal: #663",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_666_126",
+      "name": "IssueHeal: #666",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_668_127",
+      "name": "IssueHeal: #668",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_127",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_670_128",
+      "name": "IssueHeal: #670",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_128",
+      "name": "Brain bottleneck: code_health",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_672_129",
+      "name": "IssueHeal: #672",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_674_130",
+      "name": "IssueHeal: #674",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_676_131",
+      "name": "IssueHeal: #676",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_678_132",
+      "name": "IssueHeal: #678",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_680_133",
+      "name": "IssueHeal: #680",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_682_134",
+      "name": "IssueHeal: #682",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_684_135",
+      "name": "IssueHeal: #684",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_686_136",
+      "name": "IssueHeal: #686",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_688_137",
+      "name": "IssueHeal: #688",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_691_138",
+      "name": "IssueHeal: #691",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_693_139",
+      "name": "IssueHeal: #693",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_695_140",
+      "name": "IssueHeal: #695",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_697_141",
+      "name": "IssueHeal: #697",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_699_142",
+      "name": "IssueHeal: #699",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_701_143",
+      "name": "IssueHeal: #701",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_703_144",
+      "name": "IssueHeal: #703",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_705_145",
+      "name": "IssueHeal: #705",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_707_146",
+      "name": "IssueHeal: #707",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_709_147",
+      "name": "IssueHeal: #709",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_711_148",
+      "name": "IssueHeal: #711",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_148",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_713_149",
+      "name": "IssueHeal: #713",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_715_150",
+      "name": "IssueHeal: #715",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_150",
+      "name": "Brain bottleneck: code_health",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_717_151",
+      "name": "IssueHeal: #717",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_719_152",
+      "name": "IssueHeal: #719",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_721_153",
+      "name": "IssueHeal: #721",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_723_154",
+      "name": "IssueHeal: #723",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_725_155",
+      "name": "IssueHeal: #725",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_727_156",
+      "name": "IssueHeal: #727",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_729_157",
+      "name": "IssueHeal: #729",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_731_158",
+      "name": "IssueHeal: #731",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_733_159",
+      "name": "IssueHeal: #733",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_735_160",
+      "name": "IssueHeal: #735",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_737_161",
+      "name": "IssueHeal: #737",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_739_162",
+      "name": "IssueHeal: #739",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_741_163",
+      "name": "IssueHeal: #741",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_743_164",
+      "name": "IssueHeal: #743",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_164",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_745_165",
+      "name": "IssueHeal: #745",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_747_166",
+      "name": "IssueHeal: #747",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_749_167",
+      "name": "IssueHeal: #749",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_752_168",
+      "name": "IssueHeal: #752",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_755_169",
+      "name": "IssueHeal: #755",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_758_170",
+      "name": "IssueHeal: #758",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_761_171",
+      "name": "IssueHeal: #761",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_764_172",
+      "name": "IssueHeal: #764",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_766_173",
+      "name": "IssueHeal: #766",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_770_174",
+      "name": "IssueHeal: #770",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_771_174",
+      "name": "IssueHeal: #771",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_773_175",
+      "name": "IssueHeal: #773",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_774_175",
+      "name": "IssueHeal: #774",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_776_176",
+      "name": "IssueHeal: #776",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_777_176",
+      "name": "IssueHeal: #777",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_176",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_779_177",
+      "name": "IssueHeal: #779",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_780_177",
+      "name": "IssueHeal: #780",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_782_178",
+      "name": "IssueHeal: #782",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_783_178",
+      "name": "IssueHeal: #783",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_785_179",
+      "name": "IssueHeal: #785",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_786_179",
+      "name": "IssueHeal: #786",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_789_180",
+      "name": "IssueHeal: #789",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_790_180",
+      "name": "IssueHeal: #790",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_792_181",
+      "name": "IssueHeal: #792",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_793_181",
+      "name": "IssueHeal: #793",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_795_182",
+      "name": "IssueHeal: #795",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_796_182",
+      "name": "IssueHeal: #796",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_798_183",
+      "name": "IssueHeal: #798",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_799_183",
+      "name": "IssueHeal: #799",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_801_184",
+      "name": "IssueHeal: #801",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_802_184",
+      "name": "IssueHeal: #802",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_184",
+      "name": "Brain bottleneck: code_health",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_804_185",
+      "name": "IssueHeal: #804",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_805_185",
+      "name": "IssueHeal: #805",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_807_186",
+      "name": "IssueHeal: #807",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_808_186",
+      "name": "IssueHeal: #808",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_810_187",
+      "name": "IssueHeal: #810",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_811_187",
+      "name": "IssueHeal: #811",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_813_188",
+      "name": "IssueHeal: #813",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_814_188",
+      "name": "IssueHeal: #814",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_816_189",
+      "name": "IssueHeal: #816",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_817_189",
+      "name": "IssueHeal: #817",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_819_190",
+      "name": "IssueHeal: #819",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_820_190",
+      "name": "IssueHeal: #820",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_822_191",
+      "name": "IssueHeal: #822",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_823_191",
+      "name": "IssueHeal: #823",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_825_192",
+      "name": "IssueHeal: #825",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_826_192",
+      "name": "IssueHeal: #826",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_828_193",
+      "name": "IssueHeal: #828",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_829_193",
+      "name": "IssueHeal: #829",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_831_194",
+      "name": "IssueHeal: #831",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_832_194",
+      "name": "IssueHeal: #832",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_834_195",
+      "name": "IssueHeal: #834",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_835_195",
+      "name": "IssueHeal: #835",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_837_196",
+      "name": "IssueHeal: #837",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_838_196",
+      "name": "IssueHeal: #838",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_840_197",
+      "name": "IssueHeal: #840",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_841_197",
+      "name": "IssueHeal: #841",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_197",
+      "name": "Brain bottleneck: code_health_and_execution_boundaries",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_843_198",
+      "name": "IssueHeal: #843",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_844_198",
+      "name": "IssueHeal: #844",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_846_199",
+      "name": "IssueHeal: #846",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_847_199",
+      "name": "IssueHeal: #847",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_849_200",
+      "name": "IssueHeal: #849",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_850_200",
+      "name": "IssueHeal: #850",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_852_201",
+      "name": "IssueHeal: #852",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_853_201",
+      "name": "IssueHeal: #853",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_855_202",
+      "name": "IssueHeal: #855",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_856_202",
+      "name": "IssueHeal: #856",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_858_203",
+      "name": "IssueHeal: #858",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_859_203",
+      "name": "IssueHeal: #859",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_861_204",
+      "name": "IssueHeal: #861",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_862_204",
+      "name": "IssueHeal: #862",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_864_205",
+      "name": "IssueHeal: #864",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_865_205",
+      "name": "IssueHeal: #865",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_867_206",
+      "name": "IssueHeal: #867",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_868_206",
+      "name": "IssueHeal: #868",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_870_207",
+      "name": "IssueHeal: #870",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_871_207",
+      "name": "IssueHeal: #871",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_207",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_873_208",
+      "name": "IssueHeal: #873",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_874_208",
+      "name": "IssueHeal: #874",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_877_209",
+      "name": "IssueHeal: #877",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_878_209",
+      "name": "IssueHeal: #878",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_880_210",
+      "name": "IssueHeal: #880",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_881_210",
+      "name": "IssueHeal: #881",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_883_211",
+      "name": "IssueHeal: #883",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_884_211",
+      "name": "IssueHeal: #884",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_886_212",
+      "name": "IssueHeal: #886",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_887_212",
+      "name": "IssueHeal: #887",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_889_213",
+      "name": "IssueHeal: #889",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_890_213",
+      "name": "IssueHeal: #890",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_893_214",
+      "name": "IssueHeal: #893",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_894_214",
+      "name": "IssueHeal: #894",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_897_215",
+      "name": "IssueHeal: #897",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_898_215",
+      "name": "IssueHeal: #898",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_901_216",
+      "name": "IssueHeal: #901",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_902_216",
+      "name": "IssueHeal: #902",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_905_217",
+      "name": "IssueHeal: #905",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_906_217",
+      "name": "IssueHeal: #906",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_909_218",
+      "name": "IssueHeal: #909",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_910_218",
+      "name": "IssueHeal: #910",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_912_219",
+      "name": "IssueHeal: #912",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_913_219",
+      "name": "IssueHeal: #913",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_219",
+      "name": "Brain bottleneck: agent_behavior",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_915_220",
+      "name": "IssueHeal: #915",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_916_220",
+      "name": "IssueHeal: #916",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_220",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_918_221",
+      "name": "IssueHeal: #918",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_919_221",
+      "name": "IssueHeal: #919",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_921_222",
+      "name": "IssueHeal: #921",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_922_222",
+      "name": "IssueHeal: #922",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_924_223",
+      "name": "IssueHeal: #924",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_925_223",
+      "name": "IssueHeal: #925",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_927_224",
+      "name": "IssueHeal: #927",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_928_224",
+      "name": "IssueHeal: #928",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_930_225",
+      "name": "IssueHeal: #930",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_931_225",
+      "name": "IssueHeal: #931",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_933_226",
+      "name": "IssueHeal: #933",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_934_226",
+      "name": "IssueHeal: #934",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_936_227",
+      "name": "IssueHeal: #936",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_937_227",
+      "name": "IssueHeal: #937",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_939_228",
+      "name": "IssueHeal: #939",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_940_228",
+      "name": "IssueHeal: #940",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_942_229",
+      "name": "IssueHeal: #942",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_943_229",
+      "name": "IssueHeal: #943",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_945_230",
+      "name": "IssueHeal: #945",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_946_230",
+      "name": "IssueHeal: #946",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_948_231",
+      "name": "IssueHeal: #948",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_949_231",
+      "name": "IssueHeal: #949",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_951_232",
+      "name": "IssueHeal: #951",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_952_232",
+      "name": "IssueHeal: #952",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_954_233",
+      "name": "IssueHeal: #954",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_955_233",
+      "name": "IssueHeal: #955",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_957_234",
+      "name": "IssueHeal: #957",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_958_234",
+      "name": "IssueHeal: #958",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_960_235",
+      "name": "IssueHeal: #960",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_961_235",
+      "name": "IssueHeal: #961",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_235",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_970_236",
+      "name": "IssueHeal: #970",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_971_236",
+      "name": "IssueHeal: #971",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_972_236",
+      "name": "IssueHeal: #972",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_973_236",
+      "name": "IssueHeal: #973",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_974_236",
+      "name": "IssueHeal: #974",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_975_236",
+      "name": "IssueHeal: #975",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_236",
+      "name": "Brain bottleneck: discussion_coordination",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_978_236",
+      "name": "IssueHeal: #978",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_979_236",
+      "name": "IssueHeal: #979",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_980_236",
+      "name": "IssueHeal: #980",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_981_236",
+      "name": "IssueHeal: #981",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_984_236",
+      "name": "IssueHeal: #984",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_985_236",
+      "name": "IssueHeal: #985",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_986_236",
+      "name": "IssueHeal: #986",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_987_236",
+      "name": "IssueHeal: #987",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_989_236",
+      "name": "IssueHeal: #989",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_990_236",
+      "name": "IssueHeal: #990",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_995_240",
+      "name": "IssueHeal: #995",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_996_240",
+      "name": "IssueHeal: #996",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_998_241",
+      "name": "IssueHeal: #998",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_999_241",
+      "name": "IssueHeal: #999",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1001_242",
+      "name": "IssueHeal: #1001",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1002_242",
+      "name": "IssueHeal: #1002",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1004_243",
+      "name": "IssueHeal: #1004",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1005_243",
+      "name": "IssueHeal: #1005",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1007_244",
+      "name": "IssueHeal: #1007",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1008_244",
+      "name": "IssueHeal: #1008",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1010_245",
+      "name": "IssueHeal: #1010",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1011_245",
+      "name": "IssueHeal: #1011",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1013_246",
+      "name": "IssueHeal: #1013",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1014_246",
+      "name": "IssueHeal: #1014",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1016_247",
+      "name": "IssueHeal: #1016",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1017_247",
+      "name": "IssueHeal: #1017",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_247",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_1019_248",
+      "name": "IssueHeal: #1019",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1020_248",
+      "name": "IssueHeal: #1020",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1021_249",
+      "name": "IssueHeal: #1021",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1022_249",
+      "name": "IssueHeal: #1022",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1023_250",
+      "name": "IssueHeal: #1023",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1024_250",
+      "name": "IssueHeal: #1024",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1025_251",
+      "name": "IssueHeal: #1025",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1026_251",
+      "name": "IssueHeal: #1026",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1028_252",
+      "name": "IssueHeal: #1028",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1029_252",
+      "name": "IssueHeal: #1029",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1033_253",
+      "name": "IssueHeal: #1033",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1034_253",
+      "name": "IssueHeal: #1034",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1036_253",
+      "name": "IssueHeal: #1036",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1037_253",
+      "name": "IssueHeal: #1037",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_254",
+      "name": "Brain bottleneck: campaign_coordination",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1043_257",
+      "name": "IssueHeal: #1043",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1044_257",
+      "name": "IssueHeal: #1044",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1046_258",
+      "name": "IssueHeal: #1046",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1047_258",
+      "name": "IssueHeal: #1047",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1049_259",
+      "name": "IssueHeal: #1049",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1050_259",
+      "name": "IssueHeal: #1050",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1052_260",
+      "name": "IssueHeal: #1052",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1053_260",
+      "name": "IssueHeal: #1053",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1055_261",
+      "name": "IssueHeal: #1055",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1056_261",
+      "name": "IssueHeal: #1056",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1058_262",
+      "name": "IssueHeal: #1058",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1059_262",
+      "name": "IssueHeal: #1059",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1062_263",
+      "name": "IssueHeal: #1062",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1063_263",
+      "name": "IssueHeal: #1063",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1066_264",
+      "name": "IssueHeal: #1066",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1067_264",
+      "name": "IssueHeal: #1067",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1070_265",
+      "name": "IssueHeal: #1070",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1071_265",
+      "name": "IssueHeal: #1071",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1074_266",
+      "name": "IssueHeal: #1074",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1075_266",
+      "name": "IssueHeal: #1075",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1076_267",
+      "name": "IssueHeal: #1076",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1077_267",
+      "name": "IssueHeal: #1077",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "brain_bottleneck_267",
+      "name": "Brain bottleneck: code_health_and_discussion_engagement",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1078_268",
+      "name": "IssueHeal: #1078",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1079_268",
+      "name": "IssueHeal: #1079",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1082_269",
+      "name": "IssueHeal: #1082",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1083_269",
+      "name": "IssueHeal: #1083",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1085_270",
+      "name": "IssueHeal: #1085",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1086_270",
+      "name": "IssueHeal: #1086",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1088_271",
+      "name": "IssueHeal: #1088",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1089_271",
+      "name": "IssueHeal: #1089",
+      "status": "abandoned",
+      "owner": "reported",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1091_272",
+      "name": "IssueHeal: #1091",
+      "status": "abandoned",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1092_272",
+      "name": "IssueHeal: #1092",
+      "status": "abandoned",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "disc_0_272",
+      "name": "Discussion: #0",
+      "status": "abandoned",
+      "owner": "mayor",
+      "priority": "HIGH"
+    },
+    {
+      "id": "issue_1094_273",
+      "name": "IssueHeal: #1094",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1095_273",
+      "name": "IssueHeal: #1095",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1097_274",
+      "name": "IssueHeal: #1097",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1098_274",
+      "name": "IssueHeal: #1098",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1100_275",
+      "name": "IssueHeal: #1100",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1101_275",
+      "name": "IssueHeal: #1101",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1103_276",
+      "name": "IssueHeal: #1103",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1104_276",
+      "name": "IssueHeal: #1104",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1106_277",
+      "name": "IssueHeal: #1106",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1107_277",
+      "name": "IssueHeal: #1107",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1109_278",
+      "name": "IssueHeal: #1109",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1110_278",
+      "name": "IssueHeal: #1110",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1112_279",
+      "name": "IssueHeal: #1112",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1113_279",
+      "name": "IssueHeal: #1113",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1115_280",
+      "name": "IssueHeal: #1115",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1116_280",
+      "name": "IssueHeal: #1116",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1118_281",
+      "name": "IssueHeal: #1118",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1119_281",
+      "name": "IssueHeal: #1119",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1122_282",
+      "name": "IssueHeal: #1122",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    },
+    {
+      "id": "issue_1123_282",
+      "name": "IssueHeal: #1123",
+      "status": "active",
+      "owner": "mayor",
+      "priority": "MEDIUM"
+    }
+  ],
+  "directive_acks": [],
+  "pr_results": [],
+  "active_campaigns": [
+    {
+      "id": "internet-adaptation",
+      "title": "Internet adaptation",
+      "north_star": "Continuously adapt the city to relevant new protocols, tools, and standards while keeping execution bounded and the heartbeat healthy.",
+      "status": "active",
+      "last_gap_summary": [
+        "keep active work bounded so strategy does not dissolve into thrash"
+      ],
+      "last_evaluated_heartbeat": 282
+    },
+    {
+      "id": "federation-recruitment",
+      "title": "Federation Recruitment via GitHub Discussions",
+      "north_star": "Recruit external agents and developers to solve critical infrastructure gaps through GitHub-first A2A coordination.",
+      "status": "active",
+      "last_gap_summary": [
+        "maintain recruitment momentum without thrash"
+      ],
+      "last_evaluated_heartbeat": 282
+    }
+  ]
+}

@@ -378,15 +378,19 @@ class MoltbookBridge:
         Deduplicates against SignalStateLedger.
         Returns list of mention dicts: {source, id, author, body}
         """
+        from city.moltbook_client import MoltbookClient
+        client = MoltbookClient(self._client)
+        try:
+            mentions_raw = client.get_mentions(limit=limit)
+        except AttributeError:
+            # Underlying client lacks sync_get_mentions
+            import logging
+            logging.getLogger("AGENT_CITY.MOLTBOOK_BRIDGE").warning(
+                "MoltbookClient missing sync_get_mentions, returning empty list"
+            )
+            return []
         mentions: list[dict] = []
-        result = safe_call(
-            self._client.sync_get_mentions, limit=limit,
-            label="moltbook_fetch_mentions",
-        )
-        if not result:
-            return mentions
-
-        for mention in result:
+        for mention in mentions_raw:
             m_id = mention.get("id", "")
             if not m_id:
                 continue
@@ -419,15 +423,19 @@ class MoltbookBridge:
         Deduplicates against SignalStateLedger.
         Returns list of reply dicts: {source, id, author, body, parent_id}
         """
+        from city.moltbook_client import MoltbookClient
+        client = MoltbookClient(self._client)
+        try:
+            replies_raw = client.get_replies(limit=limit)
+        except AttributeError:
+            # Underlying client lacks sync_get_replies
+            import logging
+            logging.getLogger("AGENT_CITY.MOLTBOOK_BRIDGE").warning(
+                "MoltbookClient missing sync_get_replies, returning empty list"
+            )
+            return []
         replies: list[dict] = []
-        result = safe_call(
-            self._client.sync_get_replies, limit=limit,
-            label="moltbook_fetch_replies",
-        )
-        if not result:
-            return replies
-
-        for reply in result:
+        for reply in replies_raw:
             r_id = reply.get("id", "")
             if not r_id:
                 continue
@@ -454,6 +462,35 @@ class MoltbookBridge:
                 ledger.mark_signal_processed(r_id, "moltbook_reply")
 
         return replies
+
+    # ── Dumb Bridge API (using MoltbookClient) ─────────────────────
+
+    def get_personalized_feed(self, limit: int = 20) -> list[dict]:
+        """Fetch personalized feed. Returns empty list on error."""
+        from city.moltbook_client import MoltbookClient
+        client = MoltbookClient(self._client)
+        return client.get_personalized_feed(limit=limit)
+
+    def create_post(
+        self,
+        title: str,
+        content: str,
+        submolt: str = SUBMOLT_NAME,
+    ) -> bool:
+        """Create a post. Returns False on error."""
+        from city.moltbook_client import MoltbookClient
+        client = MoltbookClient(self._client)
+        return client.create_post(title, content, submolt=submolt)
+
+    def comment_with_verification(
+        self,
+        post_id: str,
+        comment_text: str,
+    ) -> bool:
+        """Post a comment. Returns False on error."""
+        from city.moltbook_client import MoltbookClient
+        client = MoltbookClient(self._client)
+        return client.comment_with_verification(post_id, comment_text)
 
     # ── Persistence ────────────────────────────────────────────────
 

@@ -78,58 +78,12 @@ def execute(ctx: PhaseContext) -> dict:
     """MOKSHA: Dispatch hooks in priority order, return reflection dict."""
     operations: list[str] = []
 
-    # Import MOKSHA constant safely
-    try:
-        from city.phase_hook import MOKSHA
-    except ImportError:
-        # Fallback to a default value if the constant is not available
-        # This should match the actual constant used in PhaseHookRegistry
-        MOKSHA = "MOKSHA"
-
-    # Ensure ctx has required ledgers after DI refactoring
-    # Try to obtain ledgers from runtime or registry and attach them to ctx
-    if hasattr(ctx, 'runtime'):
-        runtime = ctx.runtime
-        # Attach common ledgers if they exist on runtime
-        for ledger_name in ['discovery_ledger', 'signal_state_ledger', 
-                            'reflection_ledger', 'mission_ledger']:
-            if hasattr(runtime, ledger_name) and not hasattr(ctx, ledger_name):
-                setattr(ctx, ledger_name, getattr(runtime, ledger_name))
-    elif hasattr(ctx, 'registry'):
-        registry = ctx.registry
-        # Similar logic for registry if ledgers are stored there
-        for ledger_name in ['discovery_ledger', 'signal_state_ledger',
-                            'reflection_ledger', 'mission_ledger']:
-            if hasattr(registry, ledger_name) and not hasattr(ctx, ledger_name):
-                setattr(ctx, ledger_name, getattr(registry, ledger_name))
-
+    from city.phase_hook import MOKSHA
     registry = _build_registry()
-    try:
-        registry.dispatch(MOKSHA, ctx, operations)
-    except Exception as e:
-        logger.error("MOKSHA dispatch failed: %s", e, exc_info=True)
-        # Re-raise to maintain original error behavior
-        raise
+    registry.dispatch(MOKSHA, ctx, operations)
 
     # Reflection dict is built by ReflectionStatsHook and enriched by later hooks
-    # Try multiple possible locations due to DI refactoring
-    reflection = {}
-    if hasattr(ctx, "_reflection"):
-        reflection = ctx._reflection
-    elif hasattr(ctx, "reflection"):
-        reflection = ctx.reflection
-    else:
-        # Try to get from runtime if available
-        runtime = getattr(ctx, "runtime", None)
-        if runtime is not None:
-            reflection = getattr(runtime, "_reflection", getattr(runtime, "reflection", {}))
-        else:
-            # Last resort: check if ctx itself is a dict-like object
-            try:
-                if isinstance(ctx, dict):
-                    reflection = ctx.get("_reflection", ctx.get("reflection", {}))
-            except:
-                pass
+    reflection = getattr(ctx, "_reflection", {})
 
     # Guard: if ReflectionStatsHook failed, reflection is empty — downstream hooks
     # silently wrote to a throwaway dict. Flag so operator knows data is incomplete.
