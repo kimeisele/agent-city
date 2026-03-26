@@ -50,6 +50,7 @@ def _build_registry():
     from city.hooks.genesis.nadi_inbox_scanner import NadiInboxScannerHook
     from city.hooks.genesis.heartbeat_observer_hook import HeartbeatObserverHook
     from city.hooks.genesis.inbound_membrane import InboundMembraneHook
+    from city.hooks.genesis.moltbook_inbound import MoltbookInboundHook
 
     registry = PhaseHookRegistry()
     registry.register(CensusHook())              # pri=0   setup
@@ -66,10 +67,11 @@ def _build_registry():
     registry.register(NadiInboxScannerHook())         # pri=45  nadi inbox
     registry.register(RegistrationIssueScannerHook())  # pri=55  github issues
     registry.register(InboundMembraneHook())          # pri=58  inbound membrane
-    registry.register(ActiveDiscoveryHook())              # pri=58  active discovery (daily)
-    registry.register(DiscussionScannerHook())     # pri=60  discussions
-    registry.register(AgentIntroHook())            # pri=70  intros
-    registry.register(MoltbookAssistantHook())     # pri=80  assistant
+    registry.register(ActiveDiscoveryHook())          # pri=58  active discovery (daily)
+    registry.register(MoltbookInboundHook())          # pri=59  moltbook inbound signals
+    registry.register(DiscussionScannerHook())        # pri=60  discussions
+    registry.register(AgentIntroHook())               # pri=70  intros
+    registry.register(MoltbookAssistantHook())        # pri=80  assistant
 
     return registry
 
