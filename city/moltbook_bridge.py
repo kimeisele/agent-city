@@ -378,15 +378,11 @@ class MoltbookBridge:
         Deduplicates against SignalStateLedger.
         Returns list of mention dicts: {source, id, author, body}
         """
+        from city.moltbook_client import MoltbookClient
+        client = MoltbookClient(self._client)
+        mentions_raw = client.get_mentions(limit=limit)
         mentions: list[dict] = []
-        result = safe_call(
-            self._client.sync_get_mentions, limit=limit,
-            label="moltbook_fetch_mentions",
-        )
-        if not result:
-            return mentions
-
-        for mention in result:
+        for mention in mentions_raw:
             m_id = mention.get("id", "")
             if not m_id:
                 continue
@@ -419,15 +415,11 @@ class MoltbookBridge:
         Deduplicates against SignalStateLedger.
         Returns list of reply dicts: {source, id, author, body, parent_id}
         """
+        from city.moltbook_client import MoltbookClient
+        client = MoltbookClient(self._client)
+        replies_raw = client.get_replies(limit=limit)
         replies: list[dict] = []
-        result = safe_call(
-            self._client.sync_get_replies, limit=limit,
-            label="moltbook_fetch_replies",
-        )
-        if not result:
-            return replies
-
-        for reply in result:
+        for reply in replies_raw:
             r_id = reply.get("id", "")
             if not r_id:
                 continue
