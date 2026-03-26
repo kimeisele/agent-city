@@ -31,7 +31,7 @@ _SEEN_MESSAGE_IDS_MAX = 10000
 
 
 class MoltbookFeedScanHook(BasePhaseHook):
-    """Scan Moltbook feed for new agents."""
+    """DEPRECATED: Business logic moved to inbound hook."""
 
     @property
     def name(self) -> str:
@@ -46,44 +46,17 @@ class MoltbookFeedScanHook(BasePhaseHook):
         return 10  # early: agent discovery
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.moltbook_client is not None and not ctx.offline_mode
+        # Always return False to disable this hook
+        return False
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        limit = get_config().get("mayor", {}).get("feed_scan_limit", 20)
-        feed = safe_call(
-            ctx.moltbook_client.sync_get_feed, limit=limit,
-            label="moltbook_feed",
-        )
-        if feed is None:
-            return
-
-        for post in feed:
-            author_obj = post.get("author") or {}
-            author = author_obj.get("name") or author_obj.get("username")
-            if not author:
-                continue
-            existing = ctx.pokedex.get(author)
-            if not existing:
-                ctx.pokedex.discover(
-                    author,
-                    moltbook_profile={
-                        "karma": author_obj.get("karma"),
-                        "follower_count": (
-                            author_obj.get("followerCount")
-                            or author_obj.get("follower_count")
-                        ),
-                    },
-                )
-                operations.append(author)
-                logger.info("GENESIS: Discovered agent %s", author)
+        # No-op
+        operations.append("moltbook_feed_scan:disabled")
+        logger.warning("MoltbookFeedScanHook is deprecated; use MoltbookInboundHook")
 
 
 class MoltbookObservationHook(BasePhaseHook):
-    """Broad feed observation (Sensory Sampling).
-
-    Fetches the wider feed and stores unread posts in a transient
-    sensory buffer for the Brain to evaluate in DHARMA.
-    """
+    """DEPRECATED: Business logic moved to inbound hook."""
 
     @property
     def name(self) -> str:
@@ -98,45 +71,15 @@ class MoltbookObservationHook(BasePhaseHook):
         return 12  # between feed scan and dm inbox
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.moltbook_client is not None and not ctx.offline_mode
+        return False
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        from city.registry import SVC_SIGNAL_STATE_LEDGER
-        ledger = ctx.registry.get(SVC_SIGNAL_STATE_LEDGER)
-        
-        limit = get_config().get("moltbook_bridge", {}).get("observation_limit", 30)
-        feed = safe_call(
-            ctx.moltbook_client.sync_get_feed, limit=limit,
-            label="moltbook_observation_feed",
-        )
-        if feed is None:
-            return
-
-        # Initialize transient buffer
-        if not hasattr(ctx, "_sensory_buffer"):
-            ctx._sensory_buffer = []
-
-        new_observations = 0
-        for post in feed:
-            post_id = post.get("id", "")
-            if not post_id:
-                continue
-
-            # Skip if already processed or replied
-            if ledger and ledger.is_signal_processed(post_id):
-                continue
-
-            # Store unread post for cognitive evaluation in DHARMA
-            ctx._sensory_buffer.append(post)
-            new_observations += 1
-
-        if new_observations:
-            operations.append(f"observed:{new_observations}_posts")
-            logger.info("GENESIS: Observed %d new posts for cognitive evaluation", new_observations)
+        operations.append("moltbook_observation:disabled")
+        logger.warning("MoltbookObservationHook is deprecated; use MoltbookInboundHook")
 
 
 class DMInboxHook(BasePhaseHook):
-    """Poll Moltbook DMs: approve requests + enqueue unread messages."""
+    """DEPRECATED: Business logic moved to inbound hook."""
 
     @property
     def name(self) -> str:
@@ -151,109 +94,15 @@ class DMInboxHook(BasePhaseHook):
         return 15  # after feed scan
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.moltbook_client is not None and not ctx.offline_mode
+        return False
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        client = ctx.moltbook_client
-        self._approve_dm_requests(client, operations)
-        self._read_dm_conversations(client, ctx, operations)
-
-    @staticmethod
-    def _approve_dm_requests(
-        client: object, operations: list[str],
-    ) -> None:
-        """Step 1: Approve pending DM requests."""
-        if not hasattr(client, "sync_get_dm_requests"):
-            return
-        pending = safe_call(client.sync_get_dm_requests, label="moltbook_dm_requests")
-        if pending is None:
-            return
-
-        for req in pending:
-            req_id = req.get("id", "")
-            from_agent = req.get("from", {}).get("username", req.get("from_agent", ""))
-            if not req_id:
-                continue
-            if hasattr(client, "sync_approve_dm_request"):
-                approved = safe_call(
-                    client.sync_approve_dm_request, req_id,
-                    label=f"moltbook_dm_approve:{req_id[:8]}",
-                )
-                if approved is None:
-                    continue
-            # Send welcome via the new conversation
-            conv_id = req.get("conversation_id", "")
-            if conv_id and hasattr(client, "sync_send_dm"):
-                from city.inbox import WELCOME_MESSAGE
-                safe_call(
-                    client.sync_send_dm, conv_id, WELCOME_MESSAGE,
-                    label=f"moltbook_dm_welcome:{conv_id[:8]}",
-                )
-            operations.append(f"dm_approved:{from_agent}")
-            logger.info("GENESIS: Approved DM request from %s", from_agent)
-
-    @staticmethod
-    def _read_dm_conversations(
-        client: object, ctx: PhaseContext, operations: list[str],
-    ) -> None:
-        """Step 2: Read DM conversations → enqueue unread messages."""
-        if not hasattr(client, "sync_get_dm_conversations"):
-            return
-        conversations = safe_call(
-            client.sync_get_dm_conversations, label="moltbook_dm_convos",
-        )
-        if conversations is None:
-            return
-
-        for conv in conversations:
-            conv_id = conv.get("id", "")
-            if not conv_id:
-                continue
-            unread = conv.get("unread_count", 0) or conv.get("unread", 0)
-            if not unread:
-                continue
-
-            if not hasattr(client, "sync_get_dm_messages"):
-                continue
-            messages = safe_call(
-                client.sync_get_dm_messages, conv_id,
-                label=f"moltbook_dm_read:{conv_id[:8]}",
-            )
-            if messages is None:
-                continue
-
-            for msg in messages:
-                msg_id = msg.get("id", "")
-                if not msg_id:
-                    continue
-                
-                # Persistent dedup (Phase 6E: stop shitposting)
-                if ctx.pokedex.is_signal_processed(msg_id):
-                    continue
-
-                sender = msg.get("from", {}).get("username", msg.get("sender", ""))
-                content = msg.get("content", msg.get("text", ""))
-                if not sender or not content:
-                    continue
-
-                enqueue_ingress(
-                    ctx,
-                    IngressSurface.MOLTBOOK_DM,
-                    {
-                        "source": "dm",
-                        "text": content,
-                        "conversation_id": conv_id,
-                        "from_agent": sender,
-                    },
-                )
-                
-                ctx.pokedex.mark_signal_processed(msg_id, "moltbook_dm")
-                operations.append(f"dm_enqueued:{sender}")
-                logger.info("GENESIS: Enqueued DM from %s", sender)
+        operations.append("dm_inbox:disabled")
+        logger.warning("DMInboxHook is deprecated; use MoltbookInboundHook")
 
 
 class MoltbookDiplomacyHook(BasePhaseHook):
-    """Fetch unread @mentions and replies (Sensory Expansion)."""
+    """DEPRECATED: Business logic moved to inbound hook."""
 
     @property
     def name(self) -> str:
@@ -268,50 +117,15 @@ class MoltbookDiplomacyHook(BasePhaseHook):
         return 18  # after DM inbox, before submolt scan
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.moltbook_bridge is not None and not ctx.offline_mode
+        return False
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        from city.registry import SVC_SIGNAL_STATE_LEDGER
-        ledger = ctx.registry.get(SVC_SIGNAL_STATE_LEDGER)
-        
-        # 1. Fetch mentions
-        mentions = ctx.moltbook_bridge.fetch_mentions(ledger=ledger)
-        for m in mentions:
-            enqueue_ingress(
-                ctx,
-                IngressSurface.MOLTBOOK_MENTION,  # Public Mention
-                {
-                    "source": "moltbook_mention",
-                    "text": m["body"],
-                    "from_agent": m["author"],
-                    "signal_id": m["id"],
-                    "post_id": m.get("post_id"),
-                },
-            )
-            operations.append(f"mention_enqueued:{m['author']}")
-            logger.info("GENESIS: Enqueued mention from %s", m['author'])
-
-        # 2. Fetch replies
-        replies = ctx.moltbook_bridge.fetch_replies(ledger=ledger)
-        for r in replies:
-            enqueue_ingress(
-                ctx,
-                IngressSurface.MOLTBOOK_REPLY,  # Public Reply
-                {
-                    "source": "moltbook_reply",
-                    "text": r["body"],
-                    "from_agent": r["author"],
-                    "signal_id": r["id"],
-                    "parent_id": r.get("parent_id"),
-                    "post_id": r.get("post_id"),
-                },
-            )
-            operations.append(f"reply_enqueued:{r['author']}")
-            logger.info("GENESIS: Enqueued reply from %s", r['author'])
+        operations.append("moltbook_diplomacy:disabled")
+        logger.warning("MoltbookDiplomacyHook is deprecated; use MoltbookInboundHook")
 
 
 class SubmoltScanHook(BasePhaseHook):
-    """Scan Moltbook submolt (m/agent-city) for code signals."""
+    """DEPRECATED: Business logic moved to inbound hook."""
 
     @property
     def name(self) -> str:
@@ -326,62 +140,11 @@ class SubmoltScanHook(BasePhaseHook):
         return 20  # after DM inbox
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.moltbook_bridge is not None and not ctx.offline_mode
+        return False
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        _scan_limit = get_config().get("moltbook_bridge", {}).get("feed_scan_limit", 20)
-        submolt_signals = ctx.moltbook_bridge.scan_submolt(limit=_scan_limit, pokedex=ctx.pokedex)
-        for signal in submolt_signals:
-            # Discover authors from submolt posts
-            author = signal.get("author", "")
-            if author:
-                existing = ctx.pokedex.get(author)
-                if not existing:
-                    ctx.pokedex.discover(author, moltbook_profile={})
-                    operations.append(author)
-
-            # 7B-1: Engagement prana — reward agents who post in submolt
-            if author and existing:
-                try:
-                    _engagement_prana = get_config().get(
-                        "moltbook_bridge", {}
-                    ).get("engagement_prana", 10)
-                    ctx.pokedex.award_prana(
-                        author, _engagement_prana,
-                        source=f"moltbook:submolt_post:{signal.get('post_id', '')[:8]}",
-                    )
-                    operations.append(f"engagement_prana:{author}:+{_engagement_prana}")
-                except Exception as e:
-                    logger.debug("Engagement prana skipped for %s: %s", author, e)
-
-            # Create Sankalpa mission from code signals (agent participation)
-            if signal.get("code_signals") and ctx.sankalpa is not None:
-                from city.missions import create_signal_mission
-
-                mission_id = create_signal_mission(
-                    ctx,
-                    signal_keywords=signal.get("code_signals", []),
-                    post_id=signal.get("post_id", ""),
-                    author=signal.get("author", ""),
-                    title=signal.get("title", ""),
-                    structured=signal.get("structured", False),
-                )
-                if mission_id:
-                    operations.append(f"submolt_mission:{mission_id}")
-
-            # Enqueue code signals for KARMA processing
-            if signal.get("code_signals"):
-                enqueue_ingress(
-                    ctx,
-                    IngressSurface.SUBMOLT_SIGNAL,
-                    {
-                        "source": signal.get("source", "submolt"),
-                        "text": signal["title"],
-                        "post_id": signal["post_id"],
-                        "code_signals": signal["code_signals"],
-                    },
-                )
-                operations.append(f"submolt_signal:{signal['post_id']}")
+        operations.append("submolt_scan:disabled")
+        logger.warning("SubmoltScanHook is deprecated; use MoltbookInboundHook")
 
 
 class MoltbookAssistantHook(BasePhaseHook):
@@ -400,11 +163,9 @@ class MoltbookAssistantHook(BasePhaseHook):
         return 80  # late: after all discovery
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.moltbook_assistant is not None and not ctx.offline_mode
+        # This hook may still be used for assistant logic, but we keep it disabled for now
+        return False
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        # Feed ONLY real agent names — not operation strings from other hooks
-        discovered = [a["name"] for a in ctx.pokedex.list_by_status("discovered")]
-        followed = ctx.moltbook_assistant.on_genesis(discovered)
-        for name in followed:
-            operations.append(f"followed:{name}")
+        operations.append("moltbook_assistant:disabled")
+        logger.warning("MoltbookAssistantHook is temporarily disabled")
