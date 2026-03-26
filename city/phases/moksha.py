@@ -48,6 +48,8 @@ def _build_registry():
     from city.hooks.moksha.system_health import SystemHealthHook
     from city.hooks.moksha.federation_relay_push import FederationRelayPushHook
     from city.hooks.moksha.city_diary import CityDiaryHook
+    from city.hooks.moksha.moltbook_outbound import MoltbookOutboundHook
+    from city.hooks.moksha.moltbook_sender import MoltbookSenderHook
 
     registry = PhaseHookRegistry()
     registry.register(ReflectionStatsHook())      # pri=5   stats foundation
@@ -63,9 +65,11 @@ def _build_registry():
     registry.register(GovernanceEvalHook())        # pri=58  governance (once, shared)
     registry.register(FederationReportHook())      # pri=60  federation
     registry.register(EventDrivenOutboundHook())   # pri=65  moltbook
+    registry.register(MoltbookOutboundHook())      # pri=64  write to outbox (must run before sender)
+    registry.register(MoltbookSenderHook())        # pri=66  send pending outbox messages
     registry.register(SystemHealthHook())          # pri=68  12E: proactive diagnostics
     registry.register(DiscussionsOutboundHook())   # pri=70  discussions
-    registry.register(CityDiaryHook())              # pri=72  hourly diary to Announcements
+    registry.register(CityDiaryHook())             # pri=72  hourly diary to Announcements
     registry.register(WikiSyncHook())              # pri=75  wiki
     registry.register(FederationRelayPushHook())   # pri=80  relay push to hub
 
