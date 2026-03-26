@@ -447,6 +447,35 @@ class MoltbookBridge:
 
         return replies
 
+    # ── Dumb Bridge API (using MoltbookClient) ─────────────────────
+
+    def get_personalized_feed(self, limit: int = 20) -> list[dict]:
+        """Fetch personalized feed. Returns empty list on error."""
+        from city.moltbook_client import MoltbookClient
+        client = MoltbookClient(self._client)
+        return client.get_personalized_feed(limit=limit)
+
+    def create_post(
+        self,
+        title: str,
+        content: str,
+        submolt: str = SUBMOLT_NAME,
+    ) -> bool:
+        """Create a post. Returns False on error."""
+        from city.moltbook_client import MoltbookClient
+        client = MoltbookClient(self._client)
+        return client.create_post(title, content, submolt=submolt)
+
+    def comment_with_verification(
+        self,
+        post_id: str,
+        comment_text: str,
+    ) -> bool:
+        """Post a comment. Returns False on error."""
+        from city.moltbook_client import MoltbookClient
+        client = MoltbookClient(self._client)
+        return client.comment_with_verification(post_id, comment_text)
+
     # ── Persistence ────────────────────────────────────────────────
 
     def snapshot(self) -> dict:
