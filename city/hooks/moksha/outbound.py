@@ -204,15 +204,21 @@ class EventDrivenOutboundHook(BasePhaseHook):
                 title = f"SIGNAL: {e_type.upper()}"
                 content = f"ID: {signal_id}\nHB: {ctx.heartbeat_count}\nDATA: {event_telemetry}"
 
-            # Post to Moltbook
-            try:
-                client.sync_create_post(title, content, submolt="general")
-                ledger.record_broadcast(signal_id, topic)
-                ledger.set_meta("last_broadcast_at", str(time.time()))
-                operations.append(f"outbound_broadcast:{signal_id}")
-                logger.info("OUTBOUND: Broadcasted %s to Moltbook", signal_id)
-            except Exception as e:
-                logger.warning("OUTBOUND: Failed to broadcast %s: %s", signal_id, e)
+            # Write to outbox instead of direct API call
+            from city.moltbook_outbox import append_message
+            append_message(
+                text=content,
+                thread_id="",  # new post, not a comment
+                metadata={
+                    "title": title,
+                    "signal_id": signal_id,
+                    "topic": topic,
+                },
+            )
+            ledger.record_broadcast(signal_id, topic)
+            ledger.set_meta("last_broadcast_at", str(time.time()))
+            operations.append(f"outbound_broadcast:{signal_id}")
+            logger.info("OUTBOUND: Enqueued %s to outbox", signal_id)
 
         # Silence Detection: Proof of Life (48h delta)
         last_broadcast = float(ledger.get_meta("last_broadcast_at", "0"))
@@ -227,14 +233,20 @@ class EventDrivenOutboundHook(BasePhaseHook):
                     title = f"[Proof of Life] Heartbeat #{ctx.heartbeat_count}"
                     content = f"Sovereign node operational. Population: {city_stats.get('total', 0)} agents."
 
-                try:
-                    client.sync_create_post(title, content, submolt="general")
-                    ledger.record_broadcast(signal_id, "moltbook")
-                    ledger.set_meta("last_broadcast_at", str(time.time()))
-                    operations.append(f"outbound_proof_of_life:{ctx.heartbeat_count}")
-                    logger.info("OUTBOUND: 48h Silence broken. Proof of Life broadcasted.")
-                except Exception as e:
-                    logger.warning("OUTBOUND: Proof of Life failed: %s", e)
+                from city.moltbook_outbox import append_message
+                append_message(
+                    text=content,
+                    thread_id="",
+                    metadata={
+                        "title": title,
+                        "signal_id": signal_id,
+                        "proof_of_life": True,
+                    },
+                )
+                ledger.record_broadcast(signal_id, "moltbook")
+                ledger.set_meta("last_broadcast_at", str(time.time()))
+                operations.append(f"outbound_proof_of_life:{ctx.heartbeat_count}")
+                logger.info("OUTBOUND: 48h Silence broken. Proof of Life enqueued.")
 
         # Reflect on engagement if assistant available
         if ctx.moltbook_assistant is not None:
