@@ -124,6 +124,26 @@ jobs:
             git commit -m "chore: heartbeat #${{ github.run_number }} federation state"
           git push || true
 
+      - name: Relay outbox to steward-federation hub
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.FEDERATION_PAT }}
+        run: |
+          OUTBOX="data/federation/nadi_outbox.json"
+          if [ ! -f "$OUTBOX" ] || [ "$(cat $OUTBOX)" = "[]" ]; then
+            echo "Outbox empty, skipping relay"
+            exit 0
+          fi
+          git clone --depth=1 https://x-access-token:${GH_TOKEN}@github.com/kimeisele/steward-federation.git /tmp/hub
+          mkdir -p /tmp/hub/nadi
+          cp "$OUTBOX" /tmp/hub/nadi/agent-city_to_steward.json
+          cd /tmp/hub
+          git config user.name "agent-city-bot"
+          git config user.email "bot@agent-city"
+          git add nadi/agent-city_to_steward.json
+          git diff --cached --quiet || git commit -m "relay: agent-city outbox → steward"
+          git push || true
+
       - name: Save state
         if: always()
         uses: actions/cache/save@v4
