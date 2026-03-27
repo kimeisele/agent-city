@@ -132,6 +132,11 @@ class FederationRelay:
             outbox_data = []
         
         # Erstelle Heartbeat-Nachricht
+        # Stelle sicher, dass contract_status serialisierbar ist
+        contract_status = report.contract_status
+        if not isinstance(contract_status, (dict, list, str, int, float, bool, type(None))):
+            contract_status = str(contract_status)
+        
         heartbeat_msg = {
             "type": "heartbeat",
             "timestamp": report.timestamp,
@@ -144,7 +149,7 @@ class FederationRelay:
             "chain_valid": report.chain_valid,
             "source": "agent-city",
             "directive_acks": report.directive_acks,
-            "contract_status": report.contract_status,
+            "contract_status": contract_status,
             "mission_results": len(report.mission_results)
         }
         
