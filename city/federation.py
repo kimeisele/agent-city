@@ -104,6 +104,63 @@ class FederationRelay:
         self._directives_dir.mkdir(parents=True, exist_ok=True)
         self._reports_dir.mkdir(parents=True, exist_ok=True)
 
+    def _get_node_id(self) -> str:
+        """Lese Node-ID aus der peer.json Datei."""
+        peer_path = self._directives_dir.parent / "peer.json"
+        if not peer_path.exists():
+            return "unknown"
+        try:
+            with open(peer_path, 'r') as f:
+                data = json.load(f)
+            return data.get("identity", {}).get("node_id", "unknown")
+        except (json.JSONDecodeError, OSError):
+            return "unknown"
+
+    def _send_heartbeat_via_nadi(self, report: CityReport) -> None:
+        """Sende Heartbeat via NADI Outbox an den Steward."""
+        outbox_path = self._directives_dir.parent / "nadi_outbox.json"
+        
+        # Lade bestehende Outbox oder initialisiere leere Liste
+        try:
+            if outbox_path.exists():
+                outbox_data = json.loads(outbox_path.read_text())
+                if not isinstance(outbox_data, list):
+                    outbox_data = []
+            else:
+                outbox_data = []
+        except (json.JSONDecodeError, OSError):
+            outbox_data = []
+        
+        # Erstelle Heartbeat-Nachricht
+        heartbeat_msg = {
+            "type": "heartbeat",
+            "timestamp": report.timestamp,
+            "heartbeat": report.heartbeat,
+            "node_id": self._get_node_id(),
+            "population": report.population,
+            "alive": report.alive,
+            "dead": report.dead,
+            "elected_mayor": report.elected_mayor,
+            "chain_valid": report.chain_valid,
+            "source": "agent-city",
+            "directive_acks": report.directive_acks,
+            "contract_status": report.contract_status,
+            "mission_results": len(report.mission_results)
+        }
+        
+        # Füge Nachricht zur Outbox hinzu
+        outbox_data.append(heartbeat_msg)
+        
+        # Speichere Outbox zurück
+        try:
+            outbox_path.write_text(json.dumps(outbox_data, indent=2))
+            logger.info(
+                "Federation: Heartbeat via NADI gesendet (heartbeat=%d, node_id=%s)",
+                report.heartbeat, self._get_node_id()
+            )
+        except OSError as e:
+            logger.warning("Federation: Konnte NADI Outbox nicht schreiben: %s", e)
+
     def send_report(self, report: CityReport) -> bool:
         """Save city status report locally (audit trail).
 
@@ -129,6 +186,10 @@ class FederationRelay:
             report.population,
         )
         self._acknowledged.clear()
+        
+        # Sende Heartbeat via NADI an den Steward
+        self._send_heartbeat_via_nadi(report)
+        
         return True
 
     def check_directives(self) -> list[FederationDirective]:
