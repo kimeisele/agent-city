@@ -116,37 +116,89 @@ class FederationRelay:
         except (json.JSONDecodeError, OSError):
             return "unknown"
 
-    def _send_heartbeat_via_nadi(self, report: CityReport) -> None:
-        """Sende Heartbeat via NADI Outbox an den Steward."""
-        outbox_path = self._directives_dir.parent / "nadi_outbox.json"
-        
-        # Stelle sicher, dass das Verzeichnis existiert
-        outbox_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Lade bestehende Outbox oder initialisiere leere Liste
+    def _read_outbox(self, outbox_path: Path) -> list:
+        """Read outbox JSON list, returning [] on any error."""
         try:
             if outbox_path.exists():
                 content = outbox_path.read_text()
                 if content.strip():
-                    outbox_data = json.loads(content)
-                    if not isinstance(outbox_data, list):
-                        outbox_data = []
-                else:
-                    outbox_data = []
-            else:
-                outbox_data = []
+                    data = json.loads(content)
+                    if isinstance(data, list):
+                        return data
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Federation: Fehler beim Lesen der NADI Outbox: %s. Starte mit leerer Outbox.", e)
-            outbox_data = []
-        
-        # Erstelle Heartbeat-Nachricht
+        return []
+
+    def _write_outbox(self, outbox_path: Path, messages: list) -> None:
+        """Write outbox list to disk, logging on failure."""
+        try:
+            outbox_path.write_text(json.dumps(messages, indent=2))
+        except OSError as e:
+            logger.warning("Federation: Konnte NADI Outbox nicht schreiben: %s", e)
+
+    def _send_federation_claim(self) -> None:
+        """Send one federation.agent_claim message to steward's NADI outbox.
+
+        Reads identity from peer.json. Writes a sentinel (.claim_sent) so this
+        runs exactly once — even across multiple send_report() calls.
+        """
+        fed_dir = self._directives_dir.parent
+        sentinel = fed_dir / ".claim_sent"
+        if sentinel.exists():
+            return
+
+        peer_path = fed_dir / "peer.json"
+        try:
+            peer = json.loads(peer_path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Federation: Konnte peer.json nicht lesen, claim übersprungen: %s", e)
+            return
+
+        identity = peer.get("identity", {})
+        node_id = identity.get("node_id", "unknown")
+        public_key = identity.get("public_key", "")
+        capabilities = peer.get("capabilities", [])
+
+        claim_msg = {
+            "operation": "federation.agent_claim",
+            "source": "agent-city",
+            "target": "steward",
+            "payload": {
+                "node_id": node_id,
+                "public_key": public_key,
+                "repo": "kimeisele/agent-city",
+                "capabilities": capabilities,
+            },
+        }
+
+        outbox_path = fed_dir / "nadi_outbox.json"
+        outbox_path.parent.mkdir(parents=True, exist_ok=True)
+        outbox_data = self._read_outbox(outbox_path)
+        outbox_data.append(claim_msg)
+        self._write_outbox(outbox_path, outbox_data)
+
+        try:
+            sentinel.write_text("")
+            logger.info("Federation: agent_claim gesendet (node_id=%s)", node_id)
+        except OSError as e:
+            logger.warning("Federation: Konnte Sentinel nicht schreiben: %s", e)
+
+    def _send_heartbeat_via_nadi(self, report: CityReport) -> None:
+        """Sende Heartbeat via NADI Outbox an den Steward."""
+        outbox_path = self._directives_dir.parent / "nadi_outbox.json"
+
+        # Stelle sicher, dass das Verzeichnis existiert
+        outbox_path.parent.mkdir(parents=True, exist_ok=True)
+
+        outbox_data = self._read_outbox(outbox_path)
+
         # Stelle sicher, dass contract_status serialisierbar ist
         contract_status = report.contract_status
         if not isinstance(contract_status, (dict, list, str, int, float, bool, type(None))):
             contract_status = str(contract_status)
-        
+
         heartbeat_msg = {
-            "type": "heartbeat",
+            "operation": "heartbeat",
             "timestamp": report.timestamp,
             "heartbeat": report.heartbeat,
             "node_id": self._get_node_id(),
@@ -161,18 +213,12 @@ class FederationRelay:
             "mission_results": len(report.mission_results)
         }
         
-        # Füge Nachricht zur Outbox hinzu
         outbox_data.append(heartbeat_msg)
-        
-        # Speichere Outbox zurück
-        try:
-            outbox_path.write_text(json.dumps(outbox_data, indent=2))
-            logger.info(
-                "Federation: Heartbeat via NADI gesendet (heartbeat=%d, node_id=%s)",
-                report.heartbeat, self._get_node_id()
-            )
-        except OSError as e:
-            logger.warning("Federation: Konnte NADI Outbox nicht schreiben: %s", e)
+        self._write_outbox(outbox_path, outbox_data)
+        logger.info(
+            "Federation: Heartbeat via NADI gesendet (heartbeat=%d, node_id=%s)",
+            report.heartbeat, self._get_node_id()
+        )
 
     def send_report(self, report: CityReport) -> bool:
         """Save city status report locally (audit trail).
@@ -199,8 +245,9 @@ class FederationRelay:
             report.population,
         )
         self._acknowledged.clear()
-        
-        # Sende Heartbeat via NADI an den Steward
+
+        # One-time trust admission claim, then regular heartbeat
+        self._send_federation_claim()
         self._send_heartbeat_via_nadi(report)
         
         return True

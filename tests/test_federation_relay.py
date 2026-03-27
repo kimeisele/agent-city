@@ -178,6 +178,93 @@ class TestSendReport:
         assert len(relay._report_log) <= 50
 
 
+# ── federation claim ───────────────────────────────────────────────────
+
+
+def _make_relay_with_peer(tmp_path: Path) -> tuple["FederationRelay", Path]:
+    """Create a relay with a real peer.json in its federation dir."""
+    fed_dir = tmp_path / "federation"
+    directives_dir = fed_dir / "directives"
+    reports_dir = fed_dir / "reports"
+    directives_dir.mkdir(parents=True)
+    reports_dir.mkdir(parents=True)
+
+    peer = {
+        "identity": {
+            "city_id": "agent-city",
+            "node_id": "ag_testnode123",
+            "public_key": "deadbeef",
+        },
+        "capabilities": ["multi_agent_runtime", "city_governance"],
+    }
+    (fed_dir / "peer.json").write_text(json.dumps(peer))
+
+    relay = FederationRelay(
+        _directives_dir=directives_dir,
+        _reports_dir=reports_dir,
+    )
+    return relay, fed_dir
+
+
+class TestFederationClaim:
+    def test_claim_written_to_outbox_on_first_send_report(self, tmp_path):
+        relay, fed_dir = _make_relay_with_peer(tmp_path)
+        relay.send_report(_make_report(heartbeat=1))
+
+        outbox = json.loads((fed_dir / "nadi_outbox.json").read_text())
+        claim = next((m for m in outbox if m.get("operation") == "federation.agent_claim"), None)
+        assert claim is not None
+        assert claim["source"] == "agent-city"
+        assert claim["target"] == "steward"
+        assert claim["payload"]["node_id"] == "ag_testnode123"
+        assert claim["payload"]["public_key"] == "deadbeef"
+        assert claim["payload"]["repo"] == "kimeisele/agent-city"
+        assert "multi_agent_runtime" in claim["payload"]["capabilities"]
+
+    def test_sentinel_created_after_claim(self, tmp_path):
+        relay, fed_dir = _make_relay_with_peer(tmp_path)
+        relay.send_report(_make_report(heartbeat=1))
+        assert (fed_dir / ".claim_sent").exists()
+
+    def test_claim_sent_only_once(self, tmp_path):
+        relay, fed_dir = _make_relay_with_peer(tmp_path)
+        relay.send_report(_make_report(heartbeat=1))
+        relay.send_report(_make_report(heartbeat=2))
+        relay.send_report(_make_report(heartbeat=3))
+
+        outbox = json.loads((fed_dir / "nadi_outbox.json").read_text())
+        claims = [m for m in outbox if m.get("operation") == "federation.agent_claim"]
+        assert len(claims) == 1
+
+    def test_claim_skipped_if_sentinel_exists(self, tmp_path):
+        relay, fed_dir = _make_relay_with_peer(tmp_path)
+        (fed_dir / ".claim_sent").write_text("")  # pre-existing sentinel
+
+        relay.send_report(_make_report(heartbeat=1))
+
+        outbox = json.loads((fed_dir / "nadi_outbox.json").read_text())
+        claims = [m for m in outbox if m.get("operation") == "federation.agent_claim"]
+        assert len(claims) == 0
+
+    def test_claim_skipped_gracefully_without_peer_json(self, fed_dirs):
+        """Relay without peer.json should not crash."""
+        directives_dir, reports_dir = fed_dirs
+        relay = FederationRelay(
+            _directives_dir=directives_dir,
+            _reports_dir=reports_dir,
+        )
+        relay.send_report(_make_report(heartbeat=1))  # must not raise
+
+    def test_heartbeat_uses_operation_key(self, tmp_path):
+        relay, fed_dir = _make_relay_with_peer(tmp_path)
+        relay.send_report(_make_report(heartbeat=1))
+
+        outbox = json.loads((fed_dir / "nadi_outbox.json").read_text())
+        heartbeat = next((m for m in outbox if m.get("operation") == "heartbeat"), None)
+        assert heartbeat is not None
+        assert "type" not in heartbeat
+
+
 # ── check_directives ──────────────────────────────────────────────────
 
 
