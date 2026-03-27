@@ -120,15 +120,23 @@ class FederationRelay:
         """Sende Heartbeat via NADI Outbox an den Steward."""
         outbox_path = self._directives_dir.parent / "nadi_outbox.json"
         
+        # Stelle sicher, dass das Verzeichnis existiert
+        outbox_path.parent.mkdir(parents=True, exist_ok=True)
+        
         # Lade bestehende Outbox oder initialisiere leere Liste
         try:
             if outbox_path.exists():
-                outbox_data = json.loads(outbox_path.read_text())
-                if not isinstance(outbox_data, list):
+                content = outbox_path.read_text()
+                if content.strip():
+                    outbox_data = json.loads(content)
+                    if not isinstance(outbox_data, list):
+                        outbox_data = []
+                else:
                     outbox_data = []
             else:
                 outbox_data = []
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Federation: Fehler beim Lesen der NADI Outbox: %s. Starte mit leerer Outbox.", e)
             outbox_data = []
         
         # Erstelle Heartbeat-Nachricht

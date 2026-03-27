@@ -129,20 +129,42 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.FEDERATION_PAT }}
         run: |
+          # Stelle sicher, dass das Verzeichnis existiert
+          mkdir -p data/federation
           OUTBOX="data/federation/nadi_outbox.json"
-          if [ ! -f "$OUTBOX" ] || [ "$(cat $OUTBOX)" = "[]" ]; then
+          
+          # Erstelle die Outbox-Datei, falls sie nicht existiert
+          if [ ! -f "$OUTBOX" ]; then
+            echo "[]" > "$OUTBOX"
+            echo "Created empty outbox file"
+          fi
+          
+          # Überprüfe, ob die Outbox nicht leer ist
+          if [ "$(cat "$OUTBOX" | tr -d '[:space:]')" = "[]" ]; then
             echo "Outbox empty, skipping relay"
             exit 0
           fi
+          
+          # Klone das Hub-Repository
           git clone --depth=1 https://x-access-token:${GH_TOKEN}@github.com/kimeisele/steward-federation.git /tmp/hub
+          
+          # Erstelle das nadi-Verzeichnis, falls es nicht existiert
           mkdir -p /tmp/hub/nadi
+          
+          # Kopiere die Outbox
           cp "$OUTBOX" /tmp/hub/nadi/agent-city_to_steward.json
+          
+          # Committe und pushe die Änderungen
           cd /tmp/hub
           git config user.name "agent-city-bot"
           git config user.email "bot@agent-city"
           git add nadi/agent-city_to_steward.json
-          git diff --cached --quiet || git commit -m "relay: agent-city outbox → steward"
-          git push || true
+          git diff --cached --quiet || git commit -m "relay: agent-city outbox → steward (heartbeat #${{ github.run_number }})"
+          git push || echo "Push failed, continuing..."
+          
+          # Leere die lokale Outbox nach dem Senden
+          echo "[]" > "$OUTBOX"
+          echo "Outbox cleared after successful relay"
 
       - name: Save state
         if: always()
