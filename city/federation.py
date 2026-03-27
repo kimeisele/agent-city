@@ -159,12 +159,17 @@ class FederationRelay:
         public_key = identity.get("public_key", "")
         capabilities = peer.get("capabilities", [])
 
+        # source MUST be the cryptographic node_id (derive_node_id(public_key)).
+        # The gateway's _authorize_inbound_message verifies:
+        #   derive_node_id(public_key) == source
+        # agent_name is the human-readable alias; _handle_agent_claim requires it.
         claim_msg = {
             "operation": "federation.agent_claim",
-            "source": "agent-city",
+            "source": node_id,
             "target": "steward",
             "payload": {
                 "node_id": node_id,
+                "agent_name": "agent-city",
                 "public_key": public_key,
                 "repo": "kimeisele/agent-city",
                 "capabilities": capabilities,
@@ -207,7 +212,7 @@ class FederationRelay:
             "dead": report.dead,
             "elected_mayor": report.elected_mayor,
             "chain_valid": report.chain_valid,
-            "source": "agent-city",
+            "source": self._get_node_id(),
             "directive_acks": report.directive_acks,
             "contract_status": contract_status,
             "mission_results": len(report.mission_results)

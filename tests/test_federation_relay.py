@@ -214,9 +214,11 @@ class TestFederationClaim:
         outbox = json.loads((fed_dir / "nadi_outbox.json").read_text())
         claim = next((m for m in outbox if m.get("operation") == "federation.agent_claim"), None)
         assert claim is not None
-        assert claim["source"] == "agent-city"
+        # source must equal node_id: gateway verifies derive_node_id(public_key)==source
+        assert claim["source"] == "ag_testnode123"
         assert claim["target"] == "steward"
         assert claim["payload"]["node_id"] == "ag_testnode123"
+        assert claim["payload"]["agent_name"] == "agent-city"
         assert claim["payload"]["public_key"] == "deadbeef"
         assert claim["payload"]["repo"] == "kimeisele/agent-city"
         assert "multi_agent_runtime" in claim["payload"]["capabilities"]
@@ -263,6 +265,8 @@ class TestFederationClaim:
         heartbeat = next((m for m in outbox if m.get("operation") == "heartbeat"), None)
         assert heartbeat is not None
         assert "type" not in heartbeat
+        # source must be node_id so gateway's is_verified_agent(source) passes
+        assert heartbeat["source"] == "ag_testnode123"
 
 
 # ── check_directives ──────────────────────────────────────────────────
