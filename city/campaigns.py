@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -276,6 +277,12 @@ class CampaignRegistry:
             return mission_id, reusable_issue_number
 
         title = f"[Campaign] {campaign.title}"
+
+        # Dedup check: skip if identical campaign issue already exists
+        if self._has_existing_campaign_issue(title):
+            logger.info("Campaign %s issue '%s' already exists (open), skipping creation", campaign.id, title)
+            return None, None
+
         body_lines = [
             f"Campaign: {campaign.id}",
             "",
@@ -323,3 +330,28 @@ class CampaignRegistry:
         except Exception as e:
             logger.warning("Campaign issue-open check failed for #%s: %s", issue_number, e)
             return False
+
+    def _has_existing_campaign_issue(self, title: str) -> bool:
+        """Check if a campaign issue with this title already exists (open).
+
+        Returns True if duplicate found, False otherwise.
+        """
+        try:
+            result = subprocess.run(
+                [
+                    "gh", "issue", "list",
+                    "--state", "open",
+                    "--search", f'"{title}"',
+                    "--json", "number",
+                    "-q", "length"
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                count = int(result.stdout.strip())
+                return count > 0
+        except Exception as e:
+            logger.warning("Campaign dedup check failed for '%s': %s", title, e)
+        return False
