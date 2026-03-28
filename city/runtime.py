@@ -130,7 +130,6 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     get_propagation_engine().set_discovery_ledger(discovery_ledger)
 
     # Perform state migration once both ledgers are ready
-    from city.factory import _perform_state_migration
     _perform_state_migration(pokedex, discovery_ledger, signal_state_ledger)
 
     # Wire MoltbookClient BEFORE factory — the assistant needs it during build

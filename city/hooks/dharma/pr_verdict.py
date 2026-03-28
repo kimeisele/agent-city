@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING
 from config import get_config
 from city.phase_hook import DHARMA, BasePhaseHook
 from city.registry import SVC_IDENTITY, SVC_SANKALPA
-from city.registry import SVC_IDENTITY, SVC_SANKALPA
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext

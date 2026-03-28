@@ -116,6 +116,18 @@ class FederationRelay:
         except (json.JSONDecodeError, OSError):
             return "unknown"
 
+    def _get_agent_id(self) -> str:
+        """Lese Agent-ID (city_id) aus der peer.json Datei."""
+        peer_path = self._directives_dir.parent / "peer.json"
+        if not peer_path.exists():
+            return "unknown"
+        try:
+            with open(peer_path, 'r') as f:
+                data = json.load(f)
+            return data.get("identity", {}).get("city_id", "unknown")
+        except (json.JSONDecodeError, OSError):
+            return "unknown"
+
     def _read_outbox(self, outbox_path: Path) -> list:
         """Read outbox JSON list, returning [] on any error."""
         try:
@@ -206,6 +218,7 @@ class FederationRelay:
             "operation": "heartbeat",
             "timestamp": report.timestamp,
             "heartbeat": report.heartbeat,
+            "agent_id": self._get_agent_id(),
             "node_id": self._get_node_id(),
             "population": report.population,
             "alive": report.alive,

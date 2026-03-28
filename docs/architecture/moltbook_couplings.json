@@ -1,0 +1,292 @@
+[
+  {
+    "file": "city/diagnostics_bounty_hook.py",
+    "line": 170,
+    "code": "from city.moltbook_bounty_poster import get_moltbook_bounty_poster"
+  },
+  {
+    "file": "city/factory.py",
+    "line": 194,
+    "code": "SVC_MOLTBOOK_ASSISTANT,"
+  },
+  {
+    "file": "city/factory.py",
+    "line": 342,
+    "code": "name=SVC_MOLTBOOK_ASSISTANT,"
+  },
+  {
+    "file": "city/factory.py",
+    "line": 778,
+    "code": "from city.moltbook_assistant import MoltbookAssistant"
+  },
+  {
+    "file": "city/factory.py",
+    "line": 779,
+    "code": "from city.registry import SVC_MOLTBOOK_CLIENT"
+  },
+  {
+    "file": "city/factory.py",
+    "line": 781,
+    "code": "client = ctx.registry.get(SVC_MOLTBOOK_CLIENT)"
+  },
+  {
+    "file": "city/hooks/dharma/campaign_recruitment.py",
+    "line": 26,
+    "code": "from city.registry import SVC_MOLTBOOK_CLIENT"
+  },
+  {
+    "file": "city/hooks/dharma/campaign_recruitment.py",
+    "line": 61,
+    "code": "from city.moltbook_bounty_poster import get_moltbook_bounty_poster"
+  },
+  {
+    "file": "city/hooks/dharma/immigration_ingress.py",
+    "line": 23,
+    "code": "from city.registry import SVC_IMMIGRATION, SVC_MOLTBOOK_CLIENT"
+  },
+  {
+    "file": "city/hooks/dharma/immigration_ingress.py",
+    "line": 59,
+    "code": "and ctx.registry.get(SVC_MOLTBOOK_CLIENT) is not None"
+  },
+  {
+    "file": "city/hooks/dharma/immigration_ingress.py",
+    "line": 68,
+    "code": "client = ctx.registry.get(SVC_MOLTBOOK_CLIENT)"
+  },
+  {
+    "file": "city/hooks/dharma/immigration_ingress.py",
+    "line": 97,
+    "code": "ctx.pokedex.discover(from_agent, source=\"moltbook_dm\")"
+  },
+  {
+    "file": "city/hooks/moksha/moltbook_sender.py",
+    "line": 5,
+    "code": "It reads pending messages from data/moltbook_outbox.json, attempts to send them,"
+  },
+  {
+    "file": "city/hooks/moksha/moltbook_sender.py",
+    "line": 45,
+    "code": "from city.moltbook_outbox import get_pending_messages, mark_as_sent"
+  },
+  {
+    "file": "city/hooks/moksha/outbound.py",
+    "line": 122,
+    "code": "from city.registry import SVC_SIGNAL_STATE_LEDGER, SVC_MOLTBOOK_CLIENT"
+  },
+  {
+    "file": "city/hooks/moksha/outbound.py",
+    "line": 127,
+    "code": "client = ctx.registry.get(SVC_MOLTBOOK_CLIENT)"
+  },
+  {
+    "file": "city/hooks/moksha/outbound.py",
+    "line": 208,
+    "code": "from city.moltbook_outbox import append_message"
+  },
+  {
+    "file": "city/hooks/moksha/outbound.py",
+    "line": 236,
+    "code": "from city.moltbook_outbox import append_message"
+  },
+  {
+    "file": "city/karma_handlers/gateway.py",
+    "line": 134,
+    "code": "if conversation_id and from_agent and ctx.moltbook_client is not None:"
+  },
+  {
+    "file": "city/karma_handlers/gateway.py",
+    "line": 653,
+    "code": "from city.registry import SVC_SIGNAL_STATE_LEDGER, SVC_MOLTBOOK_CLIENT"
+  },
+  {
+    "file": "city/karma_handlers/gateway.py",
+    "line": 657,
+    "code": "client = ctx.registry.get(SVC_MOLTBOOK_CLIENT)"
+  },
+  {
+    "file": "city/mayor/services.py",
+    "line": 19,
+    "code": "SVC_MOLTBOOK_BRIDGE,"
+  },
+  {
+    "file": "city/mayor/services.py",
+    "line": 20,
+    "code": "SVC_MOLTBOOK_CLIENT,"
+  },
+  {
+    "file": "city/mayor/services.py",
+    "line": 39,
+    "code": "\"_moltbook_bridge\": SVC_MOLTBOOK_BRIDGE,"
+  },
+  {
+    "file": "city/mayor/services.py",
+    "line": 40,
+    "code": "\"_moltbook_client\": SVC_MOLTBOOK_CLIENT,"
+  },
+  {
+    "file": "city/moltbook_assistant.py",
+    "line": 231,
+    "code": "from city.registry import SVC_SIGNAL_STATE_LEDGER, SVC_MOLTBOOK_BRIDGE"
+  },
+  {
+    "file": "city/moltbook_assistant.py",
+    "line": 233,
+    "code": "bridge = ctx.registry.get(SVC_MOLTBOOK_BRIDGE)"
+  },
+  {
+    "file": "city/moltbook_bridge.py",
+    "line": 381,
+    "code": "from city.moltbook_client import MoltbookClient"
+  },
+  {
+    "file": "city/moltbook_bridge.py",
+    "line": 426,
+    "code": "from city.moltbook_client import MoltbookClient"
+  },
+  {
+    "file": "city/moltbook_bridge.py",
+    "line": 470,
+    "code": "from city.moltbook_client import MoltbookClient"
+  },
+  {
+    "file": "city/moltbook_bridge.py",
+    "line": 481,
+    "code": "from city.moltbook_client import MoltbookClient"
+  },
+  {
+    "file": "city/moltbook_bridge.py",
+    "line": 491,
+    "code": "from city.moltbook_client import MoltbookClient"
+  },
+  {
+    "file": "city/phases/__init__.py",
+    "line": 44,
+    "code": "SVC_MOLTBOOK_ASSISTANT,"
+  },
+  {
+    "file": "city/phases/__init__.py",
+    "line": 46,
+    "code": "SVC_MOLTBOOK_BRIDGE,"
+  },
+  {
+    "file": "city/phases/__init__.py",
+    "line": 47,
+    "code": "SVC_MOLTBOOK_CLIENT,"
+  },
+  {
+    "file": "city/phases/__init__.py",
+    "line": 139,
+    "code": "\"moltbook_bridge\": SVC_MOLTBOOK_BRIDGE,"
+  },
+  {
+    "file": "city/phases/__init__.py",
+    "line": 140,
+    "code": "\"moltbook_client\": SVC_MOLTBOOK_CLIENT,"
+  },
+  {
+    "file": "city/phases/__init__.py",
+    "line": 197,
+    "code": "return self.registry.get(SVC_MOLTBOOK_BRIDGE)"
+  },
+  {
+    "file": "city/phases/__init__.py",
+    "line": 201,
+    "code": "return self.registry.get(SVC_MOLTBOOK_CLIENT)"
+  },
+  {
+    "file": "city/phases/__init__.py",
+    "line": 249,
+    "code": "return self.registry.get(SVC_MOLTBOOK_ASSISTANT)"
+  },
+  {
+    "file": "city/phases/genesis.py",
+    "line": 30,
+    "code": "from city.hooks.genesis.moltbook_scan import ("
+  },
+  {
+    "file": "city/phases/genesis.py",
+    "line": 53,
+    "code": "from city.hooks.genesis.moltbook_inbound import MoltbookInboundHook"
+  },
+  {
+    "file": "city/phases/moksha.py",
+    "line": 51,
+    "code": "from city.hooks.moksha.moltbook_sender import MoltbookSenderHook"
+  },
+  {
+    "file": "city/registry.py",
+    "line": 27,
+    "code": "SVC_MOLTBOOK_BRIDGE = \"moltbook_bridge\""
+  },
+  {
+    "file": "city/registry.py",
+    "line": 28,
+    "code": "SVC_MOLTBOOK_CLIENT = \"moltbook_client\""
+  },
+  {
+    "file": "city/registry.py",
+    "line": 48,
+    "code": "SVC_MOLTBOOK_ASSISTANT = \"moltbook_assistant\""
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 14,
+    "code": "SVC_MOLTBOOK_ASSISTANT,"
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 15,
+    "code": "SVC_MOLTBOOK_CLIENT,"
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 169,
+    "code": "assistant=registry.get(SVC_MOLTBOOK_ASSISTANT),"
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 230,
+    "code": "The MoltbookAssistant depends on SVC_MOLTBOOK_CLIENT in the registry."
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 239,
+    "code": "from vibe_core.mahamantra.adapters.moltbook import MoltbookClient"
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 242,
+    "code": "registry.register(SVC_MOLTBOOK_CLIENT, client)"
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 253,
+    "code": "client = runtime.registry.get(SVC_MOLTBOOK_CLIENT)"
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 260,
+    "code": "from vibe_core.mahamantra.adapters.moltbook import MoltbookClient"
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 263,
+    "code": "runtime.registry.register(SVC_MOLTBOOK_CLIENT, client)"
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 277,
+    "code": "from city.moltbook_bridge import MoltbookBridge"
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 278,
+    "code": "from city.registry import SVC_MOLTBOOK_BRIDGE"
+  },
+  {
+    "file": "city/runtime.py",
+    "line": 289,
+    "code": "runtime.registry.register(SVC_MOLTBOOK_BRIDGE, bridge)"
+  }
+]

@@ -160,7 +160,6 @@ def test_inbound_membrane():
     logger.info("✅ GitHub comment emitted for acceptance")
     
     # 15. Test Integrity Rejection (Mandate #2)
-    from city.signal import SemanticIntent
     
     bad_signal = MagicMock()
     bad_signal.intent = SemanticIntent.MISSION_COMPLETED
