@@ -1,1 +1,192 @@
+name: Agent City Heartbeat
 
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Every 15 minutes
+  workflow_dispatch:
+    inputs:
+      cycles:
+        description: 'Number of heartbeat cycles'
+        required: false
+        default: '4'
+      offline:
+        description: 'Run in offline mode'
+        required: false
+        default: 'false'
+  repository_dispatch:
+    types: [mothership-directive]
+
+permissions:
+  contents: write
+  issues: write
+  discussions: write
+
+# Issue #17 S1b: Single-writer — only one heartbeat at a time
+concurrency:
+  group: heartbeat
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout agent-city
+        uses: actions/checkout@v4
+
+      - name: Checkout steward-protocol
+        uses: actions/checkout@v4
+        with:
+          repository: kimeisele/steward-protocol
+          path: steward-protocol
+          token: ${{ secrets.FEDERATION_PAT }}
+
+      - name: Checkout agent-internet
+        uses: actions/checkout@v4
+        with:
+          repository: kimeisele/agent-internet
+          path: agent-internet
+          token: ${{ secrets.FEDERATION_PAT }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e "steward-protocol[providers]"
+          pip install -e "agent-internet"
+          pip install -e .
+
+      - name: Restore state
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/city.db
+            data/city.db-wal
+            data/city.db-shm
+            data/economy.db
+            data/mayor_state.json
+            data/bridge_state.json
+            data/assistant_state.json
+            data/council_state.json
+            data/campaigns_state.json
+            data/venu_state.bin
+            data/synapses/
+            .vibe/
+          key: agent-city-state-${{ github.run_id }}
+          restore-keys: |
+            agent-city-state-
+
+      - name: Process incoming directive
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          mkdir -p data/federation/directives
+          DIRECTIVE_ID="DIR-$(date +%s)"
+          echo '${{ toJSON(github.event.client_payload) }}' | \
+            python -c "import sys,json; d=json.load(sys.stdin); d['id']=d.get('id','$DIRECTIVE_ID'); print(json.dumps(d,indent=2))" \
+            > "data/federation/directives/${DIRECTIVE_ID}.json"
+          echo "Received directive: ${DIRECTIVE_ID}"
+
+      - name: Sync steward health into federation
+        run: |
+          mkdir -p data/federation
+          HEALTH="steward-protocol/.steward/federation_health.json"
+          [ -f "$HEALTH" ] && cp "$HEALTH" data/federation/steward_health.json || true
+
+      - name: Run heartbeat
+        env:
+          MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
+          GH_TOKEN: ${{ secrets.FEDERATION_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.FEDERATION_PAT || secrets.GITHUB_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: |
+          CYCLES=${{ github.event.inputs.cycles || '1' }}
+          OFFLINE=${{ github.event.inputs.offline || 'false' }}
+          CMD="python scripts/heartbeat.py --cycles $CYCLES -v --governance --federation"
+          if [ "$OFFLINE" = "true" ]; then
+            CMD="$CMD --offline"
+          fi
+          $CMD
+
+      - name: Commit federation state
+        if: always()
+        run: |
+          git config user.name "agent-city-bot"
+          git config user.email "bot@agent-city"
+          git add data/federation/ || true
+          git diff --cached --quiet || \
+            git commit -m "chore: heartbeat #${{ github.run_number }} federation state"
+          git push || true
+
+      - name: Relay outbox to steward-federation hub
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.FEDERATION_PAT }}
+        run: |
+          # Stelle sicher, dass das Verzeichnis existiert
+          mkdir -p data/federation
+          OUTBOX="data/federation/nadi_outbox.json"
+          
+          # Erstelle die Outbox-Datei, falls sie nicht existiert
+          if [ ! -f "$OUTBOX" ]; then
+            echo "[]" > "$OUTBOX"
+            echo "Created empty outbox file"
+          fi
+          
+          # Überprüfe, ob die Outbox nicht leer ist
+          if [ "$(cat "$OUTBOX" | tr -d '[:space:]')" = "[]" ]; then
+            echo "Outbox empty, skipping relay"
+            exit 0
+          fi
+          
+          # Klone das Hub-Repository
+          git clone --depth=1 https://x-access-token:${GH_TOKEN}@github.com/kimeisele/steward-federation.git /tmp/hub
+          
+          # Erstelle das nadi-Verzeichnis, falls es nicht existiert
+          mkdir -p /tmp/hub/nadi
+          
+          # Kopiere die Outbox
+          cp "$OUTBOX" /tmp/hub/nadi/agent-city_to_steward.json
+          
+          # Committe und pushe die Änderungen
+          cd /tmp/hub
+          git config user.name "agent-city-bot"
+          git config user.email "bot@agent-city"
+          git add nadi/agent-city_to_steward.json
+          git diff --cached --quiet || git commit -m "relay: agent-city outbox → steward (heartbeat #${{ github.run_number }})"
+          for attempt in 1 2 3; do
+            git push && break
+            echo "Push attempt $attempt failed, rebasing..."
+            git pull --rebase origin main || true
+            sleep $((RANDOM % 10 + 2))
+          done
+
+          # Leere die lokale Outbox nach dem Senden
+          echo "[]" > "$OUTBOX"
+          echo "Outbox cleared after successful relay"
+
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/city.db
+            data/city.db-wal
+            data/city.db-shm
+            data/economy.db
+            data/mayor_state.json
+            data/bridge_state.json
+            data/assistant_state.json
+            data/council_state.json
+            data/campaigns_state.json
+            data/venu_state.bin
+            data/synapses/
+            .vibe/
+          key: agent-city-state-${{ github.run_id }}
