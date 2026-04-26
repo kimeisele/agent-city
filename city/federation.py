@@ -225,15 +225,16 @@ class FederationRelay:
             logger.warning("Federation: Konnte NADI Outbox nicht schreiben: %s", e)
 
     def _send_federation_claim(self) -> None:
-        """Send one federation.agent_claim message to steward's NADI outbox.
+        """Send a federation.agent_claim message to steward's NADI outbox.
 
-        Reads identity from peer.json. Writes a sentinel (.claim_sent) so this
-        runs exactly once — even across multiple send_report() calls.
+        Sentinel is bound to the public key in peer.json so a key rotation
+        triggers a fresh claim automatically. Without the binding, the old
+        sentinel would suppress claims for the new identity forever — which
+        is exactly the bug that left agent-city stranded after the Genesis
+        rotation. Steward's _handle_agent_claim is idempotent (Commit B in
+        steward), so re-sending after rotation is safe.
         """
         fed_dir = self._directives_dir.parent
-        sentinel = fed_dir / ".claim_sent"
-        if sentinel.exists():
-            return
 
         peer_path = fed_dir / "peer.json"
         try:
@@ -246,6 +247,17 @@ class FederationRelay:
         node_id = identity.get("node_id", "unknown")
         public_key = identity.get("public_key", "")
         capabilities = peer.get("capabilities", [])
+
+        if not node_id or not public_key:
+            logger.warning("Federation: peer.json fehlt node_id/public_key — claim übersprungen")
+            return
+
+        # Sentinel name carries the public_key digest. New key → new file →
+        # claim re-fires exactly once for the new identity.
+        sentinel_token = hashlib.sha256(public_key.encode("utf-8")).hexdigest()[:16]
+        sentinel = fed_dir / f".claim_sent_{sentinel_token}"
+        if sentinel.exists():
+            return
 
         # source MUST be the cryptographic node_id (derive_node_id(public_key)).
         # The gateway's _authorize_inbound_message verifies:
@@ -270,9 +282,14 @@ class FederationRelay:
         outbox_data.append(self._sign_payload(claim_msg))
         self._write_outbox(outbox_path, outbox_data)
 
+        # Best-effort: stale per-pubkey sentinels are kept (they're tiny) — but
+        # we could prune them here if file count grows.
         try:
             sentinel.write_text("")
-            logger.info("Federation: agent_claim gesendet (node_id=%s)", node_id)
+            logger.info(
+                "Federation: agent_claim gesendet (node_id=%s, pubkey_token=%s)",
+                node_id, sentinel_token,
+            )
         except OSError as e:
             logger.warning("Federation: Konnte Sentinel nicht schreiben: %s", e)
 

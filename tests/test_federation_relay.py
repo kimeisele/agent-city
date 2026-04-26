@@ -224,9 +224,14 @@ class TestFederationClaim:
         assert "multi_agent_runtime" in claim["payload"]["capabilities"]
 
     def test_sentinel_created_after_claim(self, tmp_path):
+        import hashlib as _h
+
         relay, fed_dir = _make_relay_with_peer(tmp_path)
         relay.send_report(_make_report(heartbeat=1))
-        assert (fed_dir / ".claim_sent").exists()
+        # Sentinel name is bound to the public key digest so a key rotation
+        # automatically retriggers the claim.
+        token = _h.sha256("deadbeef".encode("utf-8")).hexdigest()[:16]
+        assert (fed_dir / f".claim_sent_{token}").exists()
 
     def test_claim_sent_only_once(self, tmp_path):
         relay, fed_dir = _make_relay_with_peer(tmp_path)
@@ -239,14 +244,29 @@ class TestFederationClaim:
         assert len(claims) == 1
 
     def test_claim_skipped_if_sentinel_exists(self, tmp_path):
+        import hashlib as _h
+
         relay, fed_dir = _make_relay_with_peer(tmp_path)
-        (fed_dir / ".claim_sent").write_text("")  # pre-existing sentinel
+        token = _h.sha256("deadbeef".encode("utf-8")).hexdigest()[:16]
+        (fed_dir / f".claim_sent_{token}").write_text("")  # pubkey-bound sentinel
 
         relay.send_report(_make_report(heartbeat=1))
 
         outbox = json.loads((fed_dir / "nadi_outbox.json").read_text())
         claims = [m for m in outbox if m.get("operation") == "federation.agent_claim"]
         assert len(claims) == 0
+
+    def test_claim_resent_after_key_rotation(self, tmp_path):
+        """Stale sentinel for an OLD pubkey must NOT block a new claim."""
+        relay, fed_dir = _make_relay_with_peer(tmp_path)
+        # Pretend we previously claimed under a different pubkey
+        (fed_dir / ".claim_sent_oldkeytoken00").write_text("")
+
+        relay.send_report(_make_report(heartbeat=1))
+
+        outbox = json.loads((fed_dir / "nadi_outbox.json").read_text())
+        claims = [m for m in outbox if m.get("operation") == "federation.agent_claim"]
+        assert len(claims) == 1
 
     def test_claim_skipped_gracefully_without_peer_json(self, fed_dirs):
         """Relay without peer.json should not crash."""
