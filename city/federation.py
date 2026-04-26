@@ -10,12 +10,32 @@ GENESIS: Mayor reads FederationDirectives from data/federation/directives/
 Social channel: MoltbookBridge posts to m/agent-city (primary)
 Directive intake: file-based (mothership workflow commits JSON files)
 
+------------------------------------------------------------------------------
+CANONICAL WIRE FORMAT for outbound NADI messages (must match
+steward.federation_crypto.verify_payload_signature):
+
+    payload_hash  := sha256(json.dumps(msg_without_sig_fields, sort_keys=True))
+                     stored as a HEX-STRING.
+    signature     := base64( ed25519_sign( payload_hash.encode("utf-8") ) )
+
+    Outbound shape:
+        { ...message fields...,
+          "payload_hash": "<hex sha256>",
+          "signature":    "<base64 ed25519 sig>" }
+
+    The verifier on the steward side resolves the signer's public key by
+    looking up `source` in verified_agents.json, so the message does NOT
+    carry signer_key/signer_node fields.
+------------------------------------------------------------------------------
+
     Hare Krishna Hare Krishna Krishna Krishna Hare Hare
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
 import os
@@ -139,23 +159,26 @@ class FederationRelay:
             return None
 
     def _sign_payload(self, message: dict) -> dict:
-        """Attach Ed25519 signature to a federation message.
+        """Attach Ed25519 signature to a federation message (canonical format).
 
-        Adds three fields: signature (hex), signer_node, signer_key. The signed
-        bytes are the message dict minus those three fields, serialized with
-        sorted keys for deterministic verification.
+        Wire format (must stay in lockstep with steward.federation_crypto):
+            payload_hash := sha256(sorted-keys JSON of message minus sig fields),
+                            hex digest as a string
+            signature    := base64( Ed25519_sign( payload_hash.encode("utf-8") ) )
+
+        Returns the message with two extra fields: payload_hash and signature.
+        If no NodeIdentity is available, the message is returned unsigned and
+        the gateway will reject it — fail-loud rather than silently bypass.
         """
         identity = self._load_node_keys()
         if identity is None:
             return message
-        signed_bytes = json.dumps(message, sort_keys=True).encode()
-        signature = identity.sign(signed_bytes)
-        return {
-            **message,
-            "signature": signature,
-            "signer_node": identity.node_id,
-            "signer_key": identity.public_key_hex,
-        }
+        canonical = {k: v for k, v in message.items() if k not in ("payload_hash", "signature")}
+        canonical_bytes = json.dumps(canonical, sort_keys=True).encode("utf-8")
+        payload_hash = hashlib.sha256(canonical_bytes).hexdigest()
+        sig_hex = identity.sign(payload_hash.encode("utf-8"))
+        signature_b64 = base64.b64encode(bytes.fromhex(sig_hex)).decode("ascii")
+        return {**canonical, "payload_hash": payload_hash, "signature": signature_b64}
 
     def _get_node_id(self) -> str:
         """Lese Node-ID aus der peer.json Datei."""
