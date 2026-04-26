@@ -190,6 +190,9 @@ git:
   runtime_exceptions:
     - "!data/federation/"
     - "!data/federation/**"
+    # Private key material — NEVER committed. Loaded from NODE_PRIVATE_KEY env.
+    - "data/federation/.node_keys.json"
+    - "data/federation/*.key"
     # Binary runtime state
     - "data/*.bin"
     - "data/.heartbeat.lock"

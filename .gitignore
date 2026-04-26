@@ -23,6 +23,9 @@ data/*.json
 # Exceptions — durable federation state (Nadi transport)
 !data/federation/
 !data/federation/**
+# Private key material — NEVER committed. Loaded from NODE_PRIVATE_KEY env.
+data/federation/.node_keys.json
+data/federation/*.key
 data/*.bin
 data/.heartbeat.lock
 data/agents/

@@ -862,23 +862,69 @@ def _build_signal_state_ledger(ctx: BuildContext) -> object | None:
     logger.info("SignalStateLedger wired")
     return ledger
 def _build_node_identity(ctx: BuildContext) -> object | None:
-    from city.node_identity import ensure_node_identity
+    """Build NodeIdentity from NODE_PRIVATE_KEY env (canonical Genesis source).
+
+    Order of precedence:
+      1. NODE_PRIVATE_KEY env (hex-encoded 32-byte Ed25519 seed) — production / CI
+      2. tests/data/security/master.key — test fixture only
+      3. Ephemeral generation — last resort, logs WARNING (not committed; gitignored)
+
+    No fallback to repo-tracked key files. Private keys never live in git.
+    """
+    import os
+
+    from city.node_identity import (
+        Ed25519PrivateKey,
+        NodeIdentity,
+        _load_identity_any_format,
+        _patch_peer_identity,
+        derive_node_id,
+        ensure_node_identity,
+        serialization,
+    )
 
     fed_dir = ctx.db_path.parent / "federation"
-    # Senior Architect Mandate: Check production key at data/security/node.key first
-    prod_path = ctx.db_path.parent / "security" / "node.key"
-    # Fallback to test-key if explicitly in dev mode (we check if it exists)
+    fed_dir.mkdir(parents=True, exist_ok=True)
+    peer_path = fed_dir / "peer.json"
+
+    env_key = (os.environ.get("NODE_PRIVATE_KEY") or "").strip()
+    if env_key:
+        try:
+            raw = bytes.fromhex(env_key)
+            if len(raw) != 32:
+                raise ValueError(f"expected 32 raw bytes, got {len(raw)}")
+            sk = Ed25519PrivateKey.from_private_bytes(raw)
+            pub_hex = sk.public_key().public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw
+            ).hex()
+            node_id = derive_node_id(pub_hex)
+            identity = NodeIdentity(node_id, raw.hex(), pub_hex)
+            _patch_peer_identity(peer_path, node_id, pub_hex)
+            logger.info(
+                "Identity: NODE_PRIVATE_KEY (env) loaded — node_id=%s public_key=%s",
+                node_id, pub_hex,
+            )
+            return identity
+        except (ValueError, TypeError) as e:
+            logger.error("Identity: NODE_PRIVATE_KEY env invalid: %s", e)
+            raise RuntimeError("NODE_PRIVATE_KEY env is set but malformed") from e
+
     dev_path = Path("tests/data/security/master.key")
+    if dev_path.exists():
+        identity = _load_identity_any_format(dev_path)
+        if identity:
+            _patch_peer_identity(peer_path, identity.node_id, identity.public_key_hex)
+            logger.warning(
+                "Identity: NODE_PRIVATE_KEY env missing — falling back to test fixture %s",
+                dev_path,
+            )
+            return identity
 
-    identity_path = None
-    if prod_path.exists():
-        identity_path = prod_path
-        logger.info("Identity: Using production key at %s", prod_path)
-    elif dev_path.exists():
-        identity_path = dev_path
-        logger.info("Identity: Using developmental fallback key at %s", dev_path)
-
-    return ensure_node_identity(fed_dir, override_path=identity_path)
+    logger.warning(
+        "Identity: NODE_PRIVATE_KEY env missing and no test fixture — generating "
+        "EPHEMERAL key. This run cannot be recognised by the federation."
+    )
+    return ensure_node_identity(fed_dir, override_path=None)
 
 
 def _build_signal_composer(ctx: BuildContext) -> object | None:

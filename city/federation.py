@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -99,10 +100,62 @@ class FederationRelay:
     _last_health: dict = field(default_factory=dict)
     _report_log: list[dict] = field(default_factory=list)
     _acknowledged: list[str] = field(default_factory=list)
+    _node_identity: object | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self._directives_dir.mkdir(parents=True, exist_ok=True)
         self._reports_dir.mkdir(parents=True, exist_ok=True)
+
+    def _load_node_keys(self) -> object | None:
+        """Load NodeIdentity from NODE_PRIVATE_KEY env (cached).
+
+        Returns None if env is unset or malformed — outbound messages will then
+        be sent unsigned and the receiving gateway will reject them.
+        """
+        if self._node_identity is not None:
+            return self._node_identity
+        env_key = (os.environ.get("NODE_PRIVATE_KEY") or "").strip()
+        if not env_key:
+            logger.warning("Federation: NODE_PRIVATE_KEY missing — outbound messages will be unsigned")
+            return None
+        try:
+            from city.node_identity import (
+                Ed25519PrivateKey,
+                NodeIdentity,
+                derive_node_id,
+                serialization,
+            )
+            raw = bytes.fromhex(env_key)
+            if len(raw) != 32:
+                raise ValueError(f"expected 32 raw bytes, got {len(raw)}")
+            sk = Ed25519PrivateKey.from_private_bytes(raw)
+            pub_hex = sk.public_key().public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw
+            ).hex()
+            self._node_identity = NodeIdentity(derive_node_id(pub_hex), raw.hex(), pub_hex)
+            return self._node_identity
+        except (ValueError, TypeError, ImportError) as e:
+            logger.error("Federation: failed to load NODE_PRIVATE_KEY: %s", e)
+            return None
+
+    def _sign_payload(self, message: dict) -> dict:
+        """Attach Ed25519 signature to a federation message.
+
+        Adds three fields: signature (hex), signer_node, signer_key. The signed
+        bytes are the message dict minus those three fields, serialized with
+        sorted keys for deterministic verification.
+        """
+        identity = self._load_node_keys()
+        if identity is None:
+            return message
+        signed_bytes = json.dumps(message, sort_keys=True).encode()
+        signature = identity.sign(signed_bytes)
+        return {
+            **message,
+            "signature": signature,
+            "signer_node": identity.node_id,
+            "signer_key": identity.public_key_hex,
+        }
 
     def _get_node_id(self) -> str:
         """Lese Node-ID aus der peer.json Datei."""
@@ -191,7 +244,7 @@ class FederationRelay:
         outbox_path = fed_dir / "nadi_outbox.json"
         outbox_path.parent.mkdir(parents=True, exist_ok=True)
         outbox_data = self._read_outbox(outbox_path)
-        outbox_data.append(claim_msg)
+        outbox_data.append(self._sign_payload(claim_msg))
         self._write_outbox(outbox_path, outbox_data)
 
         try:
@@ -231,7 +284,7 @@ class FederationRelay:
             "mission_results": len(report.mission_results)
         }
         
-        outbox_data.append(heartbeat_msg)
+        outbox_data.append(self._sign_payload(heartbeat_msg))
         self._write_outbox(outbox_path, outbox_data)
         logger.info(
             "Federation: Heartbeat via NADI gesendet (heartbeat=%d, node_id=%s)",
