@@ -29,23 +29,23 @@ class TestEnsureNodeIdentity:
         fed = tmp_path / "fed"; fed.mkdir()
         (fed / "peer.json").write_text(json.dumps({"identity": {"city_id": "ac"}}))
         r = ensure_node_identity(fed)
-        assert r["node_id"].startswith("ag_")
+        assert r.node_id.startswith("ag_")
         peer = json.loads((fed / "peer.json").read_text())
-        assert peer["identity"]["node_id"] == r["node_id"]
+        assert peer["identity"]["node_id"] == r.node_id
 
     def test_idempotent(self, tmp_path):
         fed = tmp_path / "fed"; fed.mkdir()
         (fed / "peer.json").write_text(json.dumps({"identity": {}}))
         r1 = ensure_node_identity(fed)
         r2 = ensure_node_identity(fed)
-        assert r1["node_id"] == r2["node_id"]
+        assert r1.node_id == r2.node_id
 
     def test_no_peer_json(self, tmp_path):
         fed = tmp_path / "fed"; fed.mkdir()
         r = ensure_node_identity(fed)
-        assert r["node_id"].startswith("ag_")
+        assert r.node_id.startswith("ag_")
 
     def test_node_id_matches_pubkey(self, tmp_path):
         fed = tmp_path / "fed"; fed.mkdir()
         r = ensure_node_identity(fed)
-        assert r["node_id"] == derive_node_id(r["public_key"])
+        assert r.node_id == derive_node_id(r.public_key_hex)

@@ -573,12 +573,22 @@ def _build_federation(ctx: BuildContext) -> object:
 
 
 def _build_federation_nadi(ctx: BuildContext) -> object | None:
+    import os
+
     from city.federation_nadi import FederationNadi
-    from city.node_identity import ensure_node_identity
+    from city.node_identity import ensure_node_identity, parse_identity_from_text
 
     fed_nadi_dir = ctx.db_path.parent / "federation"
-    node_keys = ensure_node_identity(fed_nadi_dir)
-    logger.info("Node identity: %s", node_keys.get("node_id", "?"))
+    # NODE_PRIVATE_KEY first. ensure_node_identity() only ever looks at disk, so
+    # calling it straight away mints a throwaway keypair on every run — one second
+    # before _build_node_identity loads the real one (Befund §219.11).
+    env_key = (os.environ.get("NODE_PRIVATE_KEY") or "").strip()
+    node_keys = parse_identity_from_text(env_key) if env_key else None
+    if node_keys is None:
+        node_keys = ensure_node_identity(fed_nadi_dir)
+    # NodeIdentity is an object, not a dict — .get() raised AttributeError here
+    # and was swallowed by the service builder, so this never ran clean.
+    logger.info("Node identity: %s", node_keys.node_id)
     nadi = FederationNadi(_federation_dir=fed_nadi_dir)
     stats = nadi.stats()
     logger.info(
