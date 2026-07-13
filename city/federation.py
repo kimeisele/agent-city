@@ -139,24 +139,20 @@ class FederationRelay:
             logger.warning("Federation: NODE_PRIVATE_KEY missing — outbound messages will be unsigned")
             return None
         try:
-            from city.node_identity import (
-                Ed25519PrivateKey,
-                NodeIdentity,
-                derive_node_id,
-                serialization,
-            )
-            raw = bytes.fromhex(env_key)
-            if len(raw) != 32:
-                raise ValueError(f"expected 32 raw bytes, got {len(raw)}")
-            sk = Ed25519PrivateKey.from_private_bytes(raw)
-            pub_hex = sk.public_key().public_bytes(
-                serialization.Encoding.Raw, serialization.PublicFormat.Raw
-            ).hex()
-            self._node_identity = NodeIdentity(derive_node_id(pub_hex), raw.hex(), pub_hex)
-            return self._node_identity
-        except (ValueError, TypeError, ImportError) as e:
-            logger.error("Federation: failed to load NODE_PRIVATE_KEY: %s", e)
+            from city.node_identity import parse_identity_from_text
+        except ImportError as e:
+            logger.error("Federation: cannot import node_identity: %s", e)
             return None
+
+        identity = parse_identity_from_text(env_key)
+        if identity is None:
+            logger.error(
+                "Federation: NODE_PRIVATE_KEY is set but unparseable — "
+                "outbound messages will be unsigned"
+            )
+            return None
+        self._node_identity = identity
+        return self._node_identity
 
     def _sign_payload(self, message: dict) -> dict:
         """Attach Ed25519 signature to a federation message (canonical format).

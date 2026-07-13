@@ -82,6 +82,65 @@ def derive_node_id(public_key_hex: str, length: int = 16) -> str:
     return f"ag_{digest[:length]}"
 
 
+def parse_identity_from_text(text: str) -> NodeIdentity | None:
+    """Parse a NodeIdentity from raw text: JSON blob, hex, or base64.
+
+    Wire-compatible with nadi_kit.NodeKeyStore._try_json_blob:
+      {"private_key": <hex>, "public_key": <hex>, "node_id": "ag_..."}
+    node_id is optional and derived from public_key when absent.
+
+    Returns None if the text cannot be parsed. Callers decide whether that
+    is fatal — this function does not raise.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+
+    # 1. JSON blob (the format nadi_kit writes and GitHub secrets carry)
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            priv = str(data.get("private_key", "")).strip()
+            pub = str(data.get("public_key", "")).strip()
+            if priv and pub:
+                node_id = str(data.get("node_id", "")).strip() or derive_node_id(pub)
+                return NodeIdentity(
+                    node_id=node_id, private_key_hex=priv, public_key_hex=pub
+                )
+    except (json.JSONDecodeError, ValueError, TypeError):
+        pass
+
+    # 2. Raw 32-byte seed: hex first (the canonical form), then base64.
+    #    Order matters — 64 hex chars are often valid base64 and would
+    #    otherwise decode to 48 bytes and be silently discarded.
+    raw = None
+    try:
+        candidate = bytes.fromhex(text)
+        if len(candidate) == 32:
+            raw = candidate
+    except ValueError:
+        pass
+
+    if raw is None:
+        for decoder in (base64.b64decode, base64.urlsafe_b64decode):
+            try:
+                candidate = decoder(text)
+                if len(candidate) == 32:
+                    raw = candidate
+                    break
+            except Exception:
+                continue
+
+    if raw is None:
+        return None
+
+    sk = Ed25519PrivateKey.from_private_bytes(raw)
+    pub_hex = sk.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    ).hex()
+    return NodeIdentity(derive_node_id(pub_hex), raw.hex(), pub_hex)
+
+
 def ensure_node_identity(federation_dir: Path, override_path: Path | None = None) -> NodeIdentity:
     """Ensure node identity exists and return a NodeIdentity instance.
 

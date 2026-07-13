@@ -874,13 +874,10 @@ def _build_node_identity(ctx: BuildContext) -> object | None:
     import os
 
     from city.node_identity import (
-        Ed25519PrivateKey,
-        NodeIdentity,
         _load_identity_any_format,
         _patch_peer_identity,
-        derive_node_id,
         ensure_node_identity,
-        serialization,
+        parse_identity_from_text,
     )
 
     fed_dir = ctx.db_path.parent / "federation"
@@ -889,25 +886,22 @@ def _build_node_identity(ctx: BuildContext) -> object | None:
 
     env_key = (os.environ.get("NODE_PRIVATE_KEY") or "").strip()
     if env_key:
-        try:
-            raw = bytes.fromhex(env_key)
-            if len(raw) != 32:
-                raise ValueError(f"expected 32 raw bytes, got {len(raw)}")
-            sk = Ed25519PrivateKey.from_private_bytes(raw)
-            pub_hex = sk.public_key().public_bytes(
-                serialization.Encoding.Raw, serialization.PublicFormat.Raw
-            ).hex()
-            node_id = derive_node_id(pub_hex)
-            identity = NodeIdentity(node_id, raw.hex(), pub_hex)
-            _patch_peer_identity(peer_path, node_id, pub_hex)
-            logger.info(
-                "Identity: NODE_PRIVATE_KEY (env) loaded — node_id=%s public_key=%s",
-                node_id, pub_hex,
+        identity = parse_identity_from_text(env_key)
+        if identity is None:
+            # Fail-closed: a secret IS set but unreadable. Falling back to an
+            # ephemeral key here is what produced ~54 ghost entries in
+            # verified_agents.json (Befund §219) — the node registered under a
+            # throwaway identity on every single heartbeat.
+            logger.error(
+                "Identity: NODE_PRIVATE_KEY env is set but unparseable "
+                "(expected JSON blob, hex, or base64 seed)"
             )
-            return identity
-        except (ValueError, TypeError) as e:
-            logger.error("Identity: NODE_PRIVATE_KEY env invalid: %s", e)
-            raise RuntimeError("NODE_PRIVATE_KEY env is set but malformed") from e
+            raise RuntimeError("NODE_PRIVATE_KEY env is set but malformed")
+        _patch_peer_identity(peer_path, identity.node_id, identity.public_key_hex)
+        logger.info(
+            "Identity: NODE_PRIVATE_KEY (env) loaded — node_id=%s", identity.node_id
+        )
+        return identity
 
     dev_path = Path("tests/data/security/master.key")
     if dev_path.exists():
