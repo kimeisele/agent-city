@@ -126,6 +126,27 @@ jobs:
             git commit -m "chore: heartbeat #${{ github.run_number }} federation state"
           git push || true
 
+      - name: Install nadi-kit
+        env:
+          GH_TOKEN: ${{ secrets.FEDERATION_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          python -m pip install cryptography
+          curl -sL -H "Authorization: token ${GH_TOKEN}" "https://raw.githubusercontent.com/kimeisele/steward-federation/main/nadi_kit.py" -o nadi_kit.py
+
+      - name: Sign federation heartbeat with nadi-kit
+        env:
+          NODE_PRIVATE_KEY: ${{ secrets.NODE_PRIVATE_KEY }}
+          GH_TOKEN: ${{ secrets.FEDERATION_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.FEDERATION_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p data/federation
+          # agent-city's own heartbeat writes an outbox with only 4 fields and no
+          # signature. nadi_kit rewrites it with the full, signed protocol so the
+          # steward can dedup, expire and verify it. peer.json is already present.
+          python3 nadi_kit.py sync
+          python3 nadi_kit.py heartbeat
+          python3 nadi_kit.py sync
+
       - name: Relay outbox to steward-federation hub
         if: always()
         env:
