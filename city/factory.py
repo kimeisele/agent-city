@@ -589,7 +589,10 @@ def _build_federation_nadi(ctx: BuildContext) -> object | None:
     # NodeIdentity is an object, not a dict — .get() raised AttributeError here
     # and was swallowed by the service builder, so this never ran clean.
     logger.info("Node identity: %s", node_keys.node_id)
-    nadi = FederationNadi(_federation_dir=fed_nadi_dir)
+    nadi = FederationNadi(
+        _federation_dir=fed_nadi_dir,
+        _node_identity=node_keys,
+    )
     stats = nadi.stats()
     logger.info(
         "FederationNadi wired (outbox=%d, inbox=%d)",

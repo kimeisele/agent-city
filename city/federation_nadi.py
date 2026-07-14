@@ -16,6 +16,8 @@ Preserves Nadi semantics: 144 buffer, 24s TTL, 4 priority levels.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
 import time
@@ -98,9 +100,13 @@ class FederationNadi:
     _outbox: list[FederationMessage] = field(default_factory=list)
     _processed_ids: dict[str, None] = field(default_factory=dict)  # ordered dedup (FIFO eviction)
     _city_id: str = field(default="")
+    _node_identity: object | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self._federation_dir.mkdir(parents=True, exist_ok=True)
+        identity_node_id = str(getattr(self._node_identity, "node_id", "")).strip()
+        if identity_node_id:
+            self._city_id = identity_node_id
         if not self._city_id:
             self._city_id = self._load_city_id()
 
@@ -173,7 +179,7 @@ class FederationNadi:
             return 0
 
         existing = self._read_file(self.outbox_path)
-        all_msgs = existing + [m.to_dict() for m in self._outbox]
+        all_msgs = existing + [self._serialize_outbound_message(m) for m in self._outbox]
 
         # Filter expired and cap buffer
         now = time.time()
@@ -191,6 +197,23 @@ class FederationNadi:
         self._outbox.clear()
         logger.info("FederationNadi: flushed %d messages to outbox (%d total)", count, len(capped))
         return count
+
+    def _serialize_outbound_message(self, message: FederationMessage) -> dict:
+        message_dict = message.to_dict()
+        if self._node_identity is None:
+            return message_dict
+
+        canonical = {
+            key: value
+            for key, value in message_dict.items()
+            if key not in ("payload_hash", "signature", "signer_key")
+        }
+        payload_hash = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        signature_hex = self._node_identity.sign(payload_hash.encode("utf-8"))
+        signature = base64.b64encode(bytes.fromhex(signature_hex)).decode("ascii")
+        return {**canonical, "payload_hash": payload_hash, "signature": signature}
 
     # ── Read (GENESIS) ──────────────────────────────────────────────
 
