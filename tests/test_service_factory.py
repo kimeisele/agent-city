@@ -7,13 +7,20 @@ Tests for D2: Service Factory — declarative service wiring.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from city.factory import BuildContext, CityServiceFactory, ServiceDefinition
+from city.factory import (
+    BuildContext,
+    CityServiceFactory,
+    ServiceDefinition,
+    _build_federation_nadi,
+)
+from city.node_identity import parse_identity_from_text
 from city.registry import CityServiceRegistry
 
 
@@ -24,6 +31,35 @@ def _make_ctx(registry: CityServiceRegistry | None = None) -> BuildContext:
         offline=True,
         args=object(),
     )
+
+
+def test_federation_nadi_factory_injects_env_identity(monkeypatch, tmp_path):
+    identity_text = "22" * 32
+    identity = parse_identity_from_text(identity_text)
+    assert identity is not None
+    monkeypatch.setenv("NODE_PRIVATE_KEY", identity_text)
+
+    federation_dir = tmp_path / "federation"
+    federation_dir.mkdir()
+    (federation_dir / "peer.json").write_text(
+        json.dumps({"identity": {"node_id": "ag_stale0000000000"}})
+    )
+    ctx = BuildContext(
+        registry=CityServiceRegistry(),
+        db_path=tmp_path / "city.db",
+        offline=True,
+        args=object(),
+    )
+
+    nadi = _build_federation_nadi(ctx)
+    assert nadi is not None
+    nadi.emit("moksha", "city_report", {"heartbeat": 1})
+    nadi.flush()
+
+    message = json.loads(nadi.outbox_path.read_text())[0]
+    assert message["source"] == identity.node_id
+    assert message["payload_hash"]
+    assert message["signature"]
 
 
 def test_build_simple_service():

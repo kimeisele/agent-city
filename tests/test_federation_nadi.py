@@ -12,6 +12,8 @@ and cross-repo compatibility (steward-protocol can consume our outbox format).
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -28,6 +30,7 @@ from city.federation_nadi import (
     FederationMessage,
     FederationNadi,
 )
+from city.node_identity import parse_identity_from_text
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -591,6 +594,39 @@ class TestIdentityBinding:
 
         data = json.loads(nadi.outbox_path.read_text())
         assert data[0]["source"] == "moksha"
+
+    def test_explicit_identity_overrides_stale_peer_and_signs(self, fed_dir):
+        stale_peer = {
+            "identity": {
+                "city_id": "agent-city",
+                "slug": "agent-city",
+                "node_id": "ag_stale0000000000",
+            }
+        }
+        (fed_dir / "peer.json").write_text(json.dumps(stale_peer))
+        identity = parse_identity_from_text("11" * 32)
+        assert identity is not None
+
+        nadi = FederationNadi(
+            _federation_dir=fed_dir,
+            _node_identity=identity,
+        )
+        nadi.emit("moksha", "city_report", {"heartbeat": 1})
+        nadi.flush()
+
+        message = json.loads(nadi.outbox_path.read_text())[0]
+        assert message["source"] == identity.node_id
+        canonical = {
+            key: value
+            for key, value in message.items()
+            if key not in ("payload_hash", "signature")
+        }
+        expected_hash = hashlib.sha256(
+            json.dumps(canonical, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        assert message["payload_hash"] == expected_hash
+        signature_hex = base64.b64decode(message["signature"]).hex()
+        assert identity.verify(expected_hash.encode("utf-8"), signature_hex)
 
 
 class TestConstants:
