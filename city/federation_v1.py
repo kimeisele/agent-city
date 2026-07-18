@@ -6,7 +6,9 @@ Additive V1 code only: legacy federation directives and worker execution are not
 from __future__ import annotations
 
 import base64
+import contextlib
 import datetime as dt
+import fcntl
 import hashlib
 import json
 import os
@@ -14,8 +16,9 @@ import re
 import tempfile
 import threading
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
@@ -30,6 +33,7 @@ MAX_B64 = 349528
 NODE_RE = re.compile(r"^ag_[0-9a-f]{32}$")
 KEY_RE = re.compile(r"^key_[0-9a-f]{64}$")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 TIME_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 REQUEST_KEYS = {
     "contract_version",
@@ -48,12 +52,220 @@ REQUEST_KEYS = {
     "key_id",
 }
 RECEIPT_KEYS = REQUEST_KEYS | {"causation_message_id"}
+DOMAIN_ROOT_ENROLLMENT = "STEWARD-FEDERATION-ROOT-ENROLLMENT-V1"
+DOMAIN_SIGNING_KEY_AUTH = "STEWARD-FEDERATION-SIGNING-KEY-AUTH-V1"
+ENROLLMENT_KEYS = {
+    "enrollment_version",
+    "identity_root_public_key",
+    "node_id",
+    "not_before",
+    "provenance_digest",
+    "registry_epoch",
+    "root_signature",
+}
+CERTIFICATE_KEYS = {
+    "activation_at",
+    "activation_epoch",
+    "certificate_epoch",
+    "certificate_version",
+    "identity_root_public_key",
+    "key_id",
+    "node_id",
+    "not_after",
+    "not_before",
+    "registry_epoch",
+    "revocation_ref",
+    "rotation_kind",
+    "signer_key",
+    "root_signature",
+}
+_REGISTRY_TOKEN = object()
+TARGET_RECORD_KEYS = {
+    "delegation_id",
+    "request_message_id",
+    "request_message_hash",
+    "origin_node_id",
+    "target_node_id",
+    "request_digest",
+    "idempotency_key",
+    "request_wire_bytes_b64",
+    "request_carrier",
+    "state",
+    "reason_code",
+    "target_work_id",
+    "receipt_message_id",
+    "receipt_id",
+    "receipt_content_digest",
+    "receipt_message_hash",
+    "receipt_signature",
+    "receipt_wire_bytes_b64",
+    "receipt_send_status",
+}
+ORIGIN_RECORD_KEYS = {
+    "delegation_id",
+    "origin_task_id",
+    "origin_node_id",
+    "request_message_id",
+    "correlation_id",
+    "target_node_id",
+    "request_digest",
+    "idempotency_key",
+    "request_message_hash",
+    "request_wire_bytes_b64",
+    "request_carrier",
+    "request_send_status",
+    "send_state",
+    "target_work_id",
+}
 
 
 class V1Reject(ValueError):
     def __init__(self, code: str, phase: str):
         super().__init__(code)
         self.code, self.phase = code, phase
+
+
+@dataclass(frozen=True)
+class ValidatedFederationV1Key:
+    key_id: str
+    node_id: str
+    public_key: bytes
+    not_before: str
+    not_after: str
+    registry_epoch: int
+    certificate_epoch: int
+    activation_epoch: int
+    revoked: bool = False
+
+
+class ValidatedFederationV1KeyRegistry:
+    """Immutable provenance-validated key snapshot required by V1 validation."""
+
+    def __init__(
+        self,
+        records: Mapping[str, ValidatedFederationV1Key],
+        _token: object | None = None,
+    ):
+        if _token is not _REGISTRY_TOKEN:
+            raise V1Reject("registry_unvalidated", "registry")
+        if (
+            not isinstance(records, Mapping)
+            or not records
+            or not all(
+                isinstance(key, str) and isinstance(value, ValidatedFederationV1Key)
+                for key, value in records.items()
+            )
+        ):
+            raise V1Reject("registry_unvalidated", "registry")
+        self._records = dict(records)
+
+    @classmethod
+    def from_provenance(
+        cls,
+        enrollments: Iterable[Mapping[str, Any]],
+        certificates: Iterable[Mapping[str, Any]],
+        *,
+        now: str,
+    ) -> "ValidatedFederationV1KeyRegistry":
+        current = _time(now)
+        roots: dict[str, tuple[bytes, Mapping[str, Any]]] = {}
+        for enrollment in enrollments:
+            if not isinstance(enrollment, Mapping) or set(enrollment) != ENROLLMENT_KEYS:
+                raise V1Reject("provenance_schema", "provenance")
+            try:
+                root = _decode(enrollment["identity_root_public_key"], 32)
+                node_id = str(enrollment["node_id"])
+                not_before = _time(enrollment["not_before"])
+                epoch = enrollment["registry_epoch"]
+                provenance_digest = enrollment["provenance_digest"]
+                signature = _decode(enrollment["root_signature"], 64)
+            except (KeyError, TypeError):
+                raise V1Reject("provenance_schema", "provenance")
+            if (
+                enrollment["enrollment_version"] != "federation-root-enrollment-v1"
+                or not NODE_RE.fullmatch(node_id)
+                or not isinstance(epoch, int)
+                or epoch < 1
+                or not HASH_RE.fullmatch(str(provenance_digest))
+            ):
+                raise V1Reject("provenance_schema", "provenance")
+            if not_before > current or node_id != _derive_node_id(root):
+                raise V1Reject("node_id_mismatch", "provenance")
+            body = {key: value for key, value in enrollment.items() if key != "root_signature"}
+            _verify_root_signature(root, DOMAIN_ROOT_ENROLLMENT, body, signature)
+            if node_id in roots and roots[node_id][0] != root:
+                raise V1Reject("provenance_conflict", "provenance")
+            roots[node_id] = (root, enrollment)
+        records: dict[str, ValidatedFederationV1Key] = {}
+        for certificate in certificates:
+            if not isinstance(certificate, Mapping) or set(certificate) != CERTIFICATE_KEYS:
+                raise V1Reject("provenance_schema", "provenance")
+            try:
+                root = _decode(certificate["identity_root_public_key"], 32)
+                signer = _decode(certificate["signer_key"], 32)
+                signature = _decode(certificate["root_signature"], 64)
+                node_id = str(certificate["node_id"])
+                key_id = str(certificate["key_id"])
+                not_before = _time(certificate["not_before"])
+                not_after = _time(certificate["not_after"])
+                activation_at = _time(certificate["activation_at"])
+                registry_epoch = certificate["registry_epoch"]
+                certificate_epoch = certificate["certificate_epoch"]
+                activation_epoch = certificate["activation_epoch"]
+            except (KeyError, TypeError):
+                raise V1Reject("provenance_schema", "provenance")
+            root_node = _derive_node_id(root)
+            if (
+                certificate["certificate_version"] != "federation-signing-key-auth-v1"
+                or certificate["rotation_kind"] not in {"regular", "emergency"}
+                or node_id != root_node
+                or not NODE_RE.fullmatch(node_id)
+                or key_id != _derive_key_id(signer)
+            ):
+                raise V1Reject("certificate_key_binding", "provenance")
+            if node_id not in roots or roots[node_id][0] != root:
+                raise V1Reject("root_key_binding", "provenance")
+            if any(
+                not isinstance(epoch, int) or epoch < 1
+                for epoch in (registry_epoch, certificate_epoch, activation_epoch)
+            ):
+                raise V1Reject("provenance_epoch", "provenance")
+            if (
+                registry_epoch != roots[node_id][1]["registry_epoch"]
+                or activation_epoch < certificate_epoch
+                or activation_at != not_before
+                or not_after <= not_before
+            ):
+                raise V1Reject("certificate_time_window", "provenance")
+            if not (not_before <= current < not_after) or activation_at > current:
+                raise V1Reject("certificate_expired", "registry_time")
+            body = {key: value for key, value in certificate.items() if key != "root_signature"}
+            _verify_root_signature(root, DOMAIN_SIGNING_KEY_AUTH, body, signature)
+            if key_id in records:
+                raise V1Reject("provenance_conflict", "provenance")
+            records[key_id] = ValidatedFederationV1Key(
+                key_id=key_id,
+                node_id=node_id,
+                public_key=signer,
+                not_before=certificate["not_before"],
+                not_after=certificate["not_after"],
+                registry_epoch=registry_epoch,
+                certificate_epoch=certificate_epoch,
+                activation_epoch=activation_epoch,
+                revoked=certificate["revocation_ref"] is not None,
+            )
+        return cls(records, _REGISTRY_TOKEN)
+
+    def lookup(self, key_id: str, *, at: str) -> ValidatedFederationV1Key:
+        record = self._records.get(key_id)
+        if record is None:
+            raise V1Reject("key_not_authorized", "registry")
+        moment = _time(at)
+        if record.revoked:
+            raise V1Reject("key_revoked", "registry_status")
+        if not _time(record.not_before) <= moment < _time(record.not_after):
+            raise V1Reject("certificate_expired", "registry_time")
+        return record
 
 
 def _quote(value: str) -> str:
@@ -186,6 +398,26 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(canonical_bytes(value)).hexdigest()
 
 
+def _derive_node_id(public_key: bytes) -> str:
+    return "ag_" + hashlib.sha256(public_key.hex().encode("ascii")).hexdigest()[:32]
+
+
+def _derive_key_id(public_key: bytes) -> str:
+    return "key_" + hashlib.sha256(public_key).hexdigest()
+
+
+def _verify_root_signature(
+    public_key: bytes, domain: str, body: Mapping[str, Any], signature: bytes
+) -> None:
+    digest = _digest(body)
+    try:
+        Ed25519PublicKey.from_public_bytes(public_key).verify(
+            signature, domain.encode("utf-8") + b"\x00" + bytes.fromhex(digest)
+        )
+    except (InvalidSignature, ValueError) as exc:
+        raise V1Reject("provenance_signature_invalid", "signature") from exc
+
+
 def _sig_input(digest: str) -> bytes:
     return DOMAIN + bytes.fromhex(digest)
 
@@ -302,20 +534,22 @@ def build_admission_receipt(
     return canonical_bytes(envelope)
 
 
-def _registry(registry: Mapping[str, Any], key: str) -> tuple[str, bytes, Mapping[str, Any]]:
-    entry = registry.get(key)
-    if not isinstance(entry, Mapping):
-        raise V1Reject("key_not_authorized", "registry")
-    public = entry.get("public_key")
-    if isinstance(public, str):
-        public = _decode(public, 32)
-    if not isinstance(public, bytes) or len(public) != 32:
-        raise V1Reject("key_not_authorized", "registry")
-    return str(entry.get("node_id", "")), public, entry
+def _registry(
+    registry: ValidatedFederationV1KeyRegistry, key: str, *, at: str
+) -> tuple[str, bytes, ValidatedFederationV1Key]:
+    if not isinstance(registry, ValidatedFederationV1KeyRegistry):
+        raise V1Reject("registry_unvalidated", "registry")
+    entry = registry.lookup(key, at=at)
+    return entry.node_id, entry.public_key, entry
 
 
 def validate_envelope(
-    raw: bytes, *, registry: Mapping[str, Any], expected_target: str, operation: str, now: str
+    raw: bytes,
+    *,
+    registry: ValidatedFederationV1KeyRegistry,
+    expected_target: str,
+    operation: str,
+    now: str,
 ) -> dict[str, Any]:
     value = parse_canonical(raw)
     if set(value) != (REQUEST_KEYS if operation == "delegate_task" else RECEIPT_KEYS):
@@ -342,11 +576,9 @@ def validate_envelope(
     signer, signature = _decode(value["signer_key"], 32), _decode(value["signature"], 64)
     if not KEY_RE.fullmatch(str(value["key_id"])):
         raise V1Reject("key_id_invalid", "schema")
-    node, authorized, entry = _registry(registry, value["key_id"])
+    node, authorized, entry = _registry(registry, value["key_id"], at=value["issued_at"])
     if node != value["source_node_id"] or authorized != signer:
         raise V1Reject("key_not_authorized", "registry")
-    if entry.get("revoked"):
-        raise V1Reject("key_revoked", "registry_status")
     expected = _digest(
         {key: item for key, item in value.items() if key not in {"message_hash", "signature"}}
     )
@@ -476,6 +708,17 @@ def carrier_inner(carrier: Mapping[str, Any], expected_target: str) -> tuple[dic
     return inner, raw
 
 
+@contextlib.contextmanager
+def _process_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_name(path.name + ".lock").open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 def _atomic(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
@@ -490,18 +733,44 @@ def _atomic(path: Path, data: Any) -> None:
             os.unlink(temp)
 
 
-def _load(path: Path) -> dict[str, Any]:
+def _load(path: Path, required_record_keys: set[str]) -> dict[str, Any]:
     if not path.exists():
-        return {"delegations": {}}
+        return {"delegations": {}, "findings": []}
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"delegations": {}}
-    return (
-        value
-        if isinstance(value, dict) and isinstance(value.get("delegations"), dict)
-        else {"delegations": {}}
-    )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise V1Reject("ledger_corrupt", "ledger") from exc
+    if (
+        not isinstance(value, dict)
+        or set(value) - {"delegations", "findings"}
+        or not isinstance(value.get("delegations"), dict)
+    ):
+        raise V1Reject("ledger_corrupt", "ledger")
+    findings = value.setdefault("findings", [])
+    if not isinstance(findings, list):
+        raise V1Reject("ledger_corrupt", "ledger")
+    for delegation_id, record in value["delegations"].items():
+        if (
+            not isinstance(delegation_id, str)
+            or not isinstance(record, dict)
+            or not required_record_keys <= set(record)
+            or record.get("delegation_id") != delegation_id
+        ):
+            raise V1Reject("ledger_corrupt", "ledger")
+        if required_record_keys is TARGET_RECORD_KEYS:
+            if record.get("state") not in {"ACCEPTED", "REJECTED"} or record.get(
+                "receipt_send_status"
+            ) not in {"pending", "sent"}:
+                raise V1Reject("ledger_corrupt", "ledger")
+        elif record.get("request_send_status") not in {"created", "sent"} or record.get(
+            "send_state"
+        ) not in {"created", "sent", "admission_received", "admission_rejected"}:
+            raise V1Reject("ledger_corrupt", "ledger")
+    if any(
+        not isinstance(item, dict) or not isinstance(item.get("code"), str) for item in findings
+    ):
+        raise V1Reject("ledger_corrupt", "ledger")
+    return value
 
 
 class TargetAdmissionLedger:
@@ -509,12 +778,18 @@ class TargetAdmissionLedger:
         self.path, self._lock = Path(path), threading.RLock()
 
     def get(self, delegation_id: str) -> dict[str, Any] | None:
-        with self._lock:
-            return _load(self.path)["delegations"].get(delegation_id)
+        with self._lock, _process_lock(self.path):
+            return _load(self.path, TARGET_RECORD_KEYS)["delegations"].get(delegation_id)
+
+    def record_finding(self, code: str, delegation_id: str | None = None) -> None:
+        with self._lock, _process_lock(self.path):
+            document = _load(self.path, TARGET_RECORD_KEYS)
+            document["findings"].append({"code": code, "delegation_id": delegation_id})
+            _atomic(self.path, document)
 
     def mark_receipt_sent(self, delegation_id: str) -> None:
-        with self._lock:
-            doc = _load(self.path)
+        with self._lock, _process_lock(self.path):
+            doc = _load(self.path, TARGET_RECORD_KEYS)
             if delegation_id in doc["delegations"]:
                 doc["delegations"][delegation_id]["receipt_send_status"] = "sent"
                 _atomic(self.path, doc)
@@ -531,8 +806,8 @@ class TargetAdmissionLedger:
         reason: str | None,
     ) -> tuple[str, dict[str, Any]]:
         did, digest = request["payload"]["delegation_id"], request["payload"]["request_digest"]
-        with self._lock:
-            doc, existing = _load(self.path), None
+        with self._lock, _process_lock(self.path):
+            doc, existing = _load(self.path, TARGET_RECORD_KEYS), None
             existing = doc["delegations"].get(did)
             if existing:
                 if existing["request_digest"] != digest:
@@ -573,12 +848,18 @@ class OriginDelegationLedger:
         self.path, self._lock = Path(path), threading.RLock()
 
     def get(self, delegation_id: str) -> dict[str, Any] | None:
-        with self._lock:
-            return _load(self.path)["delegations"].get(delegation_id)
+        with self._lock, _process_lock(self.path):
+            return _load(self.path, ORIGIN_RECORD_KEYS)["delegations"].get(delegation_id)
+
+    def record_finding(self, code: str, delegation_id: str | None = None) -> None:
+        with self._lock, _process_lock(self.path):
+            document = _load(self.path, ORIGIN_RECORD_KEYS)
+            document["findings"].append({"code": code, "delegation_id": delegation_id})
+            _atomic(self.path, document)
 
     def mark_request_sent(self, delegation_id: str) -> None:
-        with self._lock:
-            doc = _load(self.path)
+        with self._lock, _process_lock(self.path):
+            doc = _load(self.path, ORIGIN_RECORD_KEYS)
             if delegation_id in doc["delegations"]:
                 doc["delegations"][delegation_id]["request_send_status"] = "sent"
                 doc["delegations"][delegation_id]["send_state"] = "sent"
@@ -589,13 +870,14 @@ class OriginDelegationLedger:
     ) -> dict[str, Any]:
         request = parse_canonical(request_wire)
         did = request["payload"]["delegation_id"]
-        with self._lock:
-            doc = _load(self.path)
+        with self._lock, _process_lock(self.path):
+            doc = _load(self.path, ORIGIN_RECORD_KEYS)
             if did in doc["delegations"]:
                 return doc["delegations"][did]
             record = {
                 "delegation_id": did,
                 "origin_task_id": request["payload"]["origin_task_id"],
+                "origin_node_id": request["source_node_id"],
                 "request_message_id": request["request_message_id"],
                 "correlation_id": request["correlation_id"],
                 "target_node_id": request["target_node_id"],
@@ -616,12 +898,23 @@ class OriginDelegationLedger:
         self, *, receipt: Mapping[str, Any], receipt_wire: bytes, receipt_carrier: Mapping[str, Any]
     ) -> dict[str, Any]:
         did = receipt["payload"]["delegation_id"]
-        with self._lock:
-            doc, record = _load(self.path), None
+        with self._lock, _process_lock(self.path):
+            doc, record = _load(self.path, ORIGIN_RECORD_KEYS), None
             record = doc["delegations"].get(did)
             if record is None:
                 raise V1Reject("unknown_delegation", "origin_correlation")
-            if receipt["request_message_id"] != record["request_message_id"]:
+            if (
+                receipt["source_node_id"] != record["target_node_id"]
+                or receipt["target_node_id"] != record["origin_node_id"]
+                or receipt["payload"]["delegation_id"] != record["delegation_id"]
+                or receipt["correlation_id"] != record["delegation_id"]
+                or receipt["request_message_id"] != record["request_message_id"]
+                or receipt.get("causation_message_id") != record["request_message_id"]
+            ):
+                doc["findings"].append(
+                    {"code": "receipt_correlation_conflict", "delegation_id": did}
+                )
+                _atomic(self.path, doc)
                 raise V1Reject("receipt_correlation_conflict", "origin_correlation")
             work = receipt["payload"].get("target_work_id")
             if (
@@ -699,6 +992,31 @@ class FederationV1Origin:
     ) -> tuple[bytes, dict[str, Any]]:
         if not self.enabled:
             raise V1Reject("feature_disabled", "feature_gate")
+        delegation_id = str(payload.get("delegation_id", ""))
+        existing = self.ledger.get(delegation_id)
+        if existing is not None:
+            expected_payload = dict(payload)
+            expected_digest = request_digest(expected_payload, self.node_id, target_node_id)
+            expected_payload["request_digest"] = expected_digest
+            expected_payload["idempotency_key"] = "fedv1:" + expected_digest
+            stored_wire = base64.b64decode(existing["request_wire_bytes_b64"])
+            stored = parse_canonical(stored_wire)
+            same_request = (
+                existing["request_digest"] == expected_digest
+                and stored.get("source_node_id") == self.node_id
+                and stored.get("target_node_id") == target_node_id
+                and stored.get("message_id") == message_id
+                and stored.get("request_message_id") == message_id
+                and stored.get("issued_at") == issued_at
+                and stored.get("expires_at") == expires_at
+                and stored.get("signer_key") == self.signer_key_b64
+                and stored.get("key_id") == self.key_id
+                and stored.get("payload") == expected_payload
+            )
+            if same_request:
+                return stored_wire, dict(existing["request_carrier"])
+            self.ledger.record_finding("origin_request_conflict", delegation_id)
+            raise V1Reject("origin_request_conflict", "origin_ledger")
         wire = build_request(
             payload=payload,
             source=self.node_id,
@@ -711,17 +1029,22 @@ class FederationV1Origin:
             expires_at=expires_at,
         )
         carrier = build_carrier(wire)
-        self.ledger.create_request(request_wire=wire, request_carrier=carrier)
-        return wire, carrier
+        stored_record = self.ledger.create_request(request_wire=wire, request_carrier=carrier)
+        stored_wire = base64.b64decode(stored_record["request_wire_bytes_b64"])
+        stored_carrier = dict(stored_record["request_carrier"])
+        if stored_wire != wire or stored_carrier != carrier:
+            self.ledger.record_finding("origin_request_conflict", delegation_id)
+            raise V1Reject("origin_request_conflict", "origin_ledger")
+        return stored_wire, stored_carrier
 
     def retransmit(self, delegation_id: str) -> dict[str, Any]:
-        record = _load(self.ledger.path)["delegations"].get(delegation_id)
+        record = self.ledger.get(delegation_id)
         if record is None:
             raise V1Reject("unknown_delegation", "origin_ledger")
         return dict(record["request_carrier"])
 
     def apply_receipt(
-        self, *, carrier: Mapping[str, Any], registry: Mapping[str, Any], now: str
+        self, *, carrier: Mapping[str, Any], registry: ValidatedFederationV1KeyRegistry, now: str
     ) -> dict[str, Any]:
         if not self.enabled:
             raise V1Reject("feature_disabled", "feature_gate")
@@ -745,7 +1068,7 @@ class FederationV1Admission:
         signing_key: Ed25519PrivateKey,
         signer_key_b64: str,
         key_id: str,
-        registry: Mapping[str, Any],
+        registry: ValidatedFederationV1KeyRegistry,
         enabled: bool = FEATURE_GATE_DEFAULT,
     ):
         (
@@ -812,7 +1135,8 @@ class FederationV1Admission:
             status, reason, work = (
                 "accepted",
                 None,
-                "work_" + hashlib.sha256(
+                "work_"
+                + hashlib.sha256(
                     (request["payload"]["delegation_id"] + self.node_id).encode()
                 ).hexdigest()[:32],
             )

@@ -13,6 +13,7 @@ from city.federation_v1 import (
     OriginDelegationLedger,
     TargetAdmissionLedger,
     V1Reject,
+    ValidatedFederationV1KeyRegistry,
     build_admission_receipt,
     build_carrier,
     parse_canonical,
@@ -28,10 +29,6 @@ def private(label: str) -> Ed25519PrivateKey:
     return Ed25519PrivateKey.from_private_bytes(bytes.fromhex(KEYS[label]["private_seed_hex"]))
 
 
-def public(label: str) -> bytes:
-    return base64.b64decode(KEYS[label]["public_key_b64"], validate=True)
-
-
 def semantic_payload() -> dict:
     return {
         key: value
@@ -40,19 +37,18 @@ def semantic_payload() -> dict:
     }
 
 
-def registries() -> tuple[dict, dict]:
-    origin = {
-        MANIFEST["positive"]["request"]["origin_key_id"]: {
-            "node_id": MANIFEST["positive"]["request"]["origin_node_id"],
-            "public_key": public("origin_signing_key"),
-        }
-    }
-    target = {
-        MANIFEST["positive"]["root_enrollment"]["target"]["key_id"]: {
-            "node_id": MANIFEST["positive"]["root_enrollment"]["target"]["node_id"],
-            "public_key": public("target_signing_key"),
-        }
-    }
+def registries() -> tuple[ValidatedFederationV1KeyRegistry, ValidatedFederationV1KeyRegistry]:
+    provenance = FIXTURES / "provenance"
+    origin = ValidatedFederationV1KeyRegistry.from_provenance(
+        [json.loads((provenance / "origin_root_enrollment.json").read_bytes())],
+        [json.loads((provenance / "origin_signing_key_certificate.json").read_bytes())],
+        now="2026-07-18T11:00:00Z",
+    )
+    target = ValidatedFederationV1KeyRegistry.from_provenance(
+        [json.loads((provenance / "target_root_enrollment.json").read_bytes())],
+        [json.loads((provenance / "target_signing_key_certificate.json").read_bytes())],
+        now="2026-07-18T11:00:00Z",
+    )
     return origin, target
 
 
