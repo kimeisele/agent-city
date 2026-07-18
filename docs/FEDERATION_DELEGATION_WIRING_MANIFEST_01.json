@@ -3,6 +3,19 @@
   "contract_version": "federation-delegation-v1",
   "scope": "admission_only_slice_01",
   "feature_gate": {"name": "FEDERATION_V1_DELEGATION_ENABLED", "default": false},
+  "merge_status": {
+    "steward_pr": 829,
+    "steward_merge_commit": "9f6519d8d8713b81c6197217d61e3b1fcc144ea7",
+    "steward_main_pin": "2bae8b694222aa2d3395c779bfdc2b2ed9813901",
+    "agent_city_pr": 2203,
+    "agent_city_merge_commit": "d16b7ffb1db0cd1f794bd6066b7978e6db86794b",
+    "agent_city_main_pin": "d16b7ffb1db0cd1f794bd6066b7978e6db86794b",
+    "agent_city_merge_method": "documented_admin_bypass_for_review_required",
+    "automatic_required_checks": {"steward": "passed", "agent_city": "none_reported"},
+    "feature_gate_default": false,
+    "production_activation": false,
+    "authoritative_branch": "main"
+  },
   "entries": [
     {"operation": "delegate_task", "direction": "Steward->Agent City", "handler": "city.federation_v1.FederationV1Admission.handle", "ledger": "city.federation_v1.TargetAdmissionLedger", "receipt": "delegation_receipt(admission)", "lifecycle_maturity": "crucible_verified", "disposition": "disabled"},
     {"operation": "delegation_receipt", "direction": "Agent City->Steward", "handler": "steward.federation_v1.FederationV1Origin.apply_receipt", "ledger": "steward.federation_v1.OriginDelegationLedger", "target_work_id": "first_set_duplicate_match", "lifecycle_maturity": "crucible_verified", "disposition": "disabled"},
