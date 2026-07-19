@@ -20,10 +20,9 @@ NO parallel spaghetti structures. Pure MURALI cycle integration.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from city.phase_hook import DHARMA, BasePhaseHook
-from city.registry import SVC_MOLTBOOK_CLIENT
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext
@@ -58,7 +57,6 @@ def _create_recruitment_bounty(
 ) -> str | None:
     """Create a bounty for a recruitment target. Returns bounty_id or None."""
     from city.bounty import create_bounty
-    from city.moltbook_bounty_poster import get_moltbook_bounty_poster
 
     target_id = target.get("id", "unknown")
     issue_num = target.get("github_issue", 0)

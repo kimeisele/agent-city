@@ -5,38 +5,56 @@ Tests for DHARMA Campaign Recruitment Hook.
     Hare Rama   Hare Rama   Rama   Rama   Hare Hare
 """
 
-import pytest
+import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from city.campaigns import CampaignRecord
 from city.hooks.dharma.campaign_recruitment import (
     CampaignRecruitmentHook,
-    _detect_recruitment_gap,
-    _RECRUITMENT_TARGETS,
+    _detect_target_config,
 )
+
+
+_CAMPAIGNS = json.loads(
+    (Path(__file__).parents[1] / "campaigns" / "default.json").read_text()
+)["campaigns"]
+_RECRUITMENT_CAMPAIGN = next(
+    campaign for campaign in _CAMPAIGNS if campaign["id"] == "federation-recruitment"
+)
+
+
+def _campaign_with_targets() -> CampaignRecord:
+    return CampaignRecord.from_dict(_RECRUITMENT_CAMPAIGN)
 
 
 class TestRecruitmentTargetDetection:
     """Test gap text → recruitment target mapping."""
 
     def test_detect_nadi_reliability(self):
-        """NADI reliability keywords detected."""
-        assert _detect_recruitment_gap("NADI federation reliability issue") == "nadi-reliability"
-        assert _detect_recruitment_gap("message drops under async load") == "nadi-reliability"
+        """Campaign compiler gap resolves to the configured NADI target."""
+        campaign = _campaign_with_targets()
+        gap = "recruitment_gap:nadi-reliability:360:NADI reliability"
+        assert _detect_target_config(gap, campaign) == campaign.recruitment_targets[0]
 
     def test_detect_brain_cognition(self):
-        """Brain cognition latency keywords detected."""
-        assert _detect_recruitment_gap("Brain stuck comments cognition") == "brain-cognition-latency"
-        assert _detect_recruitment_gap("comment latency ENQUEUED forever") == "brain-cognition-latency"
+        """Campaign compiler gap resolves to the configured brain target."""
+        campaign = _campaign_with_targets()
+        gap = "recruitment_gap:brain-cognition-latency:131:Brain latency"
+        assert _detect_target_config(gap, campaign) == campaign.recruitment_targets[1]
 
     def test_detect_cross_zone_economy(self):
-        """Cross-zone economy keywords detected."""
-        assert _detect_recruitment_gap("zone economy prana trading") == "cross-zone-economy"
-        assert _detect_recruitment_gap("market mechanism for zones") == "cross-zone-economy"
+        """Campaign compiler gap resolves to the configured economy target."""
+        campaign = _campaign_with_targets()
+        gap = "recruitment_gap:cross-zone-economy:348:Cross-zone economy"
+        assert _detect_target_config(gap, campaign) == campaign.recruitment_targets[2]
 
     def test_unknown_gap_returns_none(self):
-        """Unrelated gap text returns None."""
-        assert _detect_recruitment_gap("random infrastructure thing") is None
-        assert _detect_recruitment_gap("") is None
+        """Non-compiler text and unknown target IDs return None."""
+        campaign = _campaign_with_targets()
+        assert _detect_target_config("random infrastructure thing", campaign) is None
+        assert _detect_target_config("recruitment_gap:unknown:1:unknown", campaign) is None
+        assert _detect_target_config("", campaign) is None
 
 
 class TestCampaignRecruitmentHook:
@@ -76,10 +94,11 @@ class TestCampaignRecruitmentHook:
         mock_create_bounty.return_value = "bounty:123"
 
         ctx = MagicMock()
-        campaign = MagicMock()
-        campaign.last_gap_summary = ["NADI reliability problem detected"]
+        campaign = _campaign_with_targets()
+        campaign.last_gap_summary = ["recruitment_gap:nadi-reliability:360:NADI reliability"]
         ctx.campaigns.get_active_campaigns.return_value = [campaign]
         ctx.heartbeat_count = 42
+        ctx._recruitment_bounties = set()
 
         hook = CampaignRecruitmentHook()
         operations = []
@@ -94,23 +113,25 @@ class TestCampaignRecruitmentHook:
         mock_create_bounty.return_value = "bounty:123"
 
         ctx = MagicMock()
-        campaign = MagicMock()
-        campaign.last_gap_summary = ["NADI reliability problem", "NADI message drops"]
+        campaign = _campaign_with_targets()
+        campaign.last_gap_summary = [
+            "recruitment_gap:nadi-reliability:360:NADI reliability",
+            "recruitment_gap:nadi-reliability:360:NADI message drops",
+        ]
         ctx.campaigns.get_active_campaigns.return_value = [campaign]
         ctx.heartbeat_count = 42
+        ctx._recruitment_bounties = set()
 
         hook = CampaignRecruitmentHook()
         operations = []
         hook.execute(ctx, operations)
 
-        # Only one bounty per target per cycle
-        call_count = mock_create_bounty.call_count
-        assert call_count <= 2  # max 2 different targets
+        assert mock_create_bounty.call_count == 1
 
     def test_execute_no_matching_gaps(self):
         """Hook skips if no recruitment gaps detected."""
         ctx = MagicMock()
-        campaign = MagicMock()
+        campaign = _campaign_with_targets()
         campaign.last_gap_summary = ["random unrelated gap"]
         ctx.campaigns.get_active_campaigns.return_value = [campaign]
 
@@ -125,20 +146,19 @@ class TestRecruitmentTargetsConfig:
     """Test recruitment target configuration."""
 
     def test_all_targets_have_required_fields(self):
-        """Each target has keywords, issue, severity, reward."""
-        required = {"keywords", "issue", "severity", "default_reward"}
-        for target_id, config in _RECRUITMENT_TARGETS.items():
-            assert required <= set(config), f"Target {target_id} missing fields"
+        """Each manifest target has the fields consumed by the hook."""
+        required = {"id", "title", "github_issue", "severity", "bounty_reward"}
+        for config in _RECRUITMENT_CAMPAIGN["recruitment_targets"]:
+            assert required <= set(config), f"Target {config['id']} missing fields"
 
     def test_severity_levels_valid(self):
         """Severity must be low, medium, or high."""
         valid = {"low", "medium", "high"}
-        for config in _RECRUITMENT_TARGETS.values():
+        for config in _RECRUITMENT_CAMPAIGN["recruitment_targets"]:
             assert config["severity"] in valid
 
     def test_reward_tiers_reasonable(self):
         """Rewards should match bounty system tiers (27, 54, 108)."""
         valid_rewards = {27, 54, 108}
-        for config in _RECRUITMENT_TARGETS.values():
-            # Allow some flexibility but should be in reasonable range
-            assert 20 <= config["default_reward"] <= 150
+        for config in _RECRUITMENT_CAMPAIGN["recruitment_targets"]:
+            assert config["bounty_reward"] in valid_rewards
