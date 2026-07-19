@@ -1,0 +1,61 @@
+{
+  "manifest_version": "federation-wiring-v1",
+  "contract_version": "federation-delegation-v1",
+  "scope": "ready_work_item_slice_03",
+  "documentation_only": true,
+  "runtime_imported": false,
+  "feature_gate": {
+    "name": "FEDERATION_V1_DELEGATION_ENABLED",
+    "default": false
+  },
+  "merge_status": {
+    "pr": 2245,
+    "product_commit": "51ab9dbe49a9ebeac9451d3d895f3ff0d1a5bd80",
+    "merge_commit": "e4682c28905f6202eb6a92124b1eee3d01b0e3d2",
+    "main_pin": "e4682c28905f6202eb6a92124b1eee3d01b0e3d2",
+    "pre_merge_head": "3800e2d532525c87b71dd4ddded9fcf156f10f00",
+    "base_pin": "5acf648075643af575be0ad57be9960da02f3999",
+    "merge_method": "documented_admin_bypass_for_review_required",
+    "automatic_required_checks": "none_reported",
+    "feature_gate_default": false,
+    "production_activation": false,
+    "authoritative_branch": "main"
+  },
+  "historical_evidence": {
+    "ready_tests": 23,
+    "federation_slice_tests": 178,
+    "legacy_mission_heal_tests": 144,
+    "focused_ready_integrity_process_cases": 15,
+    "focused_assignment_retry_crash_corruption_cases": 9,
+    "ruff": "passed",
+    "py_compile": "passed",
+    "full_suite": "blocked_by_separate_documented_import_finding",
+    "evidence_source": "post-merge smoke against main pin"
+  },
+  "entries": [
+    {
+      "operation": "target_local_ready_work_item",
+      "direction": "Agent City target-local",
+      "handler": "city.federation_v1.TargetAdmissionLedger.create_ready_work_item",
+      "ledger": "city.federation_v1.TargetAdmissionLedger",
+      "input": "validated ASSIGNED parent evidence",
+      "output": "embedded ready_work_item state READY",
+      "external_message": false,
+      "external_receipt": false,
+      "worker_or_mission_call": false,
+      "scheduler_or_queue_call": false,
+      "lifecycle_maturity": "crucible_verified",
+      "disposition": "disabled"
+    }
+  ],
+  "legacy_isolation": {
+    "legacy_operation": "OP_DELEGATE_TASK",
+    "fallback": false,
+    "title_matching": false,
+    "mission_creation": false,
+    "queue_creation": false,
+    "worker_execution": false,
+    "external_ready_message": false,
+    "external_started_receipt": false
+  }
+}
