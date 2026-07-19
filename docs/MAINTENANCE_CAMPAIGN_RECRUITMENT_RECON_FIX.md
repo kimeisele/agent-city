@@ -108,19 +108,31 @@ pytest -q tests/test_mission_router.py tests/test_city_router.py \
   144 passed, 184 warnings
 ```
 
-The complete `pytest -q` now completes collection and executes the whole
-repository. Its current result is:
+## Exact baseline comparison
 
-```text
-1922 passed, 23 failed, 1 skipped, 3153 warnings
-```
+The required comparison was run in the same environment with the same ignored,
+synthetic Federation test-key setup. The key file was copied into each temporary
+checkout only and was not changed or committed.
 
-The 23 failures are pre-existing, unrelated baseline failures in brain/action,
-heartbeat CLI timeout, issue binding, governance/layer tests, Moltbook bridge,
-PR-gate E2E, prompt registry, treasury, and Pokedex concurrency. The Campaign
-Recruitment tests pass; no failure names point to the changed two files. The
-full run is therefore no longer collection-blocked, but the repository-wide
-gate is not green until those separate maintenance areas are addressed.
+| checkout | method | result |
+| --- | --- | --- |
+| Base `128310d6e28d22d39013d12a85f4104da93230b5` | unmodified `pytest -q` | collection blocked (exit 2) by the stale `_detect_recruitment_gap` import |
+| Base `128310d6e28d22d39013d12a85f4104da93230b5` | temporary, uncommitted test-only migration copied from PR #2247; no product changes | `22 failed, 1923 passed, 1 skipped, 3153 warnings` (exit 1) |
+| PR head `95e5574b4ad926c77d8eb67b5f3baf32ae46b2bc` | exact committed tree | `22 failed, 1923 passed, 1 skipped, 3153 warnings` (exit 1) |
+
+The temporary Base migration was removed with its disposable checkout; it is
+not a committed baseline alteration. A second targeted run over all 22 failing
+node IDs produced the same 22 failures on both Base and Head (`22 failed` on
+each, with identical node IDs and first error classes). The machine-readable
+failure list, including root-cause hints and the Base/Head/determinism flags, is
+versioned at
+`docs/MAINTENANCE_CAMPAIGN_RECRUITMENT_BASELINE.json`.
+
+The failure set is identical: no new Head failure and no changed failure class
+was introduced by PR #2247. The failures are unrelated to the changed campaign
+files; the focused Campaign Recruitment suite remains green. The complete
+repository-wide gate is therefore still red for these pre-existing maintenance
+areas, even though collection is repaired.
 
 The ignored `tests/fixtures/federation_v1/keys/test_keys.json` is synthetic,
 test-only material and was not changed or committed. No Slice-03 artifact or

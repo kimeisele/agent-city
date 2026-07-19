@@ -1,0 +1,246 @@
+{
+  "schema": "agent-city-maintenance-baseline-v1",
+  "repository": "kimeisele/agent-city",
+  "base_commit": "128310d6e28d22d39013d12a85f4104da93230b5",
+  "head_commit": "95e5574b4ad926c77d8eb67b5f3baf32ae46b2bc",
+  "pr": 2247,
+  "environment": {
+    "test_key_setup": "same ignored synthetic tests/fixtures/federation_v1/keys/test_keys.json copied into disposable Base and Head checkouts",
+    "heartbeat_commits_excluded_from_recon_history": true,
+    "product_changes_in_comparison_base": false
+  },
+  "runs": {
+    "base_unmodified": {
+      "command": "pytest -q",
+      "exit_code": 2,
+      "status": "collection_blocked",
+      "error": "tests/test_campaign_recruitment.py imports removed _detect_recruitment_gap"
+    },
+    "base_test_migrated": {
+      "command": "pytest -q",
+      "test_only_patch": "tests/test_campaign_recruitment.py migration from PR #2247 applied uncommitted",
+      "exit_code": 1,
+      "passed": 1923,
+      "failed": 22,
+      "skipped": 1,
+      "warnings": 3153
+    },
+    "head": {
+      "command": "pytest -q",
+      "exit_code": 1,
+      "passed": 1923,
+      "failed": 22,
+      "skipped": 1,
+      "warnings": 3153
+    },
+    "targeted_second_run": {
+      "node_count": 22,
+      "base_failed": 22,
+      "head_failed": 22,
+      "identical_node_ids": true,
+      "identical_first_failure_classes": true
+    }
+  },
+  "failure_set_identical": true,
+  "new_head_failures": false,
+  "failures": [
+    {
+      "node_id": "tests/test_brain.py::TestModelTier::test_all_thought_kinds_have_tier",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "ThoughtKind social_strategy has no _KIND_TIER mapping",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_brain_action.py::TestActionVerb::test_all_9_verbs",
+      "failure_class": "AssertionError",
+      "failure_cluster": "stale_test_contract_drift",
+      "root_cause_hint": "ActionVerb contains 10 members while the test asserts 9",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_heartbeat_campaign_bootstrap.py::test_heartbeat_cli_smoke_with_campaign_manifest",
+      "failure_class": "pytest_timeout",
+      "failure_cluster": "timeout_or_flaky",
+      "root_cause_hint": "heartbeat CLI exceeds the 30-second pytest-timeout limit",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_issue_binding.py::test_issue_open_and_bound_helpers",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "is_issue_open(99) returns true although issue 99 is not present in the fixture state",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_layer5.py::test_mayor_runs_election_in_dharma",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "expected election action list remains empty",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_layer5.py::test_full_rotation_with_council",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "full rotation emits no election operation",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_layer5.py::test_contract_failure_creates_proposal",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "failing contract creates no open council proposal",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_layer6.py::test_full_rotation_with_federation",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "expected DIR-FULL directive acknowledgement is absent",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_layer6.py::test_bridge_post_cooldown",
+      "failure_class": "AttributeError",
+      "failure_cluster": "stale_test_contract_drift",
+      "root_cause_hint": "MoltbookBridge has no post_city_update method",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_layer6.py::test_bridge_post_format",
+      "failure_class": "AttributeError",
+      "failure_cluster": "stale_test_contract_drift",
+      "root_cause_hint": "MoltbookBridge has no post_city_update method",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_layer6.py::test_bridge_mission_result_post",
+      "failure_class": "AttributeError",
+      "failure_cluster": "stale_test_contract_drift",
+      "root_cause_hint": "MoltbookBridge has no post_mission_results method",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_layer6.py::test_bridge_directive_acks_in_content",
+      "failure_class": "AttributeError",
+      "failure_cluster": "stale_test_contract_drift",
+      "root_cause_hint": "MoltbookBridge has no post_city_update method",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_layer6.py::test_create_mission_directive_creates_mission_and_proposal",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "mission directive creates no expected federation council proposal",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_mayor_execution.py::test_execution_bridge_routes_genesis",
+      "failure_class": "AttributeError",
+      "failure_cluster": "stale_test_contract_drift",
+      "root_cause_hint": "test context SimpleNamespace has no city_nadi attribute",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_mayor_execution.py::test_execution_bridge_runs_moksha_self_diagnostics",
+      "failure_class": "AttributeError",
+      "failure_cluster": "stale_test_contract_drift",
+      "root_cause_hint": "test context SimpleNamespace has no city_nadi attribute",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_mayor_execution.py::test_heartbeat_updates_persisted_totals",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "first persisted event is MURALI while test expects KARMA",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_pr_gate_e2e.py::TestE2EPRGatePipeline::test_verdict_reads_from_real_nadi_inbox",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "mocked GitHub runner is not called; observed call count 0 instead of 2",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_pr_gate_e2e.py::TestE2EPRGatePipeline::test_full_pipeline_scanner_to_verdict",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "mocked GitHub runner is not called; observed call count 0 instead of 2",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_pr_gate_e2e.py::TestE2EPRGatePipeline::test_full_pipeline_core_file_escalation",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "mocked GitHub runner is not called; observed call count 0 instead of 1",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_pr_gate_e2e.py::TestE2EPRGatePipeline::test_full_pipeline_rejection",
+      "failure_class": "AssertionError",
+      "failure_cluster": "known_red_baseline",
+      "root_cause_hint": "mocked GitHub runner is not called; observed call count 0 instead of 1",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_prompt_registry.py::TestGetPromptRegistry::test_singleton_has_all_6_builders",
+      "failure_class": "AssertionError",
+      "failure_cluster": "stale_test_contract_drift",
+      "root_cause_hint": "PromptRegistry contains 7 builders while test expects 6",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    },
+    {
+      "node_id": "tests/test_treasury.py::TestMoltbookOutboundFallback::test_fallback_path_exists",
+      "failure_class": "ImportError",
+      "failure_cluster": "stale_test_contract_drift",
+      "root_cause_hint": "MoltbookOutboundHook is absent from city.hooks.moksha.outbound",
+      "base_present": true,
+      "head_present": true,
+      "deterministic_second_run": true
+    }
+  ]
+}
