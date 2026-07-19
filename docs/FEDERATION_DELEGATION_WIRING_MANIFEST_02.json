@@ -6,6 +6,17 @@
     "name": "FEDERATION_V1_DELEGATION_ENABLED",
     "default": false
   },
+  "merge_status": {
+    "pr": 2235,
+    "merge_commit": "09ea3d3770fa126936756becec2eb6b0493a1a13",
+    "main_pin": "09ea3d3770fa126936756becec2eb6b0493a1a13",
+    "merged_at": "2026-07-19T05:41:36Z",
+    "merge_method": "documented_admin_bypass_for_review_required",
+    "automatic_required_checks": "none_reported",
+    "feature_gate_default": false,
+    "production_activation": false,
+    "authoritative_branch": "main"
+  },
   "status_semantics": {
     "assignment_state": ["ACCEPTED", "ASSIGNED"],
     "assigned_meaning": "target-local observed candidate snapshot durably bound; no work started",

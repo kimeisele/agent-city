@@ -1,6 +1,6 @@
 # Federation Delegation Slice 02 — Implementation Review
 
-Status: implementation complete; review/merge pending
+Status: merged to `main`; post-merge smoke verified
 
 This document is the self-contained Agent-B review packet for the accepted
 target-local Slice 02. It records the implementation boundary, evidence, and
@@ -13,15 +13,19 @@ the remaining gate. It does not authorize activation or merge.
 | Repository | `kimeisele/agent-city` |
 | Branch | `impl/federation-delegation-slice-02-assignment` |
 | Base pin | `a854f590391f73da10b33f402c321fd68f3fd0b5` (`main`, including docs PR #2209) |
+| Slice-02 merge PR | #2235 |
+| Slice-02 merge commit / final main pin | `09ea3d3770fa126936756becec2eb6b0493a1a13` |
 | Contract pin | Federation Delegation Contract V1 Draft 0.5 as already frozen; no contract file changed |
 | Steward product code | unchanged; no Steward repository change is part of this slice |
 | Feature gate | `FEDERATION_V1_DELEGATION_ENABLED`, default `false`; tests opt in explicitly |
 | Disposition | `disabled`; no production caller or transport activation |
 | Cross-repo receipt | none by design; Slice 02 is target-local and emits no Federation receipt |
 
-The final implementation and documentation commit SHAs are supplied by the
-Git handoff for this branch. The implementation parent is the base pin above;
-the review file itself is part of the final branch head.
+The implementation was merged by the documented owner-authorized admin bypass
+because GitHub reported no automatic checks and blocked only on
+`REVIEW_REQUIRED`. The merge commit above is now the authoritative Agent City
+`main` pin. This document remains historical milestone evidence; it is not
+runtime health state.
 
 ## Exact scope
 
@@ -277,6 +281,13 @@ pytest -q tests/test_federation_v1_assignment.py \
 pytest -q tests/test_mission_router.py tests/test_city_router.py \
   tests/test_federation_nadi.py tests/test_federation_relay.py tests/test_layer4.py
   144 passed, 184 warnings
+
+The same suites were rerun against final `main` at
+`09ea3d3770fa126936756becec2eb6b0493a1a13` after PR #2235 merged. The focused
+post-merge crash/retry/process/corruption selection produced `9 passed` and
+the static gate/disposition probe reported `feature_gate_default=False` and
+no active disposition. The process-concurrency coverage is also part of the
+full 178-test Federation run.
 ```
 
 The warning is the pre-existing `ast.Num` deprecation in the external
@@ -299,11 +310,10 @@ paths remain isolated.
 
 ## Definition of done for this implementation branch
 
-This slice is ready for Agent-B merge review when:
+This slice is post-merge complete when:
 
-* the exact branch head and diff contain only the files listed above;
-* the tests and static checks above are green;
-* the branch is pushed without merge;
+* the exact merge commit and final main pin are the values recorded above;
+* the tests and static checks above are green on final `main`;
 * feature gate false, disposition disabled, and no runtime manifest import are
   re-verified;
 * the review acknowledges that no cross-repo Assignment or Started receipt is
