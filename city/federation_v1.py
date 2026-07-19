@@ -168,6 +168,31 @@ ASSIGNMENT_KEY_BINDING_KEYS = {
     "registry_epoch",
     "revoked",
 }
+READY_WORK_ITEM_SCHEMA = "agent-city-federation-ready-work-item-v1"
+READY_WORK_ITEM_FIELDS = {
+    "schema",
+    "work_item_id",
+    "state",
+    "delegation_id",
+    "target_work_id",
+    "assignment_epoch",
+    "request_message_id",
+    "request_message_hash",
+    "input_digest",
+    "assignment_authority_digest",
+    "worker_snapshot_digest",
+    "assigned_candidate_id",
+    "candidate_snapshot_digest",
+    "target_key_binding_digest",
+    "created_at",
+    "work_item_content_digest",
+}
+READY_INPUT_DOMAIN = b"agent-city-federation-ready-input-v1\x00"
+READY_CANDIDATE_DOMAIN = b"agent-city-federation-ready-candidate-snapshot-v1\x00"
+READY_CONTENT_DOMAIN = b"agent-city-federation-ready-content-v1\x00"
+READY_WORK_ITEM_ID_DOMAIN = b"agent-city-federation-ready-work-item-v1\x00"
+READY_WORK_ITEM_ID_PREFIX = "work_v1_"
+READY_MAX_CHILD_BYTES = 4096
 ORIGIN_RECORD_KEYS = {
     "delegation_id",
     "origin_task_id",
@@ -463,6 +488,11 @@ def _b64(raw: bytes) -> str:
 
 def _digest(value: Any) -> str:
     return hashlib.sha256(canonical_bytes(value)).hexdigest()
+
+
+def _typed_digest(domain: bytes, value: Any) -> str:
+    """Digest a local READY value with an explicit, versioned domain."""
+    return hashlib.sha256(domain + canonical_bytes(value)).hexdigest()
 
 
 def _derive_node_id(public_key: bytes) -> str:
@@ -806,6 +836,7 @@ def _load(
     *,
     assignment_registry: ValidatedFederationV1KeyRegistry | None = None,
     assignment_node_id: str | None = None,
+    request_registry: ValidatedFederationV1KeyRegistry | None = None,
 ) -> dict[str, Any]:
     if not path.exists():
         return {"delegations": {}, "findings": []}
@@ -839,6 +870,7 @@ def _load(
                 record,
                 assignment_registry=assignment_registry,
                 assignment_node_id=assignment_node_id,
+                request_registry=request_registry,
             )
         elif record.get("request_send_status") not in {"created", "sent"} or record.get(
             "send_state"
@@ -958,15 +990,268 @@ def _validate_assignment_digests(record: Mapping[str, Any]) -> None:
         raise V1Reject("ledger_corrupt", "assignment_integrity") from exc
 
 
+def _ready_identifier(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value or len(value.encode("utf-8")) > 256:
+        raise V1Reject("ledger_corrupt", "ready_work_item")
+    return value
+
+
+def _ready_digest(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not HASH_RE.fullmatch(value):
+        raise V1Reject("ledger_corrupt", "ready_work_item")
+    return value
+
+
+def _persisted_request_projection(
+    record: Mapping[str, Any],
+    *,
+    request_registry: ValidatedFederationV1KeyRegistry | None,
+) -> dict[str, Any]:
+    """Re-validate the authenticated parent request before projecting inputs.
+
+    Admission already authenticated the request.  This second check protects
+    the READY child from a later parent/request-byte mutation and, when the
+    origin key snapshot is available, repeats the full V1 signature check at
+    the request's own issued_at timestamp.
+    """
+    try:
+        encoded = record["request_wire_bytes_b64"]
+        decoded = base64.b64decode(encoded, validate=True)
+        raw = _decode(encoded, len(decoded))
+        request = parse_canonical(raw)
+    except (KeyError, TypeError, ValueError, V1Reject) as exc:
+        raise V1Reject("ledger_corrupt", "ready_request") from exc
+    if request_registry is not None:
+        try:
+            request = validate_envelope(
+                raw,
+                registry=request_registry,
+                expected_target=record["target_node_id"],
+                operation="delegate_task",
+                now=request["issued_at"],
+            )
+        except (KeyError, TypeError, ValueError, V1Reject) as exc:
+            raise V1Reject("ledger_corrupt", "ready_request") from exc
+    if set(request) != REQUEST_KEYS:
+        raise V1Reject("ledger_corrupt", "ready_request")
+    if (
+        request.get("contract_version") != CONTRACT
+        or request.get("operation") != "delegate_task"
+        or request.get("message_id") != request.get("request_message_id")
+        or request.get("source_node_id") != record.get("origin_node_id")
+        or request.get("target_node_id") != record.get("target_node_id")
+        or request.get("request_message_id") != record.get("request_message_id")
+        or request.get("message_hash") != record.get("request_message_hash")
+    ):
+        raise V1Reject("ledger_corrupt", "ready_request")
+    payload = request.get("payload")
+    if not isinstance(payload, dict):
+        raise V1Reject("ledger_corrupt", "ready_request")
+    required = {
+        "delegation_id",
+        "origin_task_id",
+        "capability",
+        "intent",
+        "task_description",
+        "target_repo",
+        "authority",
+        "expected_outcome",
+        "verification_contract",
+        "deadline",
+        "request_digest",
+        "idempotency_key",
+    }
+    if not required <= set(payload) or set(payload) - required - {
+        "display_title",
+        "display_description",
+    }:
+        raise V1Reject("ledger_corrupt", "ready_request")
+    try:
+        digest = request_digest(
+            payload, request["source_node_id"], request["target_node_id"]
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise V1Reject("ledger_corrupt", "ready_request") from exc
+    if (
+        payload.get("delegation_id") != record.get("delegation_id")
+        or request.get("correlation_id") != record.get("delegation_id")
+        or payload.get("request_digest") != digest
+        or payload.get("request_digest") != record.get("request_digest")
+        or payload.get("idempotency_key") != "fedv1:" + digest
+    ):
+        raise V1Reject("ledger_corrupt", "ready_request")
+    return {
+        "authority": payload["authority"],
+        "capability": payload["capability"],
+        "deadline": payload["deadline"],
+        "delegation_id": payload["delegation_id"],
+        "expected_outcome": payload["expected_outcome"],
+        "intent": payload["intent"],
+        "origin_task_id": payload["origin_task_id"],
+        "request_digest": payload["request_digest"],
+        "target_repo": payload["target_repo"],
+        "task_description": payload["task_description"],
+        "verification_contract": payload["verification_contract"],
+    }
+
+
+def _build_ready_work_item(
+    record: Mapping[str, Any],
+    *,
+    created_at: str,
+    request_registry: ValidatedFederationV1KeyRegistry | None,
+) -> dict[str, Any]:
+    _time(created_at)
+    projection = _persisted_request_projection(
+        record, request_registry=request_registry
+    )
+    candidate_digest = _typed_digest(
+        READY_CANDIDATE_DOMAIN, record["observed_candidate_snapshot"]
+    )
+    input_digest = _typed_digest(READY_INPUT_DOMAIN, projection)
+    id_input = {
+        "assignment_authority_digest": record["assignment_authority_digest"],
+        "assignment_epoch": record["assignment_epoch"],
+        "delegation_id": record["delegation_id"],
+        "request_message_hash": record["request_message_hash"],
+        "target_work_id": record["target_work_id"],
+        "worker_snapshot_digest": record["worker_snapshot_digest"],
+    }
+    work_item_id = READY_WORK_ITEM_ID_PREFIX + _typed_digest(
+        READY_WORK_ITEM_ID_DOMAIN, id_input
+    )
+    child = {
+        "schema": READY_WORK_ITEM_SCHEMA,
+        "work_item_id": work_item_id,
+        "state": "READY",
+        "delegation_id": record["delegation_id"],
+        "target_work_id": record["target_work_id"],
+        "assignment_epoch": record["assignment_epoch"],
+        "request_message_id": record["request_message_id"],
+        "request_message_hash": record["request_message_hash"],
+        "input_digest": input_digest,
+        "assignment_authority_digest": record["assignment_authority_digest"],
+        "worker_snapshot_digest": record["worker_snapshot_digest"],
+        "assigned_candidate_id": record["assigned_candidate_id"],
+        "candidate_snapshot_digest": candidate_digest,
+        "target_key_binding_digest": record["assignment_key_binding_digest"],
+        "created_at": created_at,
+    }
+    child["work_item_content_digest"] = _typed_digest(
+        READY_CONTENT_DOMAIN, child
+    )
+    if len(canonical_bytes(child)) > READY_MAX_CHILD_BYTES:
+        raise V1Reject("ready_work_item_limit", "ready_work_item")
+    return child
+
+
+def _validate_ready_work_item(
+    record: Mapping[str, Any],
+    child: Any,
+    *,
+    request_registry: ValidatedFederationV1KeyRegistry | None,
+) -> None:
+    if child is None:
+        return
+    if not isinstance(child, dict) or set(child) != READY_WORK_ITEM_FIELDS:
+        raise V1Reject("ledger_corrupt", "ready_work_item")
+    try:
+        if child["schema"] != READY_WORK_ITEM_SCHEMA or child["state"] != "READY":
+            raise V1Reject("ledger_corrupt", "ready_work_item")
+        for field in (
+            "delegation_id",
+            "target_work_id",
+            "request_message_id",
+            "assigned_candidate_id",
+        ):
+            _ready_identifier(child[field], field)
+        if (
+            not isinstance(child["assignment_epoch"], int)
+            or isinstance(child["assignment_epoch"], bool)
+            or not 1 <= child["assignment_epoch"] <= 2**31 - 1
+        ):
+            raise V1Reject("ledger_corrupt", "ready_work_item")
+        for field in (
+            "request_message_hash",
+            "input_digest",
+            "assignment_authority_digest",
+            "worker_snapshot_digest",
+            "candidate_snapshot_digest",
+            "target_key_binding_digest",
+        ):
+            _ready_digest(child[field], field)
+        _time(child["created_at"])
+        if not isinstance(child["work_item_id"], str) or not re.fullmatch(
+            r"work_v1_[0-9a-f]{64}", child["work_item_id"]
+        ):
+            raise V1Reject("ledger_corrupt", "ready_work_item")
+        _ready_digest(child["work_item_content_digest"], "work_item_content_digest")
+        if record.get("state") != "ACCEPTED" or record.get("assignment_state") != "ASSIGNED":
+            raise V1Reject("ledger_corrupt", "ready_work_item")
+        for child_field, parent_field in (
+            ("delegation_id", "delegation_id"),
+            ("target_work_id", "target_work_id"),
+            ("assignment_epoch", "assignment_epoch"),
+            ("request_message_id", "request_message_id"),
+            ("request_message_hash", "request_message_hash"),
+            ("assignment_authority_digest", "assignment_authority_digest"),
+            ("worker_snapshot_digest", "worker_snapshot_digest"),
+            ("assigned_candidate_id", "assigned_candidate_id"),
+        ):
+            if child[child_field] != record.get(parent_field):
+                raise V1Reject("ledger_corrupt", "ready_work_item")
+        if child["target_key_binding_digest"] != record.get(
+            "assignment_key_binding_digest"
+        ):
+            raise V1Reject("ledger_corrupt", "ready_work_item")
+        projection = _persisted_request_projection(
+            record, request_registry=request_registry
+        )
+        if child["input_digest"] != _typed_digest(READY_INPUT_DOMAIN, projection):
+            raise V1Reject("ledger_corrupt", "ready_work_item")
+        if child["candidate_snapshot_digest"] != _typed_digest(
+            READY_CANDIDATE_DOMAIN, record["observed_candidate_snapshot"]
+        ):
+            raise V1Reject("ledger_corrupt", "ready_work_item")
+        id_input = {
+            "assignment_authority_digest": record["assignment_authority_digest"],
+            "assignment_epoch": record["assignment_epoch"],
+            "delegation_id": record["delegation_id"],
+            "request_message_hash": record["request_message_hash"],
+            "target_work_id": record["target_work_id"],
+            "worker_snapshot_digest": record["worker_snapshot_digest"],
+        }
+        if child["work_item_id"] != READY_WORK_ITEM_ID_PREFIX + _typed_digest(
+            READY_WORK_ITEM_ID_DOMAIN, id_input
+        ):
+            raise V1Reject("ledger_corrupt", "ready_work_item")
+        without_content = {
+            key: value
+            for key, value in child.items()
+            if key != "work_item_content_digest"
+        }
+        if child["work_item_content_digest"] != _typed_digest(
+            READY_CONTENT_DOMAIN, without_content
+        ):
+            raise V1Reject("ledger_corrupt", "ready_work_item")
+        if len(canonical_bytes(child)) > READY_MAX_CHILD_BYTES:
+            raise V1Reject("ready_work_item_limit", "ready_work_item")
+    except (KeyError, TypeError, ValueError, V1Reject) as exc:
+        raise V1Reject("ledger_corrupt", "ready_work_item") from exc
+
+
 def _validate_assignment_record(
     record: Mapping[str, Any],
     *,
     assignment_registry: ValidatedFederationV1KeyRegistry | None,
     assignment_node_id: str | None,
+    request_registry: ValidatedFederationV1KeyRegistry | None,
 ) -> None:
     """Validate optional Slice-02 fields without breaking Slice-01A records."""
     present = set(record) & ASSIGNMENT_RECORD_FIELDS
     if not present:
+        if "ready_work_item" in record and record.get("ready_work_item") is not None:
+            raise V1Reject("ledger_corrupt", "ready_work_item")
         return
     state = record.get("assignment_state")
     if state not in {"ACCEPTED", "ASSIGNED", None}:
@@ -976,6 +1261,8 @@ def _validate_assignment_record(
             record.get(key) is not None for key in ASSIGNMENT_NULL_FIELDS
         ):
             raise V1Reject("ledger_corrupt", "ledger")
+        if record.get("ready_work_item") is not None:
+            raise V1Reject("ledger_corrupt", "ready_work_item")
         return
     if state == "ASSIGNED":
         if not ASSIGNMENT_ASSIGNED_FIELDS <= set(record):
@@ -997,8 +1284,15 @@ def _validate_assignment_record(
             assignment_registry=assignment_registry,
             assignment_node_id=assignment_node_id,
         )
+        _validate_ready_work_item(
+            record,
+            record.get("ready_work_item"),
+            request_registry=request_registry,
+        )
     elif any(record.get(key) is not None for key in ASSIGNMENT_NULL_FIELDS):
         raise V1Reject("ledger_corrupt", "ledger")
+    elif record.get("ready_work_item") is not None:
+        raise V1Reject("ledger_corrupt", "ready_work_item")
 
 
 def _validate_assignment_attestation_record(
@@ -1087,6 +1381,7 @@ def _assignment_defaults(record: Mapping[str, Any]) -> dict[str, Any]:
         view["assignment_state"] = "ACCEPTED" if view.get("state") == "ACCEPTED" else None
     for key in ASSIGNMENT_NULL_FIELDS:
         view.setdefault(key, None)
+    view.setdefault("ready_work_item", None)
     return view
 
 
@@ -1290,10 +1585,12 @@ class TargetAdmissionLedger:
         *,
         assignment_registry: ValidatedFederationV1KeyRegistry | None = None,
         node_id: str | None = None,
+        request_registry: ValidatedFederationV1KeyRegistry | None = None,
     ):
         self.path, self._lock = Path(path), threading.RLock()
         self.assignment_registry = assignment_registry
         self.node_id = node_id
+        self.request_registry = request_registry
 
     def bind_assignment_identity(
         self,
@@ -1308,12 +1605,20 @@ class TargetAdmissionLedger:
         self.assignment_registry = registry
         self.node_id = node_id
 
+    def bind_request_identity(
+        self, *, registry: ValidatedFederationV1KeyRegistry
+    ) -> None:
+        if not isinstance(registry, ValidatedFederationV1KeyRegistry):
+            raise V1Reject("registry_unvalidated", "ready_request")
+        self.request_registry = registry
+
     def _load(self) -> dict[str, Any]:
         return _load(
             self.path,
             TARGET_RECORD_KEYS,
             assignment_registry=self.assignment_registry,
             assignment_node_id=self.node_id,
+            request_registry=self.request_registry,
         )
 
     def get(self, delegation_id: str) -> dict[str, Any] | None:
@@ -1505,6 +1810,38 @@ class TargetAdmissionLedger:
             document["delegations"][delegation_id] = current
             _atomic(self.path, document)
             return _assignment_defaults(current)
+
+    def create_ready_work_item(
+        self, delegation_id: str, created_at: str
+    ) -> tuple[str, dict[str, Any]]:
+        """First-set an immutable target-local READY child for ASSIGNED evidence.
+
+        This method deliberately reads only the already persisted parent.  It
+        does not observe candidates, call routers, enqueue work, or emit a
+        Federation message.
+        """
+        _time(created_at)
+        with self._lock, _process_lock(self.path):
+            document = self._load()
+            record = document["delegations"].get(delegation_id)
+            if record is None:
+                raise V1Reject("assignment_required", "ready_work_item")
+            existing = record.get("ready_work_item")
+            if existing is not None:
+                # _load already performed the complete child/parent validation.
+                return "duplicate", dict(existing)
+            if record.get("state") != "ACCEPTED" or record.get("assignment_state") != "ASSIGNED":
+                raise V1Reject("assignment_required", "ready_work_item")
+            child = _build_ready_work_item(
+                record,
+                created_at=created_at,
+                request_registry=self.request_registry,
+            )
+            updated = dict(record)
+            updated["ready_work_item"] = child
+            document["delegations"][delegation_id] = updated
+            _atomic(self.path, document)
+            return "created", dict(child)
 
 
 class OriginDelegationLedger:
@@ -1760,6 +2097,7 @@ class FederationV1Admission:
                 registry=identity_registry,
                 node_id=node_id,
             )
+        self.ledger.bind_request_identity(registry=registry)
 
     @staticmethod
     def _policy_allows(payload: Mapping[str, Any]) -> bool:
