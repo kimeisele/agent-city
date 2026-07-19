@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 DOMAIN = b"STEWARD-FEDERATION-DELEGATION-V1\x00"
@@ -58,6 +59,7 @@ ASSIGNMENT_ATTESTATION_DOMAIN = b"STEWARD-FEDERATION-ASSIGNMENT-ATTESTATION-V1\x
 ASSIGNMENT_SOURCE_DOMAIN = b"STEWARD-FEDERATION-ASSIGNMENT-SOURCE-V1\x00"
 ASSIGNMENT_CANDIDATE_DOMAIN = b"STEWARD-FEDERATION-ASSIGNMENT-CANDIDATE-V1\x00"
 ASSIGNMENT_AUTHORITY_DOMAIN = b"STEWARD-FEDERATION-ASSIGNMENT-AUTHORITY-V1\x00"
+ASSIGNMENT_KEY_BINDING_DOMAIN = b"STEWARD-FEDERATION-ASSIGNMENT-KEY-BINDING-V1\x00"
 ENROLLMENT_KEYS = {
     "enrollment_version",
     "identity_root_public_key",
@@ -118,6 +120,8 @@ ASSIGNMENT_RECORD_FIELDS = {
     "assignment_message_hash",
     "assignment_signature",
     "assignment_wire_bytes_b64",
+    "assignment_key_binding",
+    "assignment_key_binding_digest",
 }
 ASSIGNMENT_NULL_FIELDS = {
     "assignment_epoch",
@@ -131,6 +135,8 @@ ASSIGNMENT_NULL_FIELDS = {
     "assignment_message_hash",
     "assignment_signature",
     "assignment_wire_bytes_b64",
+    "assignment_key_binding",
+    "assignment_key_binding_digest",
 }
 ASSIGNMENT_ASSIGNED_FIELDS = ASSIGNMENT_NULL_FIELDS
 ASSIGNMENT_ATTESTATION_KEYS = {
@@ -150,6 +156,17 @@ ASSIGNMENT_ATTESTATION_KEYS = {
     "target_node_id",
     "target_work_id",
     "worker_snapshot_digest",
+}
+ASSIGNMENT_KEY_BINDING_KEYS = {
+    "activation_epoch",
+    "certificate_epoch",
+    "key_id",
+    "node_id",
+    "not_after",
+    "not_before",
+    "public_key_b64",
+    "registry_epoch",
+    "revoked",
 }
 ORIGIN_RECORD_KEYS = {
     "delegation_id",
@@ -783,7 +800,13 @@ def _atomic(path: Path, data: Any) -> None:
             os.unlink(temp)
 
 
-def _load(path: Path, required_record_keys: set[str]) -> dict[str, Any]:
+def _load(
+    path: Path,
+    required_record_keys: set[str],
+    *,
+    assignment_registry: ValidatedFederationV1KeyRegistry | None = None,
+    assignment_node_id: str | None = None,
+) -> dict[str, Any]:
     if not path.exists():
         return {"delegations": {}, "findings": []}
     try:
@@ -812,7 +835,11 @@ def _load(path: Path, required_record_keys: set[str]) -> dict[str, Any]:
                 "receipt_send_status"
             ) not in {"pending", "sent"}:
                 raise V1Reject("ledger_corrupt", "ledger")
-            _validate_assignment_record(record)
+            _validate_assignment_record(
+                record,
+                assignment_registry=assignment_registry,
+                assignment_node_id=assignment_node_id,
+            )
         elif record.get("request_send_status") not in {"created", "sent"} or record.get(
             "send_state"
         ) not in {"created", "sent", "admission_received", "admission_rejected"}:
@@ -824,7 +851,119 @@ def _load(path: Path, required_record_keys: set[str]) -> dict[str, Any]:
     return value
 
 
-def _validate_assignment_record(record: Mapping[str, Any]) -> None:
+def _assignment_key_binding_from_validated(
+    validated_key: ValidatedFederationV1Key,
+) -> dict[str, Any]:
+    if not isinstance(validated_key, ValidatedFederationV1Key):
+        raise V1Reject("registry_unvalidated", "assignment_provenance")
+    return {
+        "activation_epoch": validated_key.activation_epoch,
+        "certificate_epoch": validated_key.certificate_epoch,
+        "key_id": validated_key.key_id,
+        "node_id": validated_key.node_id,
+        "not_after": validated_key.not_after,
+        "not_before": validated_key.not_before,
+        "public_key_b64": _b64(validated_key.public_key),
+        "registry_epoch": validated_key.registry_epoch,
+        "revoked": validated_key.revoked,
+    }
+
+
+def _assignment_key_binding_digest(binding: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        ASSIGNMENT_KEY_BINDING_DOMAIN + canonical_bytes(binding)
+    ).hexdigest()
+
+
+def _validate_assignment_key_binding(
+    record: Mapping[str, Any],
+    attestation: Mapping[str, Any],
+    *,
+    assignment_registry: ValidatedFederationV1KeyRegistry | None,
+    assignment_node_id: str | None,
+) -> None:
+    binding = record.get("assignment_key_binding")
+    if not isinstance(binding, Mapping) or set(binding) != ASSIGNMENT_KEY_BINDING_KEYS:
+        raise V1Reject("ledger_corrupt", "assignment_provenance")
+    if record.get("assignment_key_binding_digest") != _assignment_key_binding_digest(binding):
+        raise V1Reject("ledger_corrupt", "assignment_provenance")
+    if (
+        binding.get("node_id") != record.get("target_node_id")
+        or (
+            assignment_node_id is not None
+            and binding.get("node_id") != assignment_node_id
+        )
+        or binding.get("key_id") != attestation.get("key_id")
+        or binding.get("public_key_b64") != attestation.get("signer_key")
+        or binding.get("revoked") is not False
+    ):
+        raise V1Reject("ledger_corrupt", "assignment_provenance")
+    try:
+        public_key = _decode(binding["public_key_b64"], 32)
+        if not KEY_RE.fullmatch(binding["key_id"]):
+            raise V1Reject("ledger_corrupt", "assignment_provenance")
+        if _derive_key_id(public_key) != binding["key_id"]:
+            raise V1Reject("ledger_corrupt", "assignment_provenance")
+        not_before = _time(binding["not_before"])
+        not_after = _time(binding["not_after"])
+        assigned_at = _time(record["assigned_at"])
+        if not_before > assigned_at or assigned_at >= not_after:
+            raise V1Reject("ledger_corrupt", "assignment_provenance")
+        if any(
+            not isinstance(binding[key], int) or binding[key] < 1
+            for key in ("registry_epoch", "certificate_epoch", "activation_epoch")
+        ):
+            raise V1Reject("ledger_corrupt", "assignment_provenance")
+        if assignment_registry is None:
+            raise V1Reject("ledger_corrupt", "assignment_provenance")
+        validated_key = assignment_registry.lookup(binding["key_id"], at=record["assigned_at"])
+        if (
+            validated_key.node_id != binding["node_id"]
+            or validated_key.public_key != public_key
+            or validated_key.not_before != binding["not_before"]
+            or validated_key.not_after != binding["not_after"]
+            or validated_key.registry_epoch != binding["registry_epoch"]
+            or validated_key.certificate_epoch != binding["certificate_epoch"]
+            or validated_key.activation_epoch != binding["activation_epoch"]
+            or validated_key.revoked is not binding["revoked"]
+        ):
+            raise V1Reject("ledger_corrupt", "assignment_provenance")
+    except (KeyError, TypeError, ValueError, V1Reject) as exc:
+        raise V1Reject("ledger_corrupt", "assignment_provenance") from exc
+
+
+def _validate_assignment_digests(record: Mapping[str, Any]) -> None:
+    try:
+        expected_worker_digest = hashlib.sha256(
+            ASSIGNMENT_CANDIDATE_DOMAIN
+            + canonical_bytes(record["observed_candidate_snapshot"])
+        ).hexdigest()
+        if record["worker_snapshot_digest"] != expected_worker_digest:
+            raise V1Reject("ledger_corrupt", "assignment_integrity")
+        authority_input = _assignment_authority_input(
+            record=record,
+            candidate=record["observed_candidate_snapshot"],
+            target_node_id=record["target_node_id"],
+            epoch=record["assignment_epoch"],
+            worker_snapshot_digest=expected_worker_digest,
+        )
+        expected_authority_digest = hashlib.sha256(
+            ASSIGNMENT_AUTHORITY_DOMAIN + canonical_bytes(authority_input)
+        ).hexdigest()
+        if record["assignment_authority_digest"] != expected_authority_digest:
+            raise V1Reject("ledger_corrupt", "assignment_integrity")
+    except (KeyError, TypeError, ValueError, V1Reject) as exc:
+        if isinstance(exc, V1Reject):
+            raise
+        raise V1Reject("ledger_corrupt", "assignment_integrity") from exc
+
+
+def _validate_assignment_record(
+    record: Mapping[str, Any],
+    *,
+    assignment_registry: ValidatedFederationV1KeyRegistry | None,
+    assignment_node_id: str | None,
+) -> None:
     """Validate optional Slice-02 fields without breaking Slice-01A records."""
     present = set(record) & ASSIGNMENT_RECORD_FIELDS
     if not present:
@@ -845,15 +984,29 @@ def _validate_assignment_record(record: Mapping[str, Any]) -> None:
             raise V1Reject("ledger_corrupt", "ledger")
         if not isinstance(record.get("observed_candidate_snapshot"), dict):
             raise V1Reject("ledger_corrupt", "ledger")
-        string_fields = ASSIGNMENT_NULL_FIELDS - {"observed_candidate_snapshot", "assignment_epoch"}
+        string_fields = ASSIGNMENT_NULL_FIELDS - {
+            "assignment_epoch",
+            "assignment_key_binding",
+            "observed_candidate_snapshot",
+        }
         if not all(isinstance(record.get(key), str) and record.get(key) for key in string_fields):
             raise V1Reject("ledger_corrupt", "ledger")
-        _validate_assignment_attestation_record(record)
+        _validate_assignment_digests(record)
+        _validate_assignment_attestation_record(
+            record,
+            assignment_registry=assignment_registry,
+            assignment_node_id=assignment_node_id,
+        )
     elif any(record.get(key) is not None for key in ASSIGNMENT_NULL_FIELDS):
         raise V1Reject("ledger_corrupt", "ledger")
 
 
-def _validate_assignment_attestation_record(record: Mapping[str, Any]) -> None:
+def _validate_assignment_attestation_record(
+    record: Mapping[str, Any],
+    *,
+    assignment_registry: ValidatedFederationV1KeyRegistry | None,
+    assignment_node_id: str | None,
+) -> None:
     try:
         encoded = record["assignment_wire_bytes_b64"]
         decoded = base64.b64decode(encoded, validate=True)
@@ -885,6 +1038,12 @@ def _validate_assignment_attestation_record(record: Mapping[str, Any]) -> None:
         raise V1Reject("ledger_corrupt", "assignment_attestation")
     if attestation["assignment_attestation_version"] != "federation-assignment-attestation-v1":
         raise V1Reject("ledger_corrupt", "assignment_attestation")
+    _validate_assignment_key_binding(
+        record,
+        attestation,
+        assignment_registry=assignment_registry,
+        assignment_node_id=assignment_node_id,
+    )
     content = {
         key: value
         for key, value in attestation.items()
@@ -1125,23 +1284,52 @@ def build_assignment_attestation(
 
 
 class TargetAdmissionLedger:
-    def __init__(self, path: str | Path):
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        assignment_registry: ValidatedFederationV1KeyRegistry | None = None,
+        node_id: str | None = None,
+    ):
         self.path, self._lock = Path(path), threading.RLock()
+        self.assignment_registry = assignment_registry
+        self.node_id = node_id
+
+    def bind_assignment_identity(
+        self,
+        *,
+        registry: ValidatedFederationV1KeyRegistry,
+        node_id: str,
+    ) -> None:
+        if not isinstance(registry, ValidatedFederationV1KeyRegistry):
+            raise V1Reject("registry_unvalidated", "assignment_provenance")
+        if self.node_id is not None and self.node_id != node_id:
+            raise V1Reject("assignment_node_mismatch", "assignment_provenance")
+        self.assignment_registry = registry
+        self.node_id = node_id
+
+    def _load(self) -> dict[str, Any]:
+        return _load(
+            self.path,
+            TARGET_RECORD_KEYS,
+            assignment_registry=self.assignment_registry,
+            assignment_node_id=self.node_id,
+        )
 
     def get(self, delegation_id: str) -> dict[str, Any] | None:
         with self._lock, _process_lock(self.path):
-            record = _load(self.path, TARGET_RECORD_KEYS)["delegations"].get(delegation_id)
+            record = self._load()["delegations"].get(delegation_id)
             return _assignment_defaults(record) if record is not None else None
 
     def record_finding(self, code: str, delegation_id: str | None = None) -> None:
         with self._lock, _process_lock(self.path):
-            document = _load(self.path, TARGET_RECORD_KEYS)
+            document = self._load()
             document["findings"].append({"code": code, "delegation_id": delegation_id})
             _atomic(self.path, document)
 
     def mark_receipt_sent(self, delegation_id: str) -> None:
         with self._lock, _process_lock(self.path):
-            doc = _load(self.path, TARGET_RECORD_KEYS)
+            doc = self._load()
             if delegation_id in doc["delegations"]:
                 doc["delegations"][delegation_id]["receipt_send_status"] = "sent"
                 _atomic(self.path, doc)
@@ -1159,7 +1347,7 @@ class TargetAdmissionLedger:
     ) -> tuple[str, dict[str, Any]]:
         did, digest = request["payload"]["delegation_id"], request["payload"]["request_digest"]
         with self._lock, _process_lock(self.path):
-            doc, existing = _load(self.path, TARGET_RECORD_KEYS), None
+            doc, existing = self._load(), None
             existing = doc["delegations"].get(did)
             if existing:
                 if existing["request_digest"] != digest:
@@ -1209,6 +1397,7 @@ class TargetAdmissionLedger:
         signing_key: Ed25519PrivateKey,
         signer_key_b64: str,
         key_id: str,
+        validated_key: ValidatedFederationV1Key | None = None,
         candidate_source: FederationV1CandidateSnapshotAdapter
         | Callable[[], Iterable[Mapping[str, Any]] | Mapping[str, Any]],
         observed_at: str,
@@ -1222,6 +1411,8 @@ class TargetAdmissionLedger:
         first = self.get(delegation_id)
         if first is None:
             raise V1Reject("unknown_delegation", "assignment")
+        if first.get("assignment_state") == "ASSIGNED":
+            return first
         if first.get("state") != "ACCEPTED":
             raise V1Reject("assignment_not_allowed", "assignment")
         if first.get("target_work_id") is None:
@@ -1229,6 +1420,19 @@ class TargetAdmissionLedger:
         if not _assignment_authority_allows(first):
             self.record_finding("assignment_authority_denied", delegation_id)
             raise V1Reject("authority_denied", "assignment_authority")
+        assignment_key_binding = _assignment_key_binding_from_validated(validated_key)
+        if (
+            assignment_key_binding["node_id"] != target_node_id
+            or assignment_key_binding["key_id"] != key_id
+            or assignment_key_binding["public_key_b64"] != signer_key_b64
+        ):
+            raise V1Reject("assignment_key_mismatch", "assignment_provenance")
+        signing_public_key = signing_key.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        if signing_public_key != validated_key.public_key:
+            raise V1Reject("assignment_key_mismatch", "assignment_provenance")
 
         first_observation = adapter.observe(observed_at=observed_at)
         second_observation = adapter.observe(observed_at=observed_at)
@@ -1257,6 +1461,7 @@ class TargetAdmissionLedger:
         assignment_authority_digest = hashlib.sha256(
             ASSIGNMENT_AUTHORITY_DOMAIN + canonical_bytes(authority_input)
         ).hexdigest()
+        assignment_key_binding_digest = _assignment_key_binding_digest(assignment_key_binding)
         attestation_wire, assignment_content_digest = build_assignment_attestation(
             record=first,
             target_node_id=target_node_id,
@@ -1270,18 +1475,12 @@ class TargetAdmissionLedger:
         )
         attestation = parse_canonical(attestation_wire)
         with self._lock, _process_lock(self.path):
-            document = _load(self.path, TARGET_RECORD_KEYS)
+            document = self._load()
             record = document["delegations"].get(delegation_id)
             if record is None:
                 raise V1Reject("unknown_delegation", "assignment")
             current = _assignment_defaults(record)
             if current.get("assignment_state") == "ASSIGNED":
-                if (
-                    current.get("worker_snapshot_digest") != worker_snapshot_digest
-                    or current.get("assignment_authority_digest") != assignment_authority_digest
-                    or current.get("assignment_wire_bytes_b64") != _b64(attestation_wire)
-                ):
-                    raise V1Reject("assignment_conflict", "assignment")
                 return current
             if current.get("state") != "ACCEPTED":
                 raise V1Reject("assignment_not_allowed", "assignment")
@@ -1299,6 +1498,8 @@ class TargetAdmissionLedger:
                     "assignment_message_hash": attestation["assignment_message_hash"],
                     "assignment_signature": attestation["assignment_signature"],
                     "assignment_wire_bytes_b64": _b64(attestation_wire),
+                    "assignment_key_binding": assignment_key_binding,
+                    "assignment_key_binding_digest": assignment_key_binding_digest,
                 }
             )
             document["delegations"][delegation_id] = current
@@ -1532,6 +1733,7 @@ class FederationV1Admission:
         signer_key_b64: str,
         key_id: str,
         registry: ValidatedFederationV1KeyRegistry,
+        identity_registry: ValidatedFederationV1KeyRegistry | None = None,
         enabled: bool = FEATURE_GATE_DEFAULT,
     ):
         (
@@ -1541,8 +1743,23 @@ class FederationV1Admission:
             self.signer_key_b64,
             self.key_id,
             self.registry,
+            self.identity_registry,
             self.enabled,
-        ) = ledger, node_id, signing_key, signer_key_b64, key_id, registry, enabled
+        ) = (
+            ledger,
+            node_id,
+            signing_key,
+            signer_key_b64,
+            key_id,
+            registry,
+            identity_registry,
+            enabled,
+        )
+        if identity_registry is not None:
+            self.ledger.bind_assignment_identity(
+                registry=identity_registry,
+                node_id=node_id,
+            )
 
     @staticmethod
     def _policy_allows(payload: Mapping[str, Any]) -> bool:
@@ -1654,12 +1871,24 @@ class FederationV1Admission:
         """Create one target-local ASSIGNED record; never emits a Federation receipt."""
         if not self.enabled:
             raise V1Reject("feature_disabled", "feature_gate")
+        existing = self.ledger.get(delegation_id)
+        if existing is not None and existing.get("assignment_state") == "ASSIGNED":
+            return existing
+        if self.identity_registry is None:
+            raise V1Reject("assignment_key_unavailable", "assignment_provenance")
+        try:
+            validated_key = self.identity_registry.lookup(self.key_id, at=observed_at)
+        except V1Reject as exc:
+            raise V1Reject("ledger_corrupt", "assignment_provenance") from exc
+        if validated_key.node_id != self.node_id:
+            raise V1Reject("assignment_key_mismatch", "assignment_provenance")
         return self.ledger.assign_candidate(
             delegation_id,
             target_node_id=self.node_id,
             signing_key=self.signing_key,
             signer_key_b64=self.signer_key_b64,
             key_id=self.key_id,
+            validated_key=validated_key,
             candidate_source=candidate_source,
             observed_at=observed_at,
         )

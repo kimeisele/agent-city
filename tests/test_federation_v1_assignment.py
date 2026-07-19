@@ -8,11 +8,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from city.federation_v1 import (
+    DOMAIN_SIGNING_KEY_AUTH,
     FEATURE_GATE_DEFAULT,
     V1Reject,
+    ValidatedFederationV1KeyRegistry,
     canonical_bytes,
     parse_canonical,
 )
@@ -33,6 +36,75 @@ def candidate(candidate_id: str = "sys_alpha") -> dict:
     }
 
 
+def test_foreign_valid_key_cannot_replace_target_assignment_attestation(
+    tmp_path: Path,
+) -> None:
+    target, ledger = admitted(tmp_path)
+    assign(target, lambda: [candidate()])
+    raw = json.loads(ledger.path.read_text())
+    record = raw["delegations"][REQUEST["payload"]["delegation_id"]]
+    attestation = parse_canonical(base64.b64decode(record["assignment_wire_bytes_b64"]))
+    foreign_private = Ed25519PrivateKey.from_private_bytes(
+        bytes.fromhex(KEYS["origin_signing_key"]["private_seed_hex"])
+    )
+    attestation["signer_key"] = KEYS["origin_signing_key"]["public_key_b64"]
+    attestation["key_id"] = REQUEST["key_id"]
+    unsigned = {
+        key: value
+        for key, value in attestation.items()
+        if key not in {"assignment_message_hash", "assignment_signature"}
+    }
+    attestation["assignment_message_hash"] = hashlib.sha256(
+        canonical_bytes(unsigned)
+    ).hexdigest()
+    attestation["assignment_signature"] = base64.b64encode(
+        foreign_private.sign(
+            b"STEWARD-FEDERATION-ASSIGNMENT-ATTESTATION-V1\x00"
+            + bytes.fromhex(attestation["assignment_message_hash"])
+        )
+    ).decode("ascii")
+    wire = canonical_bytes(attestation)
+    record["assignment_message_hash"] = attestation["assignment_message_hash"]
+    record["assignment_signature"] = attestation["assignment_signature"]
+    record["assignment_wire_bytes_b64"] = base64.b64encode(wire).decode("ascii")
+    ledger.path.write_text(json.dumps(raw))
+    with pytest.raises(V1Reject, match="ledger_corrupt"):
+        ledger.get(REQUEST["payload"]["delegation_id"])
+
+
+def test_key_revoked_at_assignment_time_fails_closed(tmp_path: Path) -> None:
+    target, ledger = admitted(tmp_path)
+    certificate_path = Path(__file__).parent / "fixtures" / "federation_v1" / "provenance"
+    enrollment = json.loads((certificate_path / "target_root_enrollment.json").read_text())
+    certificate = json.loads(
+        (certificate_path / "target_signing_key_certificate.json").read_text()
+    )
+    certificate["revocation_ref"] = "revoked-before-assignment"
+    body = {key: value for key, value in certificate.items() if key != "root_signature"}
+    root_private = Ed25519PrivateKey.from_private_bytes(
+        bytes.fromhex(KEYS["target_identity_root"]["private_seed_hex"])
+    )
+    digest = hashlib.sha256(canonical_bytes(body)).hexdigest()
+    certificate["root_signature"] = base64.b64encode(
+        root_private.sign(
+            DOMAIN_SIGNING_KEY_AUTH.encode("utf-8")
+            + b"\x00"
+            + bytes.fromhex(digest)
+        )
+    ).decode("ascii")
+    revoked_registry = ValidatedFederationV1KeyRegistry.from_provenance(
+        [enrollment], [certificate], now="2026-07-18T11:00:00Z"
+    )
+    target.identity_registry = revoked_registry
+    ledger.bind_assignment_identity(
+        registry=revoked_registry,
+        node_id=target.node_id,
+    )
+    with pytest.raises(V1Reject, match="ledger_corrupt"):
+        assign(target, lambda: [candidate()])
+    assert ledger.get(REQUEST["payload"]["delegation_id"])["assignment_state"] == "ACCEPTED"
+
+
 def admitted(tmp_path: Path):
     origin, target, *rest = services(tmp_path)
     _, carrier = origin.create(
@@ -46,20 +118,19 @@ def admitted(tmp_path: Path):
     return target, rest[-1]
 
 
-def assign(target, source):
+def assign(target, source, observed_at: str = "2026-07-18T11:02:00Z"):
     return target.assign_candidate(
         REQUEST["payload"]["delegation_id"],
         candidate_source=source,
-        observed_at="2026-07-18T11:02:00Z",
+        observed_at=observed_at,
     )
 
 
-def assign_in_fork(ledger_root: str) -> str:
+def assign_in_fork(args: tuple[str, str]) -> str:
     """Re-open the target from an independent process and assign once."""
+    ledger_root, observed_at = args
     _, target, *_ = services(Path(ledger_root))
-    return assign(target, lambda: [candidate()])[
-        "assignment_wire_bytes_b64"
-    ]
+    return assign(target, lambda: [candidate()], observed_at)["assignment_wire_bytes_b64"]
 
 
 def test_acceptance_becomes_one_target_local_assigned_attestation(tmp_path: Path) -> None:
@@ -108,15 +179,15 @@ def test_identical_duplicate_returns_byte_identical_local_evidence(tmp_path: Pat
     assert second["assignment_epoch"] == 1
 
 
-def test_changed_candidate_snapshot_is_assignment_conflict(tmp_path: Path) -> None:
+def test_assigned_retry_ignores_changed_candidate_source(tmp_path: Path) -> None:
     target, _ = admitted(tmp_path)
-    assign(target, lambda: [candidate()])
+    first = assign(target, lambda: [candidate()])
     changed = candidate("sys_beta")
-    with pytest.raises(V1Reject, match="assignment_conflict"):
-        assign(target, lambda: [changed])
+    second = assign(target, lambda: [changed], "2026-07-18T11:20:00Z")
+    assert second == first
 
 
-def test_changed_authority_binding_is_assignment_conflict(tmp_path: Path) -> None:
+def test_persisted_authority_mutation_fails_closed(tmp_path: Path) -> None:
     target, ledger = admitted(tmp_path)
     assign(target, lambda: [candidate()])
     raw = json.loads(ledger.path.read_text())
@@ -125,7 +196,7 @@ def test_changed_authority_binding_is_assignment_conflict(tmp_path: Path) -> Non
     ]["authority"]
     authority["allowed_actions"] = ["branch", "commit", "read"]
     ledger.path.write_text(json.dumps(raw))
-    with pytest.raises(V1Reject, match="assignment_conflict"):
+    with pytest.raises(V1Reject, match="ledger_corrupt"):
         assign(target, lambda: [candidate()])
 
 
@@ -240,12 +311,50 @@ def test_two_independent_processes_create_one_assignment(tmp_path: Path) -> None
     admitted(tmp_path)
     context = multiprocessing.get_context("fork")
     with context.Pool(2) as pool:
-        results = pool.map(assign_in_fork, [str(tmp_path), str(tmp_path)])
+        results = pool.map(
+            assign_in_fork,
+            [(str(tmp_path), "2026-07-18T11:02:00Z")] * 2,
+        )
     assert results[0] == results[1]
     persisted = json.loads((tmp_path / "target.json").read_text())["delegations"][
         REQUEST["payload"]["delegation_id"]
     ]
     assert persisted["assignment_state"] == "ASSIGNED"
+    assert persisted["assignment_epoch"] == 1
+
+
+def test_duplicate_retry_uses_stored_assignment_without_source_read(
+    tmp_path: Path,
+) -> None:
+    target, _ = admitted(tmp_path)
+    first = assign(target, lambda: [candidate()], "2026-07-18T11:02:00Z")
+    source_reads = 0
+
+    def forbidden_source():
+        nonlocal source_reads
+        source_reads += 1
+        raise AssertionError("ASSIGNED retry must not read the candidate source")
+
+    second = assign(target, forbidden_source, "2026-07-18T11:20:00Z")
+    assert source_reads == 0
+    assert second == first
+
+
+def test_process_race_with_different_times_returns_first_set_bytes(tmp_path: Path) -> None:
+    admitted(tmp_path)
+    context = multiprocessing.get_context("fork")
+    with context.Pool(2) as pool:
+        results = pool.map(
+            assign_in_fork,
+            [
+                (str(tmp_path), "2026-07-18T11:02:00Z"),
+                (str(tmp_path), "2026-07-18T11:20:00Z"),
+            ],
+        )
+    assert results[0] == results[1]
+    persisted = json.loads((tmp_path / "target.json").read_text())["delegations"][
+        REQUEST["payload"]["delegation_id"]
+    ]
     assert persisted["assignment_epoch"] == 1
 
 

@@ -57,6 +57,9 @@ Product and test changes are limited to:
 * `tests/test_federation_v1_assignment.py`
   * positive, duplicate, conflict, stale, unavailable, corruption,
     concurrency, process, crash, gate, and no-side-effect tests.
+* `tests/test_federation_v1_admission.py`
+  * binds the existing typed target identity registry into the target adapter
+    used by the assignment tests.
 * `docs/FEDERATION_DELEGATION_WIRING_MANIFEST_02.json`
   * static, versioned capability/audit documentation for this slice.
 * this review document.
@@ -99,6 +102,8 @@ assignment_content_digest     SHA-256 hex | null
 assignment_message_hash       SHA-256 hex | null
 assignment_signature           standard Base64 Ed25519 signature | null
 assignment_wire_bytes_b64      standard Base64 canonical attestation bytes | null
+assignment_key_binding         immutable validated-key snapshot | null
+assignment_key_binding_digest  SHA-256 hex over validated-key snapshot | null
 ```
 
 The transition is monotonic for this slice: `ACCEPTED -> ASSIGNED`. A rejected
@@ -138,24 +143,46 @@ with the assignment-candidate domain. The source generation is an observation
 fingerprint, not reservation, ownership, a lease, or a guarantee that the
 candidate remains available after the commit.
 
+The assignment signer is not trusted from the attestation alone. Before an
+`ACCEPTED` assignment, the target resolves its own `key_id` through the typed,
+immutable `ValidatedFederationV1KeyRegistry` snapshot already used by Slice
+01A. The registry record must bind the target node, signer public key, key ID,
+validity window, registry/certificate/activation epochs, and non-revoked state.
+The complete binding snapshot and a domain-separated binding digest are stored
+in the target ledger. On every `ASSIGNED` reload, the ledger checks:
+
+* binding node equals the admission target node and configured target identity;
+* attestation signer key and key ID equal the binding;
+* key ID derives from the bound public key;
+* `assigned_at` lies in the bound certificate window;
+* the typed registry still validates the same key record at `assigned_at`;
+* epoch and revocation fields match the immutable binding.
+
+A foreign valid Ed25519 signature, a foreign key ID, a wrong target key, a
+revoked key, or a persisted binding/digest mutation therefore fails closed as
+`ledger_corrupt` (or a narrower provenance failure before an assignment is
+created). A later retry cannot replace the first-set binding or create a second
+epoch.
+
 ## Atomic assignment and duplicate semantics
 
-1. Load and validate the target ledger under the existing process lock.
-2. Require an `ACCEPTED` record, a non-null Slice-01A `target_work_id`, and
-   allowed authority.
-3. Observe and normalize the candidate source twice.
-4. Compute candidate and authority digests and deterministically build and
-   sign the complete local attestation **before** the write.
-5. Reacquire the process lock, reload the latest ledger, and re-check the
-   current record.
-6. If it is still `ACCEPTED`, write all assignment fields and the complete
-   attestation in one atomic document replacement.
-7. If it is already `ASSIGNED`, return the stored record only when candidate
-   digest, authority digest, and complete attestation bytes match exactly;
-   otherwise raise `assignment_conflict` without a second assignment.
+1. Load and fully validate the target ledger under the existing process lock.
+2. If the record is already `ASSIGNED`, return the stored record immediately.
+   Do not read the Candidate source, derive a new observed time, or sign a new
+   attestation.
+3. For `ACCEPTED`, require a non-null Slice-01A `target_work_id`, allowed
+   authority, and a provenance-valid target signing-key record.
+4. Observe and normalize the candidate source twice.
+5. Compute candidate, authority, and key-binding digests and deterministically
+   build and sign the complete local attestation **before** the write.
+6. Reacquire the process lock and reload the latest ledger.
+7. If another process already persisted `ASSIGNED`, return that stored record
+   byte-for-byte, regardless of a later caller `observed_at` or candidate
+   source. Otherwise, write all assignment fields and complete attestation in
+   one atomic document replacement.
 
 The atomic commit contains the target work ID already present on the admission,
-assignment epoch, immutable candidate snapshot, candidate and authority
+assignment epoch, immutable candidate snapshot, candidate/authority/key-binding
 digests, assignment time, attestation ID/content/message hashes, signature, and
 the complete canonical attestation bytes. There is no intermediate assignment
 state and no separate evidence store.
@@ -210,8 +237,8 @@ this slice and cannot verify target-local candidate evidence remotely.
 | --- | --- | --- |
 | First accepted assignment | one `ASSIGNED`, epoch 1, complete attestation | `test_acceptance_becomes_one_target_local_assigned_attestation` |
 | Identical duplicate | byte-identical stored evidence; no second write semantics | `test_identical_duplicate_returns_byte_identical_local_evidence` |
-| Different candidate | `assignment_conflict`; record unchanged | `test_changed_candidate_snapshot_is_assignment_conflict` |
-| Changed valid authority binding | `assignment_conflict` | `test_changed_authority_binding_is_assignment_conflict` |
+| Assigned retry with different candidate source/time | stored byte-identical assignment; source not read | `test_assigned_retry_ignores_changed_candidate_source` |
+| Persisted authority mutation | `ledger_corrupt`; fail closed | `test_persisted_authority_mutation_fails_closed` |
 | Persisted epoch/work-ID mutation | `ledger_corrupt`; fail closed | `test_changed_persisted_assignment_binding_fails_closed` |
 | Source generation/candidate changes between observations | `candidate_snapshot_stale`; no evidence | `test_source_generation_change_is_stale_before_commit` |
 | No eligible candidate | `assignment_unavailable`; no evidence | `test_no_candidate_is_unavailable_without_attestation` |
@@ -221,6 +248,10 @@ this slice and cannot verify target-local candidate evidence remotely.
 | Two ledger instances/threads | at most one assignment and one byte set | `test_two_process_safe_instances_create_one_assignment` |
 | Two independent processes | at most one assignment and one byte set | `test_two_independent_processes_create_one_assignment` |
 | Mutated attestation signature | `ledger_corrupt` | `test_corrupt_assignment_attestation_fails_closed` |
+| Foreign valid signer/key ID replacement | `ledger_corrupt`; target binding unchanged | `test_foreign_valid_key_cannot_replace_target_assignment_attestation` |
+| Key revoked at assignment time | `ledger_corrupt`; no assignment | `test_key_revoked_at_assignment_time_fails_closed` |
+| Retry source not read after assignment | byte-identical first-set record | `test_duplicate_retry_uses_stored_assignment_without_source_read` |
+| Process race with different observed times | one first-set epoch and identical bytes | `test_process_race_with_different_times_returns_first_set_bytes` |
 | Dispatch/execution surface called | test fails immediately; no call is made | `test_assignment_does_not_call_dispatch_or_execution_surfaces` |
 
 The process lock protects the complete read-modify-write sequence. The atomic
@@ -237,12 +268,12 @@ ruff check city/federation_v1.py tests/test_federation_v1_assignment.py
 python -m py_compile city/federation_v1.py tests/test_federation_v1_assignment.py
   passed
 pytest -q tests/test_federation_v1_assignment.py
-  19 passed, 1 warning
+  23 passed, 1 warning
 pytest -q tests/test_federation_v1_assignment.py \
   tests/test_federation_v1_admission.py \
   tests/test_federation_v1_hardening.py \
   tests/test_federation_nadi.py tests/test_federation_relay.py tests/federation_v1
-  174 passed, 1 warning
+  178 passed, 1 warning
 pytest -q tests/test_mission_router.py tests/test_city_router.py \
   tests/test_federation_nadi.py tests/test_federation_relay.py tests/test_layer4.py
   144 passed, 184 warnings

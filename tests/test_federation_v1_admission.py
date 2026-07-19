@@ -71,6 +71,7 @@ def services(tmp_path: Path):
         signer_key_b64=KEYS["target_signing_key"]["public_key_b64"],
         key_id=MANIFEST["positive"]["root_enrollment"]["target"]["key_id"],
         registry=origin_registry,
+        identity_registry=target_registry,
         enabled=True,
     )
     return origin, target, origin_registry, target_registry, origin_ledger, target_ledger

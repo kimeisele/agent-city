@@ -29,6 +29,8 @@
       "ledger": "city.federation_v1.TargetAdmissionLedger",
       "candidate_source": "city.federation_v1.FederationV1CandidateSnapshotAdapter",
       "evidence": "target-local signed federation-assignment-attestation-v1",
+      "signer_provenance": "ValidatedFederationV1KeyRegistry-bound target key snapshot",
+      "duplicate_semantics": "ASSIGNED first-set record returned without candidate reread",
       "external_receipt": false,
       "lifecycle_maturity": "code_complete",
       "disposition": "disabled"
