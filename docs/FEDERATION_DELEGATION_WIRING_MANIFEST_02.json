@@ -1,0 +1,60 @@
+{
+  "manifest_version": "federation-wiring-v1",
+  "contract_version": "federation-delegation-v1",
+  "scope": "assignment_only_slice_02",
+  "feature_gate": {
+    "name": "FEDERATION_V1_DELEGATION_ENABLED",
+    "default": false
+  },
+  "status_semantics": {
+    "assignment_state": ["ACCEPTED", "ASSIGNED"],
+    "assigned_meaning": "target-local observed candidate snapshot durably bound; no work started",
+    "started_receipt": "not introduced by Slice 02",
+    "runtime_source": "documentation-only historical audit; not imported by runtime"
+  },
+  "entries": [
+    {
+      "operation": "delegate_task",
+      "direction": "Steward->Agent City",
+      "handler": "city.federation_v1.FederationV1Admission.handle",
+      "ledger": "city.federation_v1.TargetAdmissionLedger",
+      "receipt": "delegation_receipt(admission)",
+      "lifecycle_maturity": "crucible_verified",
+      "disposition": "disabled"
+    },
+    {
+      "operation": "target_local_assignment",
+      "direction": "Agent City target-local",
+      "handler": "city.federation_v1.FederationV1Admission.assign_candidate",
+      "ledger": "city.federation_v1.TargetAdmissionLedger",
+      "candidate_source": "city.federation_v1.FederationV1CandidateSnapshotAdapter",
+      "evidence": "target-local signed federation-assignment-attestation-v1",
+      "signer_provenance": "ValidatedFederationV1KeyRegistry-bound target key snapshot",
+      "duplicate_semantics": "ASSIGNED first-set record returned without candidate reread",
+      "external_receipt": false,
+      "lifecycle_maturity": "code_complete",
+      "disposition": "disabled"
+    },
+    {
+      "operation": "delegation_status_query",
+      "direction": "Origin->Target",
+      "lifecycle_maturity": "declared",
+      "disposition": "unavailable"
+    },
+    {
+      "operation": "delegation_status",
+      "direction": "Target->Origin",
+      "lifecycle_maturity": "declared",
+      "disposition": "unavailable"
+    }
+  ],
+  "legacy_isolation": {
+    "legacy_operation": "OP_DELEGATE_TASK",
+    "fallback": false,
+    "title_matching": false,
+    "mission_creation": false,
+    "queue_creation": false,
+    "worker_execution": false,
+    "external_assignment_receipt": false
+  }
+}
