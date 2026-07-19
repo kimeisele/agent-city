@@ -237,12 +237,12 @@ ruff check city/federation_v1.py tests/test_federation_v1_assignment.py
 python -m py_compile city/federation_v1.py tests/test_federation_v1_assignment.py
   passed
 pytest -q tests/test_federation_v1_assignment.py
-  18 passed, 1 warning
+  19 passed, 1 warning
 pytest -q tests/test_federation_v1_assignment.py \
   tests/test_federation_v1_admission.py \
   tests/test_federation_v1_hardening.py \
   tests/test_federation_nadi.py tests/test_federation_relay.py tests/federation_v1
-  173 passed, 1 warning
+  174 passed, 1 warning
 pytest -q tests/test_mission_router.py tests/test_city_router.py \
   tests/test_federation_nadi.py tests/test_federation_relay.py tests/test_layer4.py
   144 passed, 184 warnings

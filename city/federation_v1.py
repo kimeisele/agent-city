@@ -950,7 +950,12 @@ class FederationV1CandidateSnapshotAdapter:
 
     def _read(self) -> tuple[list[dict[str, Any]], str]:
         raw = self._source()
-        values = list(raw.values()) if isinstance(raw, Mapping) else list(raw)
+        if isinstance(raw, Mapping):
+            values = [raw] if "candidate_id" in raw else list(raw.values())
+        elif isinstance(raw, Iterable) and not isinstance(raw, (str, bytes)):
+            values = list(raw)
+        else:
+            raise V1Reject("candidate_snapshot_schema", "candidate_snapshot")
         normalized: list[dict[str, Any]] = []
         for value in values:
             if not isinstance(value, Mapping) or not set(value) <= self._SOURCE_FIELDS:

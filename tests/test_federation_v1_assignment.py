@@ -170,6 +170,12 @@ def test_no_candidate_is_unavailable_without_attestation(tmp_path: Path) -> None
     assert ledger.get(REQUEST["payload"]["delegation_id"])["assignment_state"] == "ACCEPTED"
 
 
+def test_single_mapping_candidate_source_is_supported(tmp_path: Path) -> None:
+    target, _ = admitted(tmp_path)
+    record = assign(target, lambda: candidate())
+    assert record["assigned_candidate_id"] == "sys_alpha"
+
+
 def test_authority_mismatch_is_fail_closed(tmp_path: Path) -> None:
     target, ledger = admitted(tmp_path)
     raw = json.loads(ledger.path.read_text())
