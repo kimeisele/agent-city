@@ -1,8 +1,8 @@
 # Maintenance Slice A1 — Explicit Contract-Execution Policy (Revision 0.2)
 
-Status: **PLAN ONLY — Agent-B review required before product code**  
-Repository: `kimeisele/agent-city`  
-Base pin: `709898f551da65bf8517405ee8011d32831d9dde` (`main`)  
+Status: **PLAN ONLY — Agent-B review required before product code**
+Repository: `kimeisele/agent-city`
+Base pin: `709898f551da65bf8517405ee8011d32831d9dde` (`main`)
 Accepted recon: `docs/MAINTENANCE_SLICE_A_CLI_TEST_GATE_RECON.md`, commit
 `263fe04ffb9a5b56f65dfcdac18dc58144b46c58`.
 

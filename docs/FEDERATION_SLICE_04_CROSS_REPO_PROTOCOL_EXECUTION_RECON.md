@@ -1,7 +1,7 @@
 # Federation Slice 04 — Cross-Repo Protocol and Execution Boundary Recon
 
-Status: **READ-ONLY RECON — no product code, no wire change, no activation**  
-Prepared from live `main` pins on 2026-07-21.  
+Status: **READ-ONLY RECON — no product code, no wire change, no activation**
+Prepared from live `main` pins on 2026-07-21.
 Heartbeat commits were excluded from the history sampling (`git log --invert-grep
 --grep=heartbeat`); the conclusions below come from current code, tests, and
 schemas rather than heartbeat commit volume.
