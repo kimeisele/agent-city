@@ -1,213 +1,209 @@
-# Maintenance Slice A1 — Explicit Contract-Execution Policy
+# Maintenance Slice A1 — Explicit Contract-Execution Policy (Revision 0.2)
 
 Status: **PLAN ONLY — Agent-B review required before product code**  
 Repository: `kimeisele/agent-city`  
 Base pin: `709898f551da65bf8517405ee8011d32831d9dde` (`main`)  
-Related recon: `docs/MAINTENANCE_SLICE_A_CLI_TEST_GATE_RECON.md` at
+Accepted recon: `docs/MAINTENANCE_SLICE_A_CLI_TEST_GATE_RECON.md`, commit
 `263fe04ffb9a5b56f65dfcdac18dc58144b46c58`.
 
-This document is a bounded implementation plan. It does not change the
-heartbeat contract, weaken governance, or authorize a production activation.
-Maintenance Slice A2 (campaign CLI bootstrap) is deliberately separate.
+This is the smallest plan for the accepted A1 defect. It does not introduce a
+general evidence platform. Maintenance Slice A2 (campaign CLI bootstrap) and
+Federation Slice 04 remain separate.
 
-## 1. Problem and evidence
+## 1. Defect and evidence
 
-The accepted A1 recon measured a deterministic timeout, not a child-process
-leak:
-
-* `scripts/heartbeat.py:main` invokes the Mayor cycle. With `--governance`,
-  `city/hooks/dharma/contracts_issues.py:ContractsHook.execute` calls
-  `ctx.contracts.check_all()`.
-* `city/contracts.py:ContractRegistry.check_all(cwd=None)` resolves `cwd` to
-  `Path.cwd()` and `check_tests_pass` starts `python -m pytest -x -q --tb=line
-  <cwd>`. The one-cycle smoke therefore starts an unbounded nested repository
-  test run synchronously.
-* The global `pyproject.toml` pytest timeout is 30 seconds. It is a test
-  harness deadline, not a product contract deadline, and must not be raised
-  globally as the fix.
-* The accepted measurements found 10/10 isolated heartbeat cutoffs and
-  repeated nested pytest processes, with no persistent child leak.
-
-The campaign CLI has a different cause: each of `apply`, `list`, and `show`
-builds a full runtime (`scripts/campaigns.py:_build_runtime` →
-`city.runtime:build_city_runtime` → `Spawner.materialize_existing`). It did not
-perform network, Git, worker, or Federation work. A1 must not change that path;
-it belongs to A2.
-
-## 2. Decision
-
-Introduce an explicit, typed contract-execution policy at the invocation
-boundary. The policy is selected by the caller/configuration and is never
-inferred from `Path.cwd()`, `PYTEST_CURRENT_TEST`, import order, or process
-name.
-
-The plan uses four evidence outcomes, which are persisted independently of the
-policy:
-
-* `executed`: the requested checks ran to a terminal result;
-* `deferred`: the policy intentionally postponed execution and records why;
-* `externally_supplied`: a caller supplied a validated, still-fresh evidence
-  record;
-* `unavailable`: the required evidence could not be produced or validated.
-
-The policy and outcome are separate fields. A bounded smoke may legitimately
-produce `deferred`; a production governance cycle may not silently treat that
-as success.
-
-## 3. Normative policy modes
-
-The implementation plan defines these modes (names are part of the proposed
-local API and require Agent-B acceptance before coding):
-
-| Mode | Intended caller | Allowed work | Missing/invalid evidence |
-|---|---|---|---|
-| `full` | daemon/production governance, explicit operator run | Run the complete configured contract set once, outside a nested test invocation | `unavailable` and fail closed; no governance success is reported |
-| `bounded` | one-cycle CLI/smoke | Run only an explicitly enumerated bounded set (no repository-wide pytest); the set and limit are recorded | `unavailable`; smoke reports non-success, never silently passes |
-| `evidence_only` | controlled caller with precomputed evidence | Do not execute tests; accept only a schema-valid, digest-bound, fresh evidence record | `unavailable` |
-| `deferred` | explicit maintenance/offline caller only | Record that execution was intentionally deferred | `deferred`; forbidden as an implicit production fallback |
-
-The one-cycle heartbeat smoke must pass `bounded` explicitly (for example by a
-CLI flag/config value). The normal daemon/governance entry point defaults to
-`full`. A production caller may use `evidence_only` only when an operator or a
-trusted scheduler explicitly supplies valid evidence under the freshness and
-scope rules below. No caller may downgrade `full` to `bounded` or `deferred`
-implicitly.
-
-## 4. Explicit configuration contract
-
-The proposed configuration object is conceptually:
+The deterministic timeout is:
 
 ```text
-ContractExecutionPolicy {
-    mode: full | bounded | evidence_only | deferred
-    contract_scope: immutable identifier of the configured contract set
-    evidence_path: optional, only for evidence_only
-    max_duration_seconds: mode-specific bounded value, not a global pytest timeout
-    allow_nested_runner: false by default
-    invocation_id: required opaque local audit ID
-}
+heartbeat → ContractsHook.execute
+          → ContractRegistry.check_all()
+          → check_tests_pass()
+          → python -m pytest -x -q --tb=line <repository>
+          → outer one-cycle smoke timeout
 ```
 
-The actual location (CLI option, runtime constructor, or config file) is an
-implementation decision for Agent-B review, but it must be explicit and
-serializable. `cwd` may identify the repository under test after policy
-selection; it is not allowed to select the policy. A configuration parse error,
-unknown mode, missing scope, or path substitution is fail-closed.
+Evidence pins:
 
-The policy must be passed into `ContractRegistry.check_all(...)` (or its
-replacement adapter) rather than read from ambient pytest variables. Existing
-callers without an explicit policy must be audited; production/daemon callers
-must receive `full`, while tests must opt into `bounded` or `evidence_only`.
+* `city/hooks/dharma/contracts_issues.py:ContractsHook.execute` calls
+  `ctx.contracts.check_all()` synchronously.
+* `city/contracts.py:ContractRegistry.check_all` currently uses
+  `cwd or Path.cwd()` and runs every registered contract.
+* `city/contracts.py:check_tests_pass` launches repository-wide pytest with a
+  configured 120-second child timeout.
+* `scripts/heartbeat.py:main` exposes `--cycles`, `--offline`, `--governance`,
+  and `--daemon`; the accepted smoke is one cycle with governance enabled.
+* `pyproject.toml` has a 30-second pytest test deadline. That is not changed.
+* The accepted measurements observed 10/10 deterministic heartbeat cutoffs and
+  no persistent child leak.
 
-## 5. Full-check and bounded-check semantics
+Campaign CLI has a different three-runtime-boot cost and remains A2; it is not
+changed by this plan.
 
-`full` executes the complete contract set configured for the invocation. A
-successful result means every required check produced a terminal pass result
-and its evidence was persisted. A timeout, runner error, missing result, or
-partial set is `unavailable`/failure, not pass.
+## 2. Narrow decision: exactly two modes
 
-`bounded` has a closed allow-list of checks and a closed scope digest. It must
-not call `python -m pytest` over the repository. If a bounded check needs a
-subprocess, the command, argument vector, timeout, and output digest are part
-of the audit record. The initial A1 slice should use precomputed lightweight
-contract probes or injected evidence, not invent a second test framework.
+A1 introduces only these explicit modes:
 
-`evidence_only` validates the supplied evidence schema, contract-scope digest,
-producer identity, creation time, expiry/freshness window, and terminal result.
-Evidence for another repository, scope, or policy is rejected.
+| Mode | Meaning | Allowed execution | Missing/invalid mode |
+|---|---|---|---|
+| `FULL` | Existing complete ContractRegistry semantics | Run every registered contract once; `tests_pass` may run the repository pytest in this mode | Fail closed; no governance success |
+| `BOUNDED` | One-cycle smoke contract policy | Run only the closed lightweight probe allowlist below; never repository-wide pytest | Fail closed; no silent skip |
 
-`deferred` is for explicitly named maintenance/offline workflows. It is never
-accepted as evidence of a production governance pass.
+There is no `evidence_only`, `deferred`, external evidence, freshness/expiry,
+producer trust, scheduler evidence, or new evidence ledger in A1. Those would
+require a separate recon/ADR if a real caller later needs them.
 
-## 6. Reentrancy and nested pytest rule
+The caller chooses the mode explicitly. It is not inferred from `Path.cwd()`,
+`PYTEST_CURRENT_TEST`, process names, import order, or an ambient test
+environment. A missing mode is an error, not an automatic downgrade.
 
-The contract runner must not recursively invoke a full repository pytest run
-from inside pytest or from another active full contract run. This is a policy
-rule, not an environment heuristic. The implementation must:
+## 3. Exact API and local result
 
-1. allocate an `invocation_id` and acquire a process-local plus inter-process
-   reentrancy marker keyed by `(contract_scope, mode)`;
-2. reject a second `full` execution for the same scope while the first is
-   active, recording `unavailable` with reason `reentrant_execution`;
-3. disallow `allow_nested_runner` for `full` in production configuration;
-4. release the marker in normal and exceptional teardown;
-5. make stale markers detectable and fail closed rather than silently starting
-   a second runner.
+The proposed narrow API is:
 
-`PYTEST_CURRENT_TEST` may be recorded as diagnostic context, but it is not a
-decision input. A one-cycle smoke is safe because it selects `bounded` before
-the cycle starts; the heartbeat code does not discover that it is under pytest.
+```python
+class ContractPolicy(str, Enum):
+    FULL = "full"
+    BOUNDED = "bounded"
 
-## 7. Audit evidence schema (plan)
+@dataclass(frozen=True)
+class ContractInvocation:
+    invocation_id: str
+    policy: ContractPolicy
+    contract_scope: str
 
-Each invocation writes one immutable append-only evidence record with a closed
-field set:
+@dataclass(frozen=True)
+class ContractAudit:
+    contract_invocation_id: str
+    policy_mode: str                 # "full" | "bounded"
+    contract_scope: str
+    started_at: str                  # RFC-3339 UTC
+    finished_at: str                 # RFC-3339 UTC
+    terminal_result: str              # "pass" | "fail" | "unavailable"
+    reason_code: str | None
+    executed_check_ids: tuple[str, ...]
 
-```json
-{
-  "schema": "agent-city-contract-evidence-v1",
-  "invocation_id": "ci_...",
-  "policy_mode": "full|bounded|evidence_only|deferred",
-  "outcome": "executed|deferred|externally_supplied|unavailable",
-  "contract_scope": "sha256:...",
-  "repository_root": "content-addressed or configured repo identity",
-  "producer": "daemon|cli_smoke|operator|external_evidence",
-  "started_at": "RFC-3339 UTC",
-  "finished_at": "RFC-3339 UTC|null",
-  "evidence_digest": "sha256:...|null",
-  "terminal_result": "pass|fail|unknown",
-  "reason_code": "...|null"
-}
+def ContractRegistry.check_all(
+    self, cwd: Path, *, invocation: ContractInvocation
+) -> tuple[list[ContractResult], ContractAudit]: ...
 ```
 
-No free-form field may decide authority, scope, or pass/fail. `externally_supplied`
-must point to an immutable evidence digest; a mutable path alone is not proof.
-Records are retained as audit evidence. This slice does not add a new runtime
-health dashboard or manually maintained health state.
+The exact type names may be adjusted during review, but the semantics are
+closed: `invocation.policy` is required and `cwd` is an explicit repository
+argument. A malformed invocation, unknown policy, empty scope, or omitted
+invocation fails closed before a check runs.
 
-## 8. Failure and governance rules
+The local audit is carried through the existing `ContractResult`/heartbeat
+operation and CityReport persistence path. A1 must not create a second
+append-only evidence or trust subsystem. The persisted fields are exactly the
+seven `ContractAudit` fields above; no external path or producer-authority
+claim is added.
 
-* Daemon/production `full` with unavailable, stale, partial, or reentrant
-  evidence fails closed and does not report a successful governance cycle.
-* One-cycle `bounded` with unavailable evidence returns a non-success result
-  with an auditable reason; it may not silently skip the contract hook.
-* `deferred` is visible in the result and audit ledger and is rejected by any
-  caller requiring production governance proof.
-* An invalid externally supplied record is `unavailable`, not `deferred`.
-* No global pytest timeout, heartbeat cadence, governance authority, or
-  contract definition is weakened.
+`contract_scope` is a deterministic identifier of the registered contract-name
+set and policy, not a mutable filesystem path. `executed_check_ids` is the
+actual ordered set returned by the registry, never a caller assertion.
 
-## 9. Minimal implementation and test sequence (after Agent-B review)
+## 4. BOUNDED allowlist (closed for A1)
 
-1. Add the typed policy/evidence boundary and closed validation.
-2. Thread explicit policy from heartbeat CLI/daemon entry points to the
-   contract hook/registry.
-3. Add the reentrancy marker and fail-closed teardown.
-4. Make the one-cycle smoke choose `bounded` explicitly; leave daemon default
-   `full`.
-5. Add tests for every mode, stale/foreign evidence, unknown mode, missing
-   scope, recursive invocation, marker cleanup, and production downgrade
-   attempts.
-6. Re-run the accepted heartbeat smoke and the Federation/Slice 01A–03 suites.
-   Do not modify Federation code or the campaign CLI in this PR.
+The initial `BOUNDED` set is exactly:
 
-Definition of done is behavioral: the smoke no longer launches an unbounded
-repository pytest run; daemon governance still requires complete or explicitly
-validated fresh evidence; every non-executed outcome is persisted and visible;
-and no nested runner can pass by recursion. A2 remains a later independent
-maintenance slice.
+| Contract ID | Callable | Allowed side effects | Max duration | Terminal result |
+|---|---|---|---:|---|
+| `ruff_clean` | `city.contracts.check_ruff_clean(cwd)` | read source/config; spawn `python -m ruff check --select F821,F811`; no writes/network | existing configured `ruff_timeout_s`, capped by A1 bounded limit | `passing` or `failing`; timeout/process error → `unavailable` |
+| `integrity` | `city.contracts.check_integrity(cwd, protected_files=...)` | read Git/protected-file state; no writes/network | bounded local limit (proposed 5s) | `passing` or `failing`; missing Git/state → `unavailable` |
 
-## 10. Explicit non-goals and review gate
+`tests_pass` is explicitly excluded from `BOUNDED`; it is the recursive
+repository pytest defect. `audit_clean` is also excluded from the first slice
+because it auto-discovers AuditKernel auditors and is not needed to prove the
+smoke boundary. Adding either requires a later plan revision.
 
-This plan does not authorize product code yet and does not include:
+The `ContractsHook` itself remains the proof that the hook ran: it receives the
+returned audit, appends the normal `contract_failing:<name>:<message>` operation
+for failures, and the heartbeat result persists the operation through the
+existing CityReport path. A bounded invocation with an empty or altered
+`executed_check_ids` is invalid. Thus A1 proves both hook execution and that no
+repository-wide pytest was launched, without injecting an external result.
 
-* a global timeout change;
-* a test skip, marker, or pytest configuration weakening;
-* campaign runtime optimization (A2);
-* Scheduler, Worker, Mission, Queue, Federation, READY, Claim, Lease, or
-  Started-Receipt changes;
-* Context Bridge, Provider Failover, or Execution-Spine work;
-* activation or authority changes.
+## 5. Caller/default matrix
 
-Agent-B must review the mode names, evidence schema, freshness rules, marker
-storage, and caller defaults before implementation.
+All current `ContractRegistry.check_all()` callers were inventoried on the
+accepted main pin:
+
+| Caller | Current behavior | A1 mode/argument | Missing/invalid policy |
+|---|---|---|---|
+| `city/hooks/dharma/contracts_issues.py:ContractsHook.execute` | implicit `check_all()` on every governance Dharma phase | receives explicit `ContractInvocation`; runtime caller chooses `FULL` or `BOUNDED` | fail closed; hook records unavailable and does not report governance pass |
+| `scripts/heartbeat.py:main` normal one-cycle command (`--cycles 1 --offline --governance`) | builds runtime and invokes Mayor cycle | command/test must pass explicit `--contract-policy bounded` | argument/config error; never infer from `--cycles` or pytest |
+| `scripts/heartbeat.py:main --daemon --governance` | continuous daemon | explicit `--contract-policy full` required; operational default is FULL only in the daemon’s explicit configuration, not ambient process detection | fail closed; no bounded downgrade |
+| `city/discussions_commands.py:_exec_heal` | direct operator `/heal` invokes `check_all()` before selecting a named contract | explicit `FULL` invocation (operator command is not a smoke) | fail closed and return unavailable; no silent bounded mode |
+| `tests/test_layer3.py` direct registry tests | unit tests currently call `check_all()` without policy | tests migrate to explicit `ContractInvocation(policy=FULL, ...)`; test helper may use BOUNDED only where the test asserts bounded semantics | missing invocation is an expected fail-closed unit case |
+| other Python callers | `rg` on the pinned tree found no additional `ContractRegistry.check_all()` calls; `PRLifecycle.check_all` is a different API | not applicable | any future caller must pass an invocation; code review rejects implicit defaults |
+
+The explicit CLI/config field is passed through `scripts/heartbeat.py:main` →
+`city.runtime:build_city_runtime` → `PhaseContext.contracts` →
+`ContractsHook.execute` → `ContractRegistry.check_all`. `ContractsHook` does
+not inspect CLI arguments, cwd, or pytest state. A regular production/unknown
+caller cannot receive BOUNDED implicitly.
+
+## 6. Reentrancy: process-local only in A1
+
+A1 does not create a lease, persistent marker, inter-process protocol, or
+network lock. The existing `scripts/heartbeat.py:_acquire_heartbeat_lock`
+uses `fcntl.flock` for single-writer heartbeat serialization, but it is not a
+contract-runner ownership primitive and is not repurposed.
+
+The A1 runner uses a process-local, exception-safe guard keyed by
+`(contract_scope, policy)` (for example a `contextvars.ContextVar` plus a
+thread-safe set). On direct recursion for the same scope, it returns an
+`unavailable` audit with `reason_code="reentrant_contract_execution"` and runs
+no child command. The guard is released in `finally`, including exceptions.
+
+Different scopes may run in parallel. A crashed process leaves no persistent
+marker; the operating system releases the heartbeat lock as before. An
+inter-process contract-runner guard, stale PID handling, and PID-reuse policy
+are explicitly outside A1 and require a separate recon if needed.
+
+## 7. FULL and BOUNDED invariants
+
+* `FULL` runs every registered contract exactly once for the invocation. A
+  missing result, child timeout, exception, or recursive call is terminal
+  `unavailable`/failure; it is never converted to pass.
+* `BOUNDED` runs exactly `("ruff_clean", "integrity")` in registry order. It
+  cannot call `check_tests_pass`, `python -m pytest <repository>`, or any
+  unlisted contract.
+* Both modes execute real callables; no injected or precomputed evidence is
+  accepted.
+* No mode changes contract definitions, governance authority, heartbeat
+  cadence, or global pytest configuration.
+* A bounded failure remains visible through the existing ContractResult,
+  hook operation, and CityReport/audit trail. It is not a skip.
+
+## 8. Required tests before implementation acceptance
+
+The implementation PR must add focused tests for:
+
+1. `FULL` success and failure, including `tests_pass` invocation only in FULL;
+2. `BOUNDED` success and failure with exactly the two allowlisted IDs;
+3. unknown mode and missing invocation fail closed;
+4. a caller attempting to downgrade a required FULL invocation to BOUNDED;
+5. direct recursion returns `unavailable` and launches no child;
+6. BOUNDED never executes `python -m pytest <repo>` (subprocess spy);
+7. the regular daemon path selects FULL explicitly;
+8. the one-cycle smoke command selects BOUNDED explicitly;
+9. audit fields contain actual IDs, times, result, and reason;
+10. guard cleanup after exceptions permits a later independent invocation.
+
+The PR must rerun the focused heartbeat smoke, Slice-01A/02/03 Federation
+suites, Ruff, and py_compile. It must not change Campaign CLI, Federation,
+Scheduler, Worker, Mission, Queue, READY, Claim, Lease, or Slice-04 code.
+
+## 9. Definition of done and non-goals
+
+A1 is complete only when the one-cycle smoke executes the bounded real probes,
+never starts an unbounded repository pytest child, and records a local audit
+showing the hook and exact check IDs ran. Daemon/production callers remain FULL
+and fail closed on unavailable evidence. No caller can silently inherit a
+different mode.
+
+Not in A1: external evidence, freshness, producer trust, deferred mode,
+Campaign CLI optimization (A2), inter-process contract leases, Federation,
+Scheduler/Worker/Mission/Queue changes, READY→Claim, Started/terminal receipts,
+Context Bridge, Provider Failover, Execution Spine, or activation.
