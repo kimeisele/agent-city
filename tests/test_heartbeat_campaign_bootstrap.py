@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -29,10 +30,16 @@ def test_apply_campaign_manifest_replaces_runtime_campaigns(tmp_path: Path):
         db=str(tmp_path / "city.db"),
         offline=True,
         governance=True,
+        contract_policy="bounded",
         federation=False,
         federation_dry_run=False,
     )
-    runtime = build_city_runtime(args=args, config={}, log=heartbeat.logging.getLogger("TEST_HEARTBEAT"))
+    runtime = build_city_runtime(
+        args=args,
+        config={},
+        log=heartbeat.logging.getLogger("TEST_HEARTBEAT"),
+    )
+    assert runtime.mayor._contract_invocation.policy.value == "bounded"
 
     payload_path = tmp_path / "campaign.json"
     payload_path.write_text(
@@ -87,22 +94,43 @@ def test_heartbeat_cli_smoke_with_campaign_manifest(tmp_path: Path):
             }
         )
     )
-    result = subprocess.run(
-        [
-            sys.executable,
-            "scripts/heartbeat.py",
-            "--cycles",
-            "1",
-            "--offline",
-            "--governance",
-            "--db",
-            str(tmp_path / "city.db"),
-            "--campaign-file",
-            str(payload_path),
-        ],
-        cwd=Path(__file__).parent.parent,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert "heartbeats complete" in result.stdout.lower()
+    child_env = {
+        "PATH": os.environ.get("PATH", ""),
+        "HOME": os.environ.get("HOME", ""),
+        "PYTHON_DOTENV_DISABLED": "1",
+        "OPENROUTER_API_KEY": "",
+        "OPENAI_API_KEY": "",
+        "MISTRAL_API_KEY": "",
+        "GROQ_API_KEY": "",
+        "GOOGLE_API_KEY": "",
+        "GEMINI_API_KEY": "",
+        "ANTHROPIC_API_KEY": "",
+    }
+    stdout_path = tmp_path / "heartbeat.stdout"
+    with stdout_path.open("w+") as stdout_file:
+        subprocess.run(
+            [
+                sys.executable,
+                "scripts/heartbeat.py",
+                "--cycles",
+                "1",
+                "--offline",
+                "--governance",
+                "--contract-policy",
+                "bounded",
+                "--db",
+                str(tmp_path / "city.db"),
+                "--campaign-file",
+                str(payload_path),
+            ],
+            cwd=Path(__file__).parent.parent,
+            check=True,
+            stdin=subprocess.DEVNULL,
+            stdout=stdout_file,
+            stderr=subprocess.DEVNULL,
+            env=child_env,
+            text=True,
+        )
+        stdout_file.seek(0)
+        stdout = stdout_file.read()
+    assert "heartbeats complete" in stdout.lower()

@@ -86,6 +86,7 @@ class PhaseContext:
     all_inventories: dict[str, list[dict]] = field(default_factory=dict)
     responded_threads: set[int] = field(default_factory=set)
     responded_threads_agents: set[str] = field(default_factory=set)
+    contract_invocation: object | None = None
 
     def __init__(
         self,
@@ -104,6 +105,7 @@ class PhaseContext:
         all_inventories=None,
         responded_threads=None,
         responded_threads_agents=None,
+        contract_invocation=None,
         **kwargs,
     ):
         self.pokedex = pokedex
@@ -115,6 +117,7 @@ class PhaseContext:
         self.active_agents = active_agents if active_agents is not None else set()
         self.gateway_queue = gateway_queue if gateway_queue is not None else []
         self.registry = registry if registry is not None else CityServiceRegistry()
+        self.contract_invocation = contract_invocation
         self._legacy_services = {}
         self.last_audit_time = last_audit_time
         self.recent_events = recent_events if recent_events is not None else []

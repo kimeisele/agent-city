@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from city.discovery_ledger import DiscoveryLedger
 from city.registry import (
     SVC_CAMPAIGNS,
+    SVC_CONTRACTS,
     SVC_DISCUSSIONS,
     SVC_MOLTBOOK_ASSISTANT,
     SVC_MOLTBOOK_CLIENT,
@@ -83,7 +84,12 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     bootstrap_steward_substrate(log)
 
     from vibe_core.cartridges.system.civic.tools.economy import CivicBank
-    from city.factory import BuildContext, CityServiceFactory, default_definitions, _perform_state_migration
+    from city.factory import (
+        BuildContext,
+        CityServiceFactory,
+        _perform_state_migration,
+        default_definitions,
+    )
     from city.gateway import CityGateway
     from city.mayor import Mayor
     from city.mayor.lifecycle import MayorLifecycleBridge
@@ -146,6 +152,22 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
     disabled = config.get("services", {}).get("disabled", [])
     factory.build_all(registry, build_ctx, disabled=disabled)
 
+    contract_invocation = None
+    raw_contract_policy = getattr(args, "contract_policy", None)
+    contracts = registry.get(SVC_CONTRACTS)
+    if raw_contract_policy is not None and contracts is not None:
+        from city.contracts import ContractInvocation
+
+        try:
+            contract_invocation = contracts.new_invocation(raw_contract_policy)
+        except ValueError:
+            # Preserve fail-closed behavior at the registry boundary.
+            contract_invocation = ContractInvocation(
+                invocation_id="invalid_contract_invocation",
+                policy=str(raw_contract_policy),
+                contract_scope="",
+            )
+
     mayor_lifecycle = MayorLifecycleBridge(state_path=state_paths.mayor_state_path)
     mayor = Mayor(
         _pokedex=pokedex,
@@ -154,6 +176,7 @@ def build_city_runtime(*, args: object, config: dict, log: logging.Logger) -> Ci
         _state_path=state_paths.mayor_state_path,
         _lifecycle=mayor_lifecycle,
         _registry=registry,
+        _contract_invocation=contract_invocation,
         _offline_mode=getattr(args, "offline", False),
     )
     runtime = CityRuntime(

@@ -158,7 +158,7 @@ def test_extract_rule_id_mapping():
 
 def test_create_pr_success():
     """Successful fix creates branch, commit, and PR."""
-    from city.heal_executor import FixResult, HealExecutor, PRResult
+    from city.heal_executor import FixResult, HealExecutor
 
     executor = HealExecutor(_cwd=Path("/tmp/test"))
 
@@ -202,7 +202,7 @@ def test_create_pr_success():
 
 def test_create_pr_no_changes_aborts():
     """No staged changes → no PR created."""
-    from city.heal_executor import FixResult, HealExecutor, PRResult
+    from city.heal_executor import FixResult, HealExecutor
 
     executor = HealExecutor(_cwd=Path("/tmp/test"))
 
@@ -232,7 +232,7 @@ def test_create_pr_no_changes_aborts():
 
 def test_create_pr_dry_run():
     """dry_run returns mock PRResult without git calls."""
-    from city.heal_executor import FixResult, HealExecutor, PRResult
+    from city.heal_executor import FixResult, HealExecutor
 
     executor = HealExecutor(_cwd=Path("/tmp/test"), _dry_run=True)
 
@@ -269,6 +269,12 @@ def _make_mayor(tmpdir: Path, **kwargs):
     pdx = Pokedex(db_path=str(tmpdir / "city.db"), bank=bank)
     gateway = CityGateway()
     network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
+
+    contracts = kwargs.get("_contracts")
+    if contracts is not None and "_contract_invocation" not in kwargs:
+        kwargs["_contract_invocation"] = contracts.new_invocation(
+            "full", invocation_id="layer4-full"
+        )
 
     return Mayor(
         _pokedex=pdx,

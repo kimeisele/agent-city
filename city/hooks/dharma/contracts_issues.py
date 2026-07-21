@@ -41,12 +41,23 @@ class ContractsHook(BasePhaseHook):
         return ctx.contracts is not None
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        results = ctx.contracts.check_all()
+        results, audit = ctx.contracts.check_all(
+            ctx.state_path.parent,
+            invocation=ctx.contract_invocation,
+        )
+        operations.append(
+            "contract_audit:"
+            f"{audit.contract_invocation_id}:{audit.policy_mode}:"
+            f"{audit.terminal_result}:{','.join(audit.executed_check_ids)}"
+        )
+        if audit.terminal_result == "unavailable":
+            operations.append(f"contract_execution_unavailable:{audit.reason_code}")
         for r in results:
             if r.status.value == "failing":
                 operations.append(f"contract_failing:{r.name}:{r.message}")
-                create_healing_mission(ctx, r)
-                _submit_contract_proposal(ctx, r)
+                if r.name != "contract_execution":
+                    create_healing_mission(ctx, r)
+                    _submit_contract_proposal(ctx, r)
 
 
 class IssueLifecycleHook(BasePhaseHook):
@@ -193,5 +204,4 @@ def _process_issue_directive(ctx: PhaseContext, directive: object) -> None:
     # Bind mission↔issue for lifecycle tracking
     if mission_id is not None and ctx.issues is not None:
         ctx.issues.bind_mission(directive.issue_number, mission_id)
-
 
