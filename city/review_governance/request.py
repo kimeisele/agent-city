@@ -117,7 +117,12 @@ class ReviewRequestB1:
         if not REPOSITORY_RE.fullmatch(repository):
             raise RequestError("INVALID_REPOSITORY")
         number = value["pull_request_number"]
-        if isinstance(number, bool) or not isinstance(number, int) or number <= 0:
+        if (
+            isinstance(number, bool)
+            or not isinstance(number, int)
+            or number <= 0
+            or number > 2**31 - 1
+        ):
             raise RequestError("INVALID_PR_NUMBER")
         entries = value["scope_entries"]
         if not isinstance(entries, list):

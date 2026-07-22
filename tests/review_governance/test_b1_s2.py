@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime, timezone
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from city.review_governance.artifacts import ArtifactError, write_artifacts
+from city.review_governance.artifacts import ArtifactError, read_artifacts, write_artifacts
 from city.review_governance.canonical import canonical_bytes
 from city.review_governance.emitter import EmitterError, emit_verdict
 from city.review_governance.request import RequestError, ReviewRequestB1, build_review_request
@@ -74,7 +75,14 @@ def evidence(request_record: ReviewRequestB1, provider: str = "reviewer") -> dic
     }
 
 
-def emit(request_record: ReviewRequestB1, *, provider: str = "reviewer", key=None, **kwargs):
+def emit(
+    request_record: ReviewRequestB1,
+    *,
+    provider: str = "reviewer",
+    key=None,
+    verdict_id: str = "verdict-1",
+    **kwargs,
+):
     signing, key = signer(key)
     refs = kwargs.pop("evidence_refs", [evidence(request_record, provider)])
     return emit_verdict(
@@ -88,6 +96,7 @@ def emit(request_record: ReviewRequestB1, *, provider: str = "reviewer", key=Non
         signer=signing,
         issued_at=datetime(2026, 7, 22, 13, tzinfo=timezone.utc),
         expires_at=datetime(2026, 7, 23, 13, tzinfo=timezone.utc),
+        verdict_id=verdict_id,
         **kwargs,
     ), key
 
@@ -179,6 +188,43 @@ def test_emitter_binds_every_request_identity_and_round_trips():
     assert result.state == "blocked"  # reviewer evidence is not independent proof
 
 
+def test_multiple_verdict_ids_share_request_lineage_and_change_signed_bytes():
+    record = request()
+    (first, first_raw), _ = emit(record, verdict_id="verdict-1")
+    (second, second_raw), _ = emit(record, verdict_id="verdict-2")
+    assert first.review_request_id == second.review_request_id == record.review_request_id
+    assert first.verdict_id != second.verdict_id
+    assert first_raw != second_raw
+    assert first.signature_input() != second.signature_input()
+
+
+def test_verdict_id_boundary_requires_explicit_or_factory_id():
+    record = request()
+    signing, _ = signer()
+    common = dict(
+        decision="approve",
+        review_reason="reviewed",
+        producer_core_classification="non_core",
+        evidence_refs=[evidence(record)],
+        reviewer_identity="reviewer-1",
+        reviewer_key_id="key_test",
+        signer=signing,
+        issued_at=datetime(2026, 7, 22, 13, tzinfo=timezone.utc),
+        expires_at=datetime(2026, 7, 23, 13, tzinfo=timezone.utc),
+    )
+    with pytest.raises(EmitterError, match="MISSING_OR_AMBIGUOUS_VERDICT_ID"):
+        emit_verdict(record, **common)
+    with pytest.raises(EmitterError, match="INVALID_VERDICT_ID"):
+        emit_verdict(record, verdict_id="bad id", **common)
+
+    class Factory:
+        def create(self, **_kwargs):
+            return "verdict-from-factory"
+
+    verdict, _ = emit_verdict(record, verdict_id_factory=Factory(), **common)
+    assert verdict.verdict_id == "verdict-from-factory"
+
+
 def test_emitter_copies_request_identities_without_override_surface():
     record = request()
     (verdict, _), _key = emit(record)
@@ -203,6 +249,7 @@ def test_emitter_signer_identity_and_key_mismatch_reject():
             signer=None,
             issued_at=datetime(2026, 7, 22, 13, tzinfo=timezone.utc),
             expires_at=datetime(2026, 7, 23, 13, tzinfo=timezone.utc),
+            verdict_id="verdict-missing-signer",
         )
     signing, _ = signer()
     with pytest.raises(EmitterError, match="REVIEWER_IDENTITY_MISMATCH"):
@@ -217,6 +264,7 @@ def test_emitter_signer_identity_and_key_mismatch_reject():
             signer=signing,
             issued_at=datetime(2026, 7, 22, 13, tzinfo=timezone.utc),
             expires_at=datetime(2026, 7, 23, 13, tzinfo=timezone.utc),
+            verdict_id="verdict-other",
         )
     with pytest.raises(SignerError):
         Ed25519ReviewerSigner(reviewer_identity="", reviewer_key_id="key", private_key=None)
@@ -242,6 +290,7 @@ def test_emitter_decision_reason_and_evidence_rules():
         signer=signer()[0],
         issued_at=datetime(2026, 7, 22, 13, tzinfo=timezone.utc),
         expires_at=datetime(2026, 7, 23, 13, tzinfo=timezone.utc),
+        verdict_id="verdict-2",
     )
     assert approved.signature_input() != changed.signature_input()
 
@@ -249,12 +298,66 @@ def test_emitter_decision_reason_and_evidence_rules():
 def test_artifact_writer_is_explicit_atomic_and_no_default_path(tmp_path):
     record = request()
     (verdict, _), _ = emit(record)
-    request_path, verdict_path = write_artifacts(tmp_path / "artifacts", record, verdict)
-    assert request_path.read_bytes() == record.canonical_bytes()
-    assert verdict_path.read_bytes() == verdict.canonical_bytes()
+    bundle_path = write_artifacts(tmp_path / "artifacts", record, verdict)
+    restored_request, restored_verdict = read_artifacts(bundle_path)
+    assert restored_request == record
+    assert restored_verdict == verdict
     with pytest.raises(ArtifactError, match="ARTIFACT_EXISTS"):
         write_artifacts(tmp_path / "artifacts", record, verdict)
     write_artifacts(tmp_path / "artifacts", record, verdict, overwrite=True)
+
+
+def test_artifact_bundle_rejects_binding_mismatches_before_writing(tmp_path):
+    record = request()
+    (verdict, _), _ = emit(record)
+    altered = ReviewVerdictB1.from_mapping({**verdict.to_mapping(), "pull_request_number": 7})
+    with pytest.raises(ArtifactError, match="ARTIFACT_BINDING_MISMATCH"):
+        write_artifacts(tmp_path / "artifacts", record, altered)
+    assert not (tmp_path / "artifacts" / "review-artifact-bundle.json").exists()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("repository", "other/repo"),
+        ("pull_request_number", 7),
+        ("reviewed_head_sha", "c" * 40),
+        ("review_request_base_sha", "c" * 40),
+        ("scope_digest", "sha256:" + "f" * 64),
+    ],
+)
+def test_artifact_bundle_rejects_each_lineage_binding(tmp_path, field, value):
+    record = request()
+    (verdict, _), _ = emit(record)
+    altered = dataclasses.replace(verdict, **{field: value})
+    with pytest.raises(ArtifactError, match="ARTIFACT_BINDING_MISMATCH"):
+        write_artifacts(tmp_path / field, record, altered)
+
+
+def test_artifact_bundle_failure_preserves_previous_bytes_and_cleans_temp(tmp_path, monkeypatch):
+    record = request()
+    (first, _), _ = emit(record, verdict_id="verdict-first")
+    path = write_artifacts(tmp_path / "artifacts", record, first)
+    before = path.read_bytes()
+    (second, _), _ = emit(record, verdict_id="verdict-second")
+
+    def fail_replace(_source, _target):
+        raise OSError("injected publication failure")
+
+    monkeypatch.setattr("city.review_governance.artifacts.os.replace", fail_replace)
+    with pytest.raises(OSError):
+        write_artifacts(tmp_path / "artifacts", record, second, overwrite=True)
+    assert path.read_bytes() == before
+    assert not list(path.parent.glob("tmp*"))
+
+
+def test_artifact_bundle_type_and_restrictive_permissions(tmp_path):
+    record = request()
+    (verdict, _), _ = emit(record)
+    with pytest.raises(ArtifactError, match="INVALID_ARTIFACT_TYPE"):
+        write_artifacts(tmp_path / "artifacts", record.to_mapping(), verdict)
+    path = write_artifacts(tmp_path / "artifacts", record, verdict)
+    assert path.stat().st_mode & 0o077 == 0
 
 
 def test_pure_builder_and_emitter_have_no_subprocess_or_network_side_effects():

@@ -12,7 +12,8 @@ from .schema import (
     ValidationResult,
 )
 from .request import ReviewRequestB1, build_review_request
-from .emitter import emit_verdict
+from .emitter import VerdictIdFactory, emit_verdict
+from .artifacts import read_artifacts, write_artifacts
 from .validator import DeterministicEvidenceVerifier, validate_verdict
 
 __all__ = [
@@ -20,6 +21,9 @@ __all__ = [
     "ReviewRequestB1",
     "build_review_request",
     "emit_verdict",
+    "VerdictIdFactory",
+    "read_artifacts",
+    "write_artifacts",
     "MergeReadinessEvaluationB1",
     "ReviewVerdictB1",
     "ReviewerKeyVerifier",

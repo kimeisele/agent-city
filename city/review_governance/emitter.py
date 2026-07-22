@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Iterable, Mapping
+import re
+from typing import Any, Iterable, Mapping, Protocol
 
 from .canonical import canonical_bytes, verdict_signature_input
 from .request import ReviewRequestB1
@@ -15,6 +16,20 @@ class EmitterError(ValueError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+VERDICT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+
+class VerdictIdFactory(Protocol):
+    def create(
+        self,
+        *,
+        review_request_id: str,
+        repository: str,
+        pull_request_number: int,
+        reviewed_head_sha: str,
+    ) -> str: ...
 
 
 def _time(value: dt.datetime) -> str:
@@ -35,11 +50,26 @@ def emit_verdict(
     signer: ReviewerSigner,
     issued_at: dt.datetime,
     expires_at: dt.datetime,
+    verdict_id_factory: VerdictIdFactory | None = None,
+    verdict_id: str | None = None,
 ) -> tuple[ReviewVerdictB1, bytes]:
     """Construct and sign exactly the request-bound verdict; never merge."""
 
     if signer is None or not callable(getattr(signer, "sign", None)):
         raise EmitterError("MISSING_SIGNER")
+    if (verdict_id_factory is None) == (verdict_id is None):
+        raise EmitterError("MISSING_OR_AMBIGUOUS_VERDICT_ID")
+    if verdict_id_factory is not None:
+        if not callable(getattr(verdict_id_factory, "create", None)):
+            raise EmitterError("MISSING_VERDICT_ID_FACTORY")
+        verdict_id = verdict_id_factory.create(
+            review_request_id=request.review_request_id,
+            repository=request.repository,
+            pull_request_number=request.pull_request_number,
+            reviewed_head_sha=request.reviewed_head_sha,
+        )
+    if not isinstance(verdict_id, str) or not VERDICT_ID_RE.fullmatch(verdict_id):
+        raise EmitterError("INVALID_VERDICT_ID")
     if reviewer_identity != request.requested_reviewer_identity:
         raise EmitterError("REVIEWER_IDENTITY_MISMATCH")
     if reviewer_identity != signer.reviewer_identity or reviewer_key_id != signer.reviewer_key_id:
@@ -63,7 +93,7 @@ def emit_verdict(
         raise EmitterError("INVALID_TIMESTAMP")
     unsigned = {
         "schema": "review-verdict-b1.1",
-        "verdict_id": request.review_request_id + ":verdict",
+        "verdict_id": verdict_id,
         "repository": request.repository,
         "pull_request_number": request.pull_request_number,
         "review_request_id": request.review_request_id,
