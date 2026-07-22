@@ -12,12 +12,12 @@ The current Agent City baseline has no `pull_request` workflow. The existing hea
 
 Scope:
 
-- closed `review-verdict-b1.1` shape;
+- closed immutable `ReviewVerdictB1` shape and separate local `MergeReadinessEvaluationB1` shape;
 - pure canonicalization adapter or minimal neutral extraction;
 - trusted reviewer-key verification with explicit allowlist and fail-closed unknown-key behavior;
 - repository/PR/head/scope binding;
 - consumer-side core recomputation;
-- append-only ledger records with distinct SHA fields.
+- append-only event ledger records with distinct SHA fields; readiness events never rewrite a signed verdict.
 
 Required tests:
 
@@ -27,7 +27,9 @@ Required tests:
 4. producer `core_classification` cannot lower consumer classification;
 5. U4 helper import is proven side-effect free, or the neutral extraction is tested;
 6. ledger append is immutable, ordered, and corruption fails closed;
-7. the six identity fields (`reviewed_head_sha`, request/current bases, check identities, merge expected head, final merge SHA) never alias.
+7. `ReviewVerdictB1` contains no mutable current-base integration result;
+8. a readiness evaluation can be invalidated or superseded without mutating the verdict;
+9. the distinct identity fields (`reviewed_head_sha`, request/current bases, integration check, merge expected head, final merge SHA) never alias.
 
 ## B1-S2 — request and Steward emitter
 
@@ -35,7 +37,7 @@ Scope:
 
 - canonical review request construction;
 - exact repository/PR/head/base capture;
-- signed verdict emission;
+- signed immutable verdict emission with H-bound evidence references;
 - no merge authority in the emitter.
 
 Required tests:
@@ -50,8 +52,8 @@ Required tests:
 
 Scope:
 
-- stable required checks `review-governance/head` and `review-governance/merge-result`;
-- raw-head security/static check and synthetic-merge integration check;
+- stable policy identities proposed as `review-governance/head` and `review-governance/merge-result`;
+- independently verified H-bound security evidence and synthetic-merge integration evidence;
 - current-base revalidation;
 - sole normal `PRLifecycleManager` merge caller;
 - SHA-bound squash merge using `gh pr merge --match-head-commit H` or REST `sha=H` fallback;
@@ -71,18 +73,21 @@ Required tests:
 10. ledger records reviewed head, checked integration identity, and final merge SHA separately;
 11. no second merge authority can call GitHub in the normal path;
 12. external/break-glass merge is recorded as `external_merge` with actor/reason.
+13. non-overlapping non-core base movement invalidates only affected readiness;
+14. core or overlapping base movement preserves the verdict as historical evidence but requires a new review request/verdict;
+15. a normal `pull_request` workflow is never treated as proof of a native H-bound check; B1-S3 must select and test a push workflow, explicit Check Run, or commit-status producer with permissions and fork behavior.
 
 ## Matrix of required identities
 
 | Scenario | H | B_request | B_current | head check | integration check | Expected |
 |---|---|---|---|---|---|---|
-| unchanged base | same | B1 | B1 | H success | M1 success | merge eligible |
-| non-overlap base drift | H1 | B1 | B2 | H1 success | M2 success | eligible after rerun |
-| core/overlap drift | H1 | B1 | B2 | H1 success | M2 success | fresh verdict required |
-| head moved | H2 | B1 | B1/B2 | H1 or H2 mismatch | any | stale/block |
-| merge result failed | H1 | B1 | B1 | H1 success | M1 failure | blocked |
-| obsolete merge result | H1 | B1 | B2 | H1 success | M1 only | blocked |
-| final race | H1 then H2 | B_current | B_current | success | success | atomic merge rejects H2 mismatch |
+| unchanged base | same | B1 | B1 | H-bound evidence | M1 success | merge eligible |
+| non-overlap base drift | H1 | B1 | B2 | H1 evidence remains valid | M2 success | eligible after new readiness |
+| core/overlap drift | H1 | B1 | B2 | H1 evidence remains historical | M2 success | fresh verdict required |
+| head moved | H2 | B1 | B1/B2 | H1 evidence mismatch | any | verdict/readiness stale |
+| merge result failed | H1 | B1 | B1 | H1 evidence | M1 failure | blocked |
+| obsolete merge result | H1 | B1 | B2 | H1 evidence | M1 only | blocked |
+| final race | H1 then H2 | B_current | B_current | valid H1 evidence | success | atomic merge rejects H2 mismatch |
 
 ## U1–U5 test ownership
 

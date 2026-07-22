@@ -8,11 +8,11 @@ Controlling issue: #2495. Baseline: Agent City `6bd06b5bed5707e114be059f703ce690
 
 B1 will establish one versioned, signed review-verdict contract and one normal merge authority. A verdict is valid only for the exact repository, pull request, reviewed head, canonical scope digest, and accepted reviewer identity. The consumer recomputes core-scope classification; it does not trust a producer-supplied boolean. The verdict ledger is append-only. `PRVerdictHook` validates and persists evidence only. `PRLifecycleManager` is the sole normal merge caller. A merge is a SHA-bound squash operation and external or break-glass merges remain visible as explicit audit outcomes.
 
-The CI/Base Binding Gate amendment selects **Model HM**:
+The CI/Base Binding Gate amendment selects **Model HM** with two separate artifacts:
 
-- security/static checks bind to the raw reviewed head `H`;
-- integration checks bind to GitHub's current synthetic pull-request merge result `M = merge(current_base, H)`;
-- both identities are required before a normal merge.
+- the immutable, reviewer-signed `ReviewVerdictB1` binds security judgment and independently verified head evidence to raw reviewed head `H`;
+- the mutable, Agent-City-owned `MergeReadinessEvaluationB1` binds current-base integration evidence to `M = merge(current_base, H)`;
+- both artifacts are required before a normal merge, but a later readiness evaluation never rewrites the signed verdict.
 
 This is a policy decision, not an implementation grant. If GitHub cannot expose a required check at the required SHA, the validator fails closed and the merge is not attempted.
 
@@ -25,6 +25,8 @@ The baseline Agent City repository has no `pull_request` workflow. Its existing 
 ## Scope and authority
 
 The verdict producer may attest to its own analysis. The Agent City consumer owns merge gating for Agent City. Steward independently computes and reports its assessment; disagreement escalates to Council and Steward's answer cannot lower Agent City's classification. No trust-on-first-use is permitted. The baseline still has two concrete merge-capable paths (`steward/pr_gate.py` emits CI/verdict decisions and Agent City's `PRVerdictHook` directly invokes `gh pr merge`), which is the reason B1-S3 must cut over to one normal authority. Their current core-file sets also differ (`steward/pr_gate.py` includes `CLAUDE.md`; Agent City's scanner does not); U3 therefore requires Agent City's consumer-side recomputation to win.
+
+The signed `ReviewVerdictB1` is immutable evidence of the reviewer's judgment about `H`. It contains no mutable current-base integration result. `MergeReadinessEvaluationB1` is a separate local append-only record owned by Agent City's merge-gating authority; it may be superseded whenever `B_current`, `M_current`, overlap classification, council state, or required checks change. Head-security evidence is represented inside the signed verdict only as independently verifiable, H-bound evidence references; it is not a mutable check result. Current-base integration evidence belongs only to the local readiness record.
 
 `PRVerdictHook` may:
 
@@ -64,10 +66,16 @@ Any `H1 -> H2` movement makes the verdict stale. `H2` is never silently substitu
 
 The minimum B1-S3 required set is two stable check identities, not display text chosen per run:
 
-- `review-governance/head` — security/static aggregate; check `head_sha == reviewed_head_sha`;
-- `review-governance/merge-result` — integration aggregate; check `head_sha == integration_check_sha` and `integration_check_sha` is the current synthetic merge result for `validated_current_base_sha + reviewed_head_sha`.
+- `review-governance/head` — proposed H-bound security/static evidence reference consumed by the signed verdict; it must bind to `reviewed_head_sha`.
+- `review-governance/merge-result` — proposed M-bound integration aggregate recorded in `MergeReadinessEvaluationB1`; `head_sha == integration_check_sha` and `integration_check_sha` is the current synthetic merge result for `validated_current_base_sha + reviewed_head_sha`.
 
 The names are proposed stable policy names; exact branch-protection registration is deferred to B1-S3. A check with a matching name but a different SHA is not evidence. If the branch-protection API cannot require both identities reliably, the consumer-side gate still requires both and refuses the merge.
+
+### Raw-head evidence production boundary
+
+A standard `on: pull_request` Actions job does **not** by itself create a raw-head check: its normal `GITHUB_SHA` is the synthetic merge result. Until B1-S3 selects and deploys a concrete producer, the signed verdict may carry an independently verified reviewer evidence reference whose provider record explicitly names `H` and whose digest is checked by the consumer. This is evidence bound to `H`, not a claim that an ordinary Actions check run was created on `H`.
+
+B1-S3 must choose one operational producer for a native H-bound check: a same-repository `push` workflow (not sufficient for fork PRs), an explicitly created Check Run, or a commit status on `H`. A Check Run/status producer requires the appropriate GitHub App/token permissions to write checks/statuses; the consumer requires read access to retrieve and compare `head_sha`. Fork workflows must not execute untrusted fork code with write privileges. Until that producer and fork-safe policy are approved, unknown, unavailable, or mismatched H evidence fails closed and no native `review-governance/head` required check is claimed.
 
 ## Merge-time identity chain
 
@@ -77,7 +85,7 @@ The ledger keeps these identities distinct:
 review_request
   -> reviewed_head_sha = H
   -> verdict (repository, PR, H, scope_digest)
-  -> head_check_sha = H
+  -> signed H-bound evidence reference(s)
   -> review_request_base_sha = B_request
   -> validated_current_base_sha = B_current
   -> integration_check_sha = M_current
@@ -106,3 +114,4 @@ This decision adds explicit state and check identity to the ledger and makes bas
 ## Amendment log
 
 - **Amendment 0.1 (2026-07-22):** resolved the CI/Base Binding Gate using official GitHub workflow/check API semantics; selected Model HM, Policy C, distinct SHA fields, and SHA-bound squash revalidation. Implementation remains unauthorized.
+- **Amendment 0.2 (2026-07-22):** separated immutable signed `ReviewVerdictB1` from mutable local `MergeReadinessEvaluationB1`, clarified that head-security evidence is an independently verified H-bound reference rather than mutable integration data, and documented the raw-head evidence production boundary. Implementation remains unauthorized.

@@ -25,7 +25,9 @@ No implementation issues for these slices are created by this package. They requ
 
 ## Open gate
 
-The **CI/Base Binding Gate remains open until resolved**. In particular, the package records how `pull_request` workflows bind `GITHUB_SHA` to GitHub's synthetic merge ref and how `github.event.pull_request.head.sha` identifies the raw head. The final policy and merge-time identity chain are documented, but B1 implementation remains blocked until Senior Lead review accepts this amendment.
+The **CI/Base Binding Gate remains open until resolved**. In particular, the package records how `pull_request` workflows bind `GITHUB_SHA` to GitHub's synthetic merge ref and how `github.event.pull_request.head.sha` identifies the raw head. The signed `ReviewVerdictB1` is immutable H-bound evidence; `MergeReadinessEvaluationB1` is mutable local current-base evidence. The final policy and merge-time identity chain are documented, but B1 implementation remains blocked until Senior Lead review accepts this amendment and B1-S3 selects the concrete native H-evidence producer.
+
+Amendment 0.2 separates those records and clarifies that a standard `pull_request` Actions job must not be described as an H-bound check. Until B1-S3 chooses a push workflow, explicit Check Run, or commit status (with permissions and fork behavior), H-security evidence remains an independently verified reference in the signed verdict.
 
 ## Non-goals
 

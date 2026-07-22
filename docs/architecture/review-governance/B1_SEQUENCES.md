@@ -13,14 +13,14 @@ Steward/Reviewer             Agent City consumer             GitHub
       |----------------------------->|                         |
       |                              | verify key/signature    |
       |                              | recompute scope/core    |
-      |                              | validate head check H  |
+      |                              | validate signed H evidence |
       |                              |------------------------>|
       |                              | fetch current B/H       |
       |                              | request merge-result CI |
       |                              |<-------------------------|
       |                              | M_current check success |
-      |                              | append verdict evidence |
-      |                              | final fetch H/B/checks  |
+      |                              | append verdict event + readiness R1 |
+      |                              | final fetch H/B/readiness |
       |                              | PUT merge sha=H,squash  |
       |                              |------------------------>|
       |                              |<-------------------------| S
@@ -33,15 +33,16 @@ The three merge-time facts are separate: `H` is the reviewed head, `M_current` i
 
 ```text
 B1 + H1 -> review request/verdict
-B1 + H1 -> head check succeeds on H1
+B1 + H1 -> signed verdict contains independently verified H-bound security evidence
 B1 advances to B2
 consumer computes D = paths(B1..B2)
 non-core and D has no reviewed/core overlap
-old verdict remains valid for H1
-old integration readiness is discarded
+V1 remains immutable and valid for H1
+R1 = readiness for B1 + H1 + M1 becomes obsolete
 CI produces M2 = merge(B2,H1)
 merge-result check succeeds on M2
-final merge revalidates H1 and B2, then squash-merges with sha=H1
+consumer appends R2 for H1 + B2 + M2
+final merge revalidates H1 and R2, then squash-merges with sha=H1
 ```
 
 No new reviewed head is invented. If `M2` cannot be produced or checked, merge is blocked.
@@ -52,9 +53,10 @@ No new reviewed head is invented. If `M2` cannot be produced or checked, merge i
 B1 + H1 -> verdict
 B1 advances to B2
 D = paths(B1..B2) overlaps changed scope or CORE_FILES
-old verdict remains historical evidence but is not merge-authorizing
+V1 remains immutable historical evidence but is no longer merge-authorizing
+any R1 readiness is invalidated
 new review request binds H1 to B2
-fresh head and merge-result checks are required
+fresh H-bound evidence and merge-result checks are required
 ```
 
 An uncomputable delta is treated as overlap/unknown and takes the same fail-closed branch. A conflict never receives a synthetic approval.
@@ -64,8 +66,8 @@ An uncomputable delta is treated as overlap/unknown and takes the same fail-clos
 ```text
 H1 -> review verdict and successful head check
 B_current + H1 -> M_current
-merge-result check on M_current fails or is unavailable
-ledger state = blocked
+signed H evidence remains valid, but merge-result evidence on M_current fails or is unavailable
+R_current = blocked; any prior readiness is invalidated
 PRLifecycleManager does not call merge
 ```
 
