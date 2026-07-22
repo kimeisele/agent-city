@@ -8,6 +8,7 @@ import datetime as dt
 import re
 from dataclasses import dataclass
 import unicodedata
+from types import MappingProxyType
 from typing import Any, Literal, Mapping, Protocol
 
 from .canonical import canonical_bytes, parse_canonical, verdict_signature_input
@@ -409,7 +410,7 @@ class MergeReadinessEvaluationB1:
             head,
             _sha(value["validated_current_base_sha"]),
             integration_sha,
-            tuple(normalized_checks),
+            tuple(MappingProxyType(check) for check in normalized_checks),
             value["base_drift_classification"],
             value["scope_overlap_result"],
             value["core_gate_state"],

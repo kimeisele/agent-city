@@ -81,6 +81,8 @@ def normalize_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
 
 def canonical_scope(entries: Iterable[Mapping[str, Any]]) -> tuple[dict[str, Any], ...]:
     normalized = [normalize_entry(entry) for entry in entries]
+    if len(normalized) > 2048:
+        raise ScopeError("INVALID_SCOPE")
     identities = [(item["previous_path"], item["path"], item["change_type"]) for item in normalized]
     if len(identities) != len(set(identities)):
         raise ScopeError("INVALID_SCOPE")
