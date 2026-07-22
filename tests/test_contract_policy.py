@@ -205,6 +205,36 @@ def test_heartbeat_daemon_rejects_bounded_policy():
     assert "--daemon requires --contract-policy full" in result.stderr
 
 
+def test_bounded_policy_rejects_unsupported_operator_invocations():
+    script = Path(__file__).parents[1] / "scripts" / "heartbeat.py"
+
+    def run(*extra: str):
+        return subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--governance",
+                "--contract-policy",
+                "bounded",
+                *extra,
+                "--db",
+                "/tmp/contract-policy-boundary.db",
+            ],
+            cwd=script.parents[1],
+            capture_output=True,
+            text=True,
+        )
+
+    for extra in (
+        ("--cycles", "1"),
+        ("--offline", "--cycles", "2"),
+        ("--offline",),
+    ):
+        result = run(*extra)
+        assert result.returncode != 0
+        assert "bounded is reserved for the one-cycle offline governance smoke" in result.stderr
+
+
 def test_contracts_hook_propagates_explicit_bounded_invocation(tmp_path: Path):
     from city.hooks.dharma.contracts_issues import ContractsHook
 

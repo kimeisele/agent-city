@@ -123,6 +123,12 @@ def main() -> None:
         parser.error("--contract-policy is required with --governance")
     if args.daemon and args.contract_policy == "bounded":
         parser.error("--daemon requires --contract-policy full")
+    if args.contract_policy == "bounded" and not (
+        args.governance and args.offline and args.cycles == 1 and not args.daemon
+    ):
+        parser.error(
+            "--contract-policy bounded is reserved for the one-cycle offline governance smoke"
+        )
 
     # Logging
     level = logging.DEBUG if args.verbose else logging.INFO
