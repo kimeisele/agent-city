@@ -256,7 +256,11 @@ def _exec_heal(cmd: DiscussionCommand, ctx: PhaseContext) -> str:
         return "Contract system is not available."
 
     contract_name = cmd.args.strip().lower()
-    results = ctx.contracts.check_all()
+    invocation = ctx.contracts.new_invocation("full")
+    results, _audit = ctx.contracts.check_all(
+        ctx.state_path.parent,
+        invocation=invocation,
+    )
     match = None
     for r in results:
         if r.name.lower() == contract_name:

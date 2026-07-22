@@ -75,6 +75,12 @@ def main() -> None:
         help="Wire Layer 3+4 governance (contracts, executor, issues)",
     )
     parser.add_argument(
+        "--contract-policy",
+        choices=("full", "bounded"),
+        default=None,
+        help="Explicit contract policy: full for daemon/operator, bounded for one-cycle smoke",
+    )
+    parser.add_argument(
         "--federation",
         action="store_true",
         help="Enable federation with mothership (Layer 6)",
@@ -112,6 +118,17 @@ def main() -> None:
         help="Merge campaign manifest into existing state instead of replacing campaign state",
     )
     args = parser.parse_args()
+
+    if args.governance and args.contract_policy is None:
+        parser.error("--contract-policy is required with --governance")
+    if args.daemon and args.contract_policy == "bounded":
+        parser.error("--daemon requires --contract-policy full")
+    if args.contract_policy == "bounded" and not (
+        args.governance and args.offline and args.cycles == 1 and not args.daemon
+    ):
+        parser.error(
+            "--contract-policy bounded is reserved for the one-cycle offline governance smoke"
+        )
 
     # Logging
     level = logging.DEBUG if args.verbose else logging.INFO

@@ -90,6 +90,7 @@ class Mayor:
     _registry: CityServiceRegistry = field(default_factory=CityServiceRegistry)
 
     _contracts: object = None
+    _contract_invocation: object = None
     _issues: object = None
     _sankalpa: object = None
     _audit: object = None

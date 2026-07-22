@@ -14,9 +14,13 @@ The ContractRegistry holds all contracts and can run them in batch.
 from __future__ import annotations
 
 import hashlib
+import contextvars
+import json
 import logging
 import subprocess
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from functools import partial
 from pathlib import Path
@@ -32,6 +36,53 @@ class ContractStatus(str, Enum):
 
     PASSING = "passing"
     FAILING = "failing"
+
+
+class ContractPolicy(str, Enum):
+    """Explicit contract execution policy."""
+
+    FULL = "full"
+    BOUNDED = "bounded"
+
+
+@dataclass(frozen=True)
+class ContractInvocation:
+    """Caller-supplied identity for one explicit contract run."""
+
+    invocation_id: str
+    policy: ContractPolicy | str
+    contract_scope: str
+
+
+@dataclass(frozen=True)
+class ContractAudit:
+    """Small local audit result carried through existing heartbeat reporting."""
+
+    contract_invocation_id: str
+    policy_mode: str
+    contract_scope: str
+    started_at: str
+    finished_at: str
+    terminal_result: str
+    reason_code: str | None
+    executed_check_ids: tuple[str, ...]
+
+
+BOUNDED_CONTRACT_IDS = ("ruff_clean", "integrity")
+_ACTIVE_INVOCATIONS: contextvars.ContextVar[set[tuple[str, str]]] = contextvars.ContextVar(
+    "agent_city_contract_invocations", default=set()
+)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _policy_value(policy: ContractPolicy | str) -> ContractPolicy | None:
+    try:
+        return policy if isinstance(policy, ContractPolicy) else ContractPolicy(policy)
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass
@@ -69,17 +120,189 @@ class ContractRegistry:
         self._contracts[contract.name] = contract
         logger.info("Registered contract: %s", contract.name)
 
-    def check_all(self, cwd: Path | None = None) -> list[ContractResult]:
-        """Run all registered contracts. Returns list of results."""
-        cwd = cwd or Path.cwd()
-        results: list[ContractResult] = []
-        for contract in self._contracts.values():
-            result = contract.check(cwd)
-            contract.last_result = result
-            results.append(result)
-            if result.status == ContractStatus.FAILING:
-                logger.warning("Contract FAILING: %s — %s", result.name, result.message)
-        return results
+    def contract_scope(self, policy: ContractPolicy | str) -> str:
+        """Return the scope digest for the current registry and policy."""
+        normalized = _policy_value(policy)
+        if normalized is None:
+            raise ValueError("unknown_contract_policy")
+        names = list(self._contracts) if normalized is ContractPolicy.FULL else list(
+            BOUNDED_CONTRACT_IDS
+        )
+        if normalized is ContractPolicy.BOUNDED and any(
+            name not in self._contracts for name in names
+        ):
+            raise ValueError("bounded_contract_missing")
+        raw = json.dumps(
+            {"policy": normalized.value, "contracts": names},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+    def new_invocation(
+        self, policy: ContractPolicy | str, *, invocation_id: str | None = None
+    ) -> ContractInvocation:
+        normalized = _policy_value(policy)
+        if normalized is None:
+            raise ValueError("unknown_contract_policy")
+        return ContractInvocation(
+            invocation_id=invocation_id or f"contract_{uuid.uuid4().hex}",
+            policy=normalized,
+            contract_scope=self.contract_scope(normalized),
+        )
+
+    @staticmethod
+    def _unavailable_audit(
+        invocation_id: str,
+        policy_mode: str,
+        scope: str,
+        started_at: str,
+        reason: str,
+    ) -> ContractAudit:
+        return ContractAudit(
+            contract_invocation_id=invocation_id,
+            policy_mode=policy_mode,
+            contract_scope=scope,
+            started_at=started_at,
+            finished_at=_utc_now(),
+            terminal_result="unavailable",
+            reason_code=reason,
+            executed_check_ids=(),
+        )
+
+    def check_all(
+        self,
+        cwd: Path,
+        *,
+        invocation: ContractInvocation | None,
+    ) -> tuple[list[ContractResult], ContractAudit]:
+        """Run contracts under an explicit FULL or BOUNDED invocation."""
+        started_at = _utc_now()
+        if invocation is None:
+            audit = self._unavailable_audit("missing", "unknown", "", started_at, "missing_policy")
+            return [
+                ContractResult(
+                    name="contract_execution",
+                    status=ContractStatus.FAILING,
+                    message="Contract policy is required",
+                )
+            ], audit
+        policy = _policy_value(invocation.policy)
+        if policy is None:
+            audit = self._unavailable_audit(
+                invocation.invocation_id,
+                str(invocation.policy),
+                invocation.contract_scope,
+                started_at,
+                "unknown_policy",
+            )
+            return [
+                ContractResult(
+                    name="contract_execution",
+                    status=ContractStatus.FAILING,
+                    message="Unknown contract policy",
+                )
+            ], audit
+        try:
+            expected_scope = self.contract_scope(policy)
+        except ValueError as exc:
+            audit = self._unavailable_audit(
+                invocation.invocation_id,
+                policy.value,
+                invocation.contract_scope,
+                started_at,
+                str(exc),
+            )
+            return [
+                ContractResult(
+                    name="contract_execution",
+                    status=ContractStatus.FAILING,
+                    message=str(exc),
+                )
+            ], audit
+        if not invocation.invocation_id or invocation.contract_scope != expected_scope:
+            audit = self._unavailable_audit(
+                invocation.invocation_id or "missing",
+                policy.value,
+                invocation.contract_scope,
+                started_at,
+                "invalid_invocation",
+            )
+            return [
+                ContractResult(
+                    name="contract_execution",
+                    status=ContractStatus.FAILING,
+                    message="Contract invocation does not match registry scope",
+                )
+            ], audit
+
+        key = (invocation.contract_scope, policy.value)
+        active = set(_ACTIVE_INVOCATIONS.get())
+        if key in active:
+            audit = self._unavailable_audit(
+                invocation.invocation_id,
+                policy.value,
+                invocation.contract_scope,
+                started_at,
+                "reentrant_contract_execution",
+            )
+            return [
+                ContractResult(
+                    name="contract_execution",
+                    status=ContractStatus.FAILING,
+                    message="Recursive contract execution refused",
+                )
+            ], audit
+
+        active.add(key)
+        token = _ACTIVE_INVOCATIONS.set(active)
+        try:
+            selected = (
+                list(self._contracts)
+                if policy is ContractPolicy.FULL
+                else list(BOUNDED_CONTRACT_IDS)
+            )
+            results: list[ContractResult] = []
+            for name in selected:
+                contract = self._contracts[name]
+                result = contract.check(cwd)
+                contract.last_result = result
+                results.append(result)
+                if result.status == ContractStatus.FAILING:
+                    logger.warning("Contract FAILING: %s — %s", result.name, result.message)
+            terminal = (
+                "pass"
+                if all(r.status is ContractStatus.PASSING for r in results)
+                else "fail"
+            )
+            audit = ContractAudit(
+                contract_invocation_id=invocation.invocation_id,
+                policy_mode=policy.value,
+                contract_scope=invocation.contract_scope,
+                started_at=started_at,
+                finished_at=_utc_now(),
+                terminal_result=terminal,
+                reason_code=None if terminal == "pass" else "contract_failed",
+                executed_check_ids=tuple(result.name for result in results),
+            )
+            return results, audit
+        except Exception:
+            audit = self._unavailable_audit(
+                invocation.invocation_id,
+                policy.value,
+                invocation.contract_scope,
+                started_at,
+                "contract_exception",
+            )
+            return [
+                ContractResult(
+                    name="contract_execution",
+                    status=ContractStatus.FAILING,
+                    message="Contract execution raised an exception",
+                )
+            ], audit
+        finally:
+            _ACTIVE_INVOCATIONS.reset(token)
 
     def check_one(self, name: str, cwd: Path | None = None) -> ContractResult | None:
         """Run a single contract by name."""

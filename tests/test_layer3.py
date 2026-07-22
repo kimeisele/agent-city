@@ -164,7 +164,9 @@ def test_contract_register_and_check():
         check=always_pass,
     ))
 
-    results = registry.check_all()
+    results, _audit = registry.check_all(
+        Path.cwd(), invocation=registry.new_invocation("full", invocation_id="test-full")
+    )
     assert len(results) == 1
     assert results[0].status == ContractStatus.PASSING
     assert results[0].name == "test"
@@ -189,7 +191,9 @@ def test_contract_failing_filter():
     registry.register(QualityContract(name="good", description="OK", check=pass_check))
     registry.register(QualityContract(name="bad", description="Broken", check=fail_check))
 
-    registry.check_all()
+    registry.check_all(
+        Path.cwd(), invocation=registry.new_invocation("full", invocation_id="test-failing")
+    )
     failing = registry.failing()
     assert len(failing) == 1
     assert failing[0].name == "bad"
@@ -233,7 +237,9 @@ def test_contract_stats():
     assert s["unchecked"] == 2
 
     # After checking
-    registry.check_all()
+    registry.check_all(
+        Path.cwd(), invocation=registry.new_invocation("full", invocation_id="test-stats")
+    )
     s = registry.stats()
     assert s["passing"] == 1
     assert s["failing"] == 1
@@ -255,6 +261,12 @@ def _make_mayor(tmpdir: Path, **kwargs):
     pdx = Pokedex(db_path=str(tmpdir / "city.db"), bank=bank)
     gateway = CityGateway()
     network = CityNetwork(_address_book=gateway.address_book, _gateway=gateway)
+
+    contracts = kwargs.get("_contracts")
+    if contracts is not None and "_contract_invocation" not in kwargs:
+        kwargs["_contract_invocation"] = contracts.new_invocation(
+            "full", invocation_id="layer3-full"
+        )
 
     return Mayor(
         _pokedex=pdx,
@@ -311,7 +323,9 @@ def test_healing_mission_created_from_failing_contract():
     tmpdir = Path(tempfile.mkdtemp())
 
     def fail_check(cwd: Path) -> ContractResult:
-        return ContractResult(name="ruff_clean", status=ContractStatus.FAILING, message="3 violations")
+        return ContractResult(
+            name="ruff_clean", status=ContractStatus.FAILING, message="3 violations"
+        )
 
     contracts = ContractRegistry()
     contracts.register(QualityContract(name="ruff_clean", description="Ruff", check=fail_check))

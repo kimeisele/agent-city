@@ -25,6 +25,7 @@ class MayorContextBridge:
             active_agents=mayor._active_agents,
             gateway_queue=mayor._gateway_queue,
             registry=mayor._registry,
+            contract_invocation=mayor._contract_invocation,
             last_audit_time=mayor._last_audit_time,
             recent_events=mayor._recent_events,
         )
