@@ -54,11 +54,21 @@ def normalize_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
     previous = _path(entry["previous_path"], allow_none=True)
     base_sha = _sha(entry["base_blob_sha"], allow_none=True)
     head_sha = _sha(entry["head_blob_sha"], allow_none=True)
-    if change_type in {"renamed", "copied"} and previous is None:
+    if change_type == "added" and (
+        previous is not None or base_sha is not None or head_sha is None
+    ):
         raise ScopeError("INVALID_SCOPE")
-    if change_type == "added" and base_sha is not None:
+    if change_type == "modified" and (
+        previous is not None or base_sha is None or head_sha is None or base_sha == head_sha
+    ):
         raise ScopeError("INVALID_SCOPE")
-    if change_type == "deleted" and head_sha is not None:
+    if change_type == "deleted" and (
+        previous is not None or base_sha is None or head_sha is not None
+    ):
+        raise ScopeError("INVALID_SCOPE")
+    if change_type in {"renamed", "copied"} and (
+        previous is None or base_sha is None or head_sha is None or previous == path
+    ):
         raise ScopeError("INVALID_SCOPE")
     return {
         "path": path,
@@ -71,8 +81,16 @@ def normalize_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
 
 def canonical_scope(entries: Iterable[Mapping[str, Any]]) -> tuple[dict[str, Any], ...]:
     normalized = [normalize_entry(entry) for entry in entries]
-    identities = [(item["path"], item["previous_path"]) for item in normalized]
+    identities = [(item["previous_path"], item["path"], item["change_type"]) for item in normalized]
     if len(identities) != len(set(identities)):
+        raise ScopeError("INVALID_SCOPE")
+    final_paths = [item["path"] for item in normalized]
+    if len(final_paths) != len(set(final_paths)):
+        raise ScopeError("INVALID_SCOPE")
+    source_paths = [
+        item["previous_path"] for item in normalized if item["change_type"] in {"renamed", "copied"}
+    ]
+    if len(source_paths) != len(set(source_paths)):
         raise ScopeError("INVALID_SCOPE")
     normalized.sort(key=lambda item: (item["path"], item["previous_path"] or ""))
     return tuple(normalized)

@@ -11,13 +11,14 @@ from .schema import (
     ReviewerKeyVerifier,
     ValidationResult,
 )
-from .validator import validate_verdict
+from .validator import DeterministicEvidenceVerifier, validate_verdict
 
 __all__ = [
     "EvidenceRefB1",
     "MergeReadinessEvaluationB1",
     "ReviewVerdictB1",
     "ReviewerKeyVerifier",
+    "DeterministicEvidenceVerifier",
     "ValidationResult",
     "validate_verdict",
 ]

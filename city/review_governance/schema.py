@@ -8,7 +8,7 @@ import datetime as dt
 import re
 from dataclasses import dataclass
 import unicodedata
-from typing import Any, Mapping, Protocol
+from typing import Any, Literal, Mapping, Protocol
 
 from .canonical import canonical_bytes, parse_canonical, verdict_signature_input
 
@@ -74,6 +74,12 @@ class SchemaError(ValueError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+VALIDATION_STATES = frozenset({"valid", "rejected", "stale", "blocked"})
+EVIDENCE_STATES = frozenset(
+    {"structurally_valid", "externally_verified", "unavailable", "mismatched"}
+)
 
 
 def _str(value: Any, field: str, *, max_len: int = 512) -> str:
@@ -362,20 +368,47 @@ class MergeReadinessEvaluationB1:
             "scope_overlap_result": {"none", "overlap", "unknown"},
             "core_gate_state": {"non_core", "core_pending_council", "core_approved", "blocked"},
             "council_state": {"not_required", "pending", "approved", "rejected", "unknown"},
-            "readiness_state": {"ready", "invalidated", "blocked", "merged", "external_merge"},
+            "readiness_state": {"ready", "invalidated", "blocked"},
         }
         for field, options in allowed.items():
             if value[field] not in options:
+                raise SchemaError("INVALID_ENUM")
+        repository = _str(value["repository"], "repository", max_len=255)
+        if not REPOSITORY_RE.fullmatch(repository):
+            raise SchemaError("INVALID_REPOSITORY")
+        integration_sha = _sha(value["integration_check_sha"])
+        check_names: set[str] = set()
+        run_ids: set[str] = set()
+        for check in normalized_checks:
+            if check["head_sha"] != integration_sha:
+                raise SchemaError("INVALID_SHA")
+            if check["name"] in check_names or check["run_id"] in run_ids:
+                raise SchemaError("INVALID_TYPE")
+            check_names.add(check["name"])
+            run_ids.add(check["run_id"])
+        core_state = value["core_gate_state"]
+        council_state = value["council_state"]
+        if core_state == "core_approved" and council_state != "approved":
+            raise SchemaError("INVALID_ENUM")
+        if value["readiness_state"] == "ready":
+            if (
+                not normalized_checks
+                or any(check["conclusion"] != "success" for check in normalized_checks)
+                or value["base_drift_classification"] not in {"none", "non_core_non_overlap"}
+                or value["scope_overlap_result"] != "none"
+                or core_state not in {"non_core", "core_approved"}
+                or council_state not in {"not_required", "approved"}
+            ):
                 raise SchemaError("INVALID_ENUM")
         return cls(
             READINESS_SCHEMA,
             _id(value["evaluation_id"], "evaluation_id"),
             _id(value["verdict_id"], "verdict_id"),
-            _str(value["repository"], "repository", max_len=255),
+            repository,
             number,
             head,
             _sha(value["validated_current_base_sha"]),
-            _sha(value["integration_check_sha"]),
+            integration_sha,
             tuple(normalized_checks),
             value["base_drift_classification"],
             value["scope_overlap_result"],
@@ -409,11 +442,24 @@ class MergeReadinessEvaluationB1:
 
 @dataclass(frozen=True)
 class ValidationResult:
-    state: str
+    state: Literal["valid", "rejected", "stale", "blocked"]
     error_code: str | None
     message: str
     validated_identity: ReviewVerdictB1 | None = None
-    evidence_state: str = "unavailable"
+    evidence_state: Literal[
+        "structurally_valid", "externally_verified", "unavailable", "mismatched"
+    ] = "unavailable"
+    schema_valid: bool = False
+    signature_valid: bool = False
+
+    def __post_init__(self) -> None:
+        if (
+            self.state not in VALIDATION_STATES
+            or self.evidence_state not in EVIDENCE_STATES
+            or not isinstance(self.schema_valid, bool)
+            or not isinstance(self.signature_valid, bool)
+        ):
+            raise ValueError("invalid validation result state")
 
 
 class ReviewerKeyVerifier(Protocol):
