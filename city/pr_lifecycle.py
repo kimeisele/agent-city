@@ -16,6 +16,7 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 from config import get_config
 from city.review_governance.merge_authority import (
@@ -27,6 +28,19 @@ logger = logging.getLogger("AGENT_CITY.PR_LIFECYCLE")
 _pr_cfg = get_config().get("pr_lifecycle", {})
 STALE_HEARTBEATS: int = _pr_cfg.get("stale_heartbeats", 40)
 AUTO_MERGE: bool = _pr_cfg.get("auto_merge", True)
+LEGACY_MUTATION_DENY_REPOSITORY = "kimeisele/agent-city"
+
+
+def _repository_from_pr_url(pr_url: str) -> str | None:
+    if not isinstance(pr_url, str):
+        return None
+    parsed = urlparse(pr_url.strip())
+    if parsed.scheme != "https" or parsed.netloc != "github.com":
+        return None
+    parts = parsed.path.strip("/").split("/")
+    if len(parts) != 4 or parts[2] != "pull" or not parts[3].isdigit():
+        return None
+    return f"{parts[0]}/{parts[1]}"
 
 
 @dataclass
@@ -194,7 +208,15 @@ class PRLifecycleManager:
         return False
 
     def _close_stale_pr(self, pr_url: str) -> None:
-        """Close a stale PR with comment."""
+        """Close a stale PR with comment only outside the denied target.
+
+        Legacy lifecycle has no pinned B1 identity, so Agent City mutations
+        fail closed even though the method remains for historical records.
+        """
+        repository = _repository_from_pr_url(pr_url)
+        if repository is None or repository == LEGACY_MUTATION_DENY_REPOSITORY:
+            logger.warning("PR lifecycle: stale close denied for %s", pr_url)
+            return
         pr_ref = pr_url.rstrip("/").split("/")[-1]
         _gh_run(
             [
