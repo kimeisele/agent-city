@@ -498,8 +498,10 @@ class ReviewGovernanceMergeAuthority:
             "merge_attempt_succeeded", "attempt_id", attempt_id
         )
         if proof is None:
-            self._record_external_merge(state, reason="INTERNAL_SUCCESS_PROOF_UNAVAILABLE")
-            raise MergeAuthorityError("EXTERNAL_MERGE_OBSERVED")
+            if state.merged_by != actor:
+                self._record_external_merge(state, reason="INTERNAL_SUCCESS_PROOF_UNAVAILABLE")
+                raise MergeAuthorityError("EXTERNAL_MERGE_OBSERVED")
+            raise MergeAuthorityError("MERGE_CAUSALITY_INDETERMINATE")
         if (
             proof["payload"].get("actor") != state.merged_by
             or proof["payload"].get("expected_head_sha") != state.current_head_sha
