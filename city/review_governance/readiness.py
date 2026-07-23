@@ -18,6 +18,8 @@ from .evidence import (
     HeadEvidenceResult,
     IntegrationEvidenceProvider,
     IntegrationEvidenceResult,
+    head_evidence_digest,
+    integration_evidence_digest,
 )
 from .ledger import ShadowLedger
 from .policy import BaseDriftEvaluation, PolicyCDecision, evaluate_base_drift, evaluate_policy_c
@@ -468,6 +470,20 @@ def evaluate_shadow_readiness(
                 "integration_check_sha": snapshot.integration_identity,
                 "merge_expected_head_sha": verdict_obj.reviewed_head_sha,
                 "readiness_state": evaluation.readiness_state,
+                "head_evidence_identity": (
+                    head_evidence_digest(head) if head.state == "verified" else None
+                ),
+                "integration_evidence_identity": (
+                    integration_evidence_digest(integration)
+                    if integration.state == "verified"
+                    else None
+                ),
+                "integration_provider": integration.provider,
+                "integration_producer_identity": integration.producer_identity,
+                "integration_run_or_check_identity": integration.run_or_check_identity,
+                "integration_source_head_sha": integration.source_head_sha,
+                "integration_source_base_sha": integration.source_base_sha,
+                "integration_conclusion": integration.conclusion,
             },
         )
     outcome = (

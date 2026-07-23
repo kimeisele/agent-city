@@ -86,6 +86,10 @@ class GitHubFinalMergeStateResolver:
         if (
             self.verdict.repository != self.request.repository
             or self.verdict.pull_request_number != self.request.pull_request_number
+            or self.verdict.reviewed_head_sha != self.request.reviewed_head_sha
+            or self.verdict.review_request_base_sha != self.request.review_request_base_sha
+            or self.verdict.scope_digest != self.request.scope_digest
+            or self.verdict.reviewed_files != self.request.reviewed_files
         ):
             self._fail("REQUEST_LINEAGE_MISMATCH")
         if self.verdict.review_request_id != self.request.review_request_id:
@@ -149,6 +153,17 @@ class GitHubFinalMergeStateResolver:
             for check in self.evaluation.required_check_results
             if check["name"] == MERGE_POLICY and check["head_sha"] == snapshot.integration_identity
         )
+        try:
+            readiness_record = self.ledger.latest_readiness_record(
+                repository=self.request.repository,
+                pull_request_number=self.request.pull_request_number,
+                reviewed_head_sha=self.request.reviewed_head_sha,
+                evaluation_id=self.evaluation.evaluation_id,
+            )
+        except LedgerError as exc:
+            raise FinalResolverError(exc.code) from exc
+        expected_integration_digest = readiness_record.get("integration_evidence_identity")
+        expected_head_digest = readiness_record.get("head_evidence_identity")
         if (
             len(required) != 1
             or integration.state != "verified"
@@ -158,7 +173,10 @@ class GitHubFinalMergeStateResolver:
             or integration.source_base_sha != snapshot.current_base_sha
             or integration.observed_sha != snapshot.integration_identity
             or integration.run_or_check_identity != required[0]["run_id"]
-            or integration_evidence_digest(integration) == ""
+            or not isinstance(expected_integration_digest, str)
+            or integration_evidence_digest(integration) != expected_integration_digest
+            or not isinstance(expected_head_digest, str)
+            or head_ref.evidence_digest != expected_head_digest
             or not self.producer_trust.is_trusted(
                 repository=self.request.repository,
                 policy_name=MERGE_POLICY,
@@ -204,7 +222,7 @@ class GitHubFinalMergeStateResolver:
             head.state,
             head_ref.evidence_digest,
             integration.state,
-            f"{integration.provider}:{integration.run_or_check_identity}",
+            integration_evidence_digest(integration),
             council.state,
             latest,
             invalidated,

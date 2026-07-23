@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
 import subprocess
-import uuid
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
@@ -163,6 +164,11 @@ def _timestamp() -> str:
     return dt.datetime.now(dt.UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _worker_identity(actor: str) -> str:
+    """Bind a reservation to this concrete local worker execution."""
+    return f"{actor}@pid:{os.getpid()}@thread:{threading.get_ident()}"
+
+
 class ReviewGovernanceMergeAuthority:
     def __init__(
         self,
@@ -226,6 +232,24 @@ class ReviewGovernanceMergeAuthority:
             or ledger_head != state.ledger_head_identity
         ):
             raise MergeAuthorityError("READINESS_LINEAGE_INVALID")
+        try:
+            lineage = self.ledger.latest_readiness_record(
+                repository=evaluation.repository,
+                pull_request_number=evaluation.pull_request_number,
+                reviewed_head_sha=evaluation.reviewed_head_sha,
+                evaluation_id=evaluation.evaluation_id,
+            )
+        except LedgerError as exc:
+            raise MergeAuthorityError(exc.code) from exc
+        expected_head_identity = lineage.get("head_evidence_identity")
+        expected_integration_identity = lineage.get("integration_evidence_identity")
+        if (
+            not isinstance(expected_head_identity, str)
+            or state.head_evidence_identity != expected_head_identity
+            or not isinstance(expected_integration_identity, str)
+            or state.integration_evidence_identity != expected_integration_identity
+        ):
+            raise MergeAuthorityError("EVIDENCE_IDENTITY_CHANGED")
 
     def merge(
         self,
@@ -283,60 +307,58 @@ class ReviewGovernanceMergeAuthority:
             raise MergeAuthorityError("READINESS_NOT_READY")
         if self.ledger is None:
             raise MergeAuthorityError("LEDGER_REQUIRED")
+        worker_identity = _worker_identity(actor)
         state = final_resolver.resolve()
         if not isinstance(state, FinalMergeSnapshotB1):
             raise MergeAuthorityError("FINAL_RESOLVER_INVALID")
         self._validate_final_state(evaluation, state, allow_merged_confirmation=True)
-        reservation = self.ledger.find_event_by_payload(
-            "merge_attempt_reserved", "evaluation_id", evaluation.evaluation_id
+        committed = self.ledger.reserve_merge_attempt(
+            evaluation_id=evaluation.evaluation_id,
+            payload_factory=lambda nonce: {
+                "attempt_id": f"merge-attempt:{evaluation.evaluation_id}:{nonce}",
+                "attempt_nonce": nonce,
+                "worker_identity": worker_identity,
+                "repository": evaluation.repository,
+                "pull_request_number": evaluation.pull_request_number,
+                "evaluation_id": evaluation.evaluation_id,
+                "verdict_id": evaluation.verdict_id,
+                "reviewed_head_sha": evaluation.reviewed_head_sha,
+                "validated_current_base_sha": evaluation.validated_current_base_sha,
+                "integration_check_sha": evaluation.integration_check_sha,
+                "merge_expected_head_sha": evaluation.merge_expected_head_sha,
+                "actor": actor,
+                "reason": reason,
+                "timestamp": _timestamp(),
+                "state": "reserved",
+            },
         )
-        attempt_id = (
-            reservation["payload"]["attempt_id"]
-            if reservation is not None
-            else f"merge-attempt:{evaluation.evaluation_id}:{uuid.uuid4().hex}"
-        )
-        completion = self.ledger.find_event_by_payload(
-            "merge_completed", "evaluation_id", evaluation.evaluation_id
-        )
-        completion_id = completion["event_id"] if completion is not None else f"merge:{attempt_id}"
+        if committed.get("event_type") == "merge_completed":
+            reservation = None
+            completion = committed
+        else:
+            reservation = committed
+            completion = self.ledger.find_event_by_payload(
+                "merge_completed", "evaluation_id", evaluation.evaluation_id
+            )
         if completion is not None:
             if not state.merged or state.final_merge_sha != completion["payload"].get(
                 "final_merge_sha"
             ):
                 raise MergeAuthorityError("MERGE_CONFIRMATION_MISMATCH")
             return state
-        if state.merged and reservation is None:
-            raise MergeAuthorityError("EXTERNAL_MERGE_REQUIRES_OBSERVATION")
         if reservation is None:
-            try:
-                self.ledger.append(
-                    "merge_attempt_reserved",
-                    attempt_id,
-                    {
-                        "attempt_id": attempt_id,
-                        "attempt_nonce": attempt_id.rsplit(":", 1)[-1],
-                        "worker_identity": actor,
-                        "repository": evaluation.repository,
-                        "pull_request_number": evaluation.pull_request_number,
-                        "evaluation_id": evaluation.evaluation_id,
-                        "verdict_id": evaluation.verdict_id,
-                        "reviewed_head_sha": evaluation.reviewed_head_sha,
-                        "validated_current_base_sha": evaluation.validated_current_base_sha,
-                        "integration_check_sha": evaluation.integration_check_sha,
-                        "merge_expected_head_sha": evaluation.merge_expected_head_sha,
-                        "actor": actor,
-                        "reason": reason,
-                        "timestamp": _timestamp(),
-                        "state": "reserved",
-                    },
-                )
-            except LedgerError as exc:
-                raise MergeAuthorityError("LEDGER_RESERVATION_FAILED") from exc
-        elif (
+            raise MergeAuthorityError("LEDGER_RESERVATION_FAILED")
+        attempt_id = reservation["payload"].get("attempt_id")
+        if not isinstance(attempt_id, str) or not attempt_id:
+            raise MergeAuthorityError("LEDGER_CORRUPTION")
+        if (
             reservation["payload"].get("merge_expected_head_sha")
             != evaluation.merge_expected_head_sha
         ):
             raise MergeAuthorityError("MERGE_ATTEMPT_CONFLICT")
+        if reservation["payload"].get("worker_identity") != worker_identity:
+            raise MergeAuthorityError("MERGE_ATTEMPT_OWNERSHIP_CONFLICT")
+        completion_id = f"merge:{attempt_id}"
         # Re-resolve after reservation so state changes during the append
         # cannot reach GitHub without a final predicate check.
         state = final_resolver.resolve()
@@ -394,6 +416,7 @@ class ReviewGovernanceMergeAuthority:
                     "pull_request_number": evaluation.pull_request_number,
                     "expected_head_sha": run_result.expected_head_sha,
                     "actor": actor,
+                    "worker_identity": worker_identity,
                     "runner_started_at": run_result.runner_started_at,
                     "runner_completed_at": run_result.runner_completed_at,
                 },
@@ -433,6 +456,7 @@ class ReviewGovernanceMergeAuthority:
                     "merge_expected_head_sha": evaluation.merge_expected_head_sha,
                     "final_merge_sha": confirmed.final_merge_sha,
                     "actor": actor,
+                    "worker_identity": worker_identity,
                     "reason": reason,
                     "timestamp": _timestamp(),
                 },
@@ -504,6 +528,8 @@ class ReviewGovernanceMergeAuthority:
             raise MergeAuthorityError("MERGE_CAUSALITY_INDETERMINATE")
         if (
             proof["payload"].get("actor") != state.merged_by
+            or proof["payload"].get("worker_identity")
+            != reservation["payload"].get("worker_identity")
             or proof["payload"].get("expected_head_sha") != state.current_head_sha
             or not (
                 proof["payload"].get("runner_started_at", "")
@@ -538,6 +564,7 @@ class ReviewGovernanceMergeAuthority:
                     "merge_expected_head_sha": evaluation.merge_expected_head_sha,
                     "final_merge_sha": state.final_merge_sha,
                     "actor": actor,
+                    "worker_identity": reservation["payload"].get("worker_identity"),
                     "reason": reason,
                     "timestamp": _timestamp(),
                 },

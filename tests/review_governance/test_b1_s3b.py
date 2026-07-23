@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import datetime as dt
 import json
+import threading
 
 import pytest
 
@@ -23,9 +24,12 @@ from city.review_governance.final_resolver import GitHubFinalMergeStateResolver
 from city.review_governance.evidence import (
     StaticHeadEvidenceProvider,
     StaticIntegrationEvidenceProvider,
+    head_evidence_digest,
+    integration_evidence_digest,
 )
 from city.review_governance.schema import EvidenceRefB1
 from city.review_governance.schema import MergeReadinessEvaluationB1
+from city.review_governance.ledger import LedgerError, ShadowLedger
 
 REPO = "kimeisele/agent-city"
 HEAD = "a" * 40
@@ -144,12 +148,14 @@ def test_merge_is_expected_head_bound_and_records_final_sha(tmp_path) -> None:
     ledger.append(
         "merge_readiness_evaluated",
         "evaluation-1",
-        {
-            "repository": REPO,
-            "pull_request_number": 42,
-            "reviewed_head_sha": HEAD,
-            "evaluation_id": "evaluation-1",
-        },
+            {
+                "repository": REPO,
+                "pull_request_number": 42,
+                "reviewed_head_sha": HEAD,
+                "evaluation_id": "evaluation-1",
+                "head_evidence_identity": "head-1",
+                "integration_evidence_identity": "merge-1",
+            },
     )
     states = iter(
         [
@@ -317,6 +323,8 @@ def test_concrete_final_resolver_recomputes_evidence_and_ledger(tmp_path) -> Non
             "pull_request_number": request.pull_request_number,
             "reviewed_head_sha": request.reviewed_head_sha,
             "evaluation_id": evaluation.evaluation_id,
+            "head_evidence_identity": head_evidence_digest(head),
+            "integration_evidence_identity": integration_evidence_digest(integration),
         },
     )
 
@@ -348,3 +356,105 @@ def test_concrete_final_resolver_recomputes_evidence_and_ledger(tmp_path) -> Non
     assert resolved.head_evidence_state == "verified"
     assert resolved.integration_evidence_state == "verified"
     assert resolved.latest_readiness_evaluation_id == evaluation.evaluation_id
+
+
+def test_reserve_merge_attempt_is_single_lock_compare_and_append(tmp_path) -> None:
+    ledger = ShadowLedger(tmp_path / "ledger.jsonl")
+    results: list[dict[str, object]] = []
+
+    def reserve(worker: str) -> None:
+        results.append(
+            ledger.reserve_merge_attempt(
+                evaluation_id="evaluation-race",
+                payload_factory=lambda nonce: {
+                    "attempt_id": f"attempt:{nonce}",
+                    "attempt_nonce": nonce,
+                    "evaluation_id": "evaluation-race",
+                    "worker_identity": worker,
+                    "merge_expected_head_sha": HEAD,
+                },
+            )
+        )
+
+    threads = [threading.Thread(target=reserve, args=(f"worker-{i}",)) for i in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(results) == 2
+    assert results[0]["payload"]["attempt_id"] == results[1]["payload"]["attempt_id"]
+    reservations = [
+        event for event in ledger.read() if event["event_type"] == "merge_attempt_reserved"
+    ]
+    assert len(reservations) == 1
+
+
+def test_multiple_reservations_for_one_evaluation_fail_closed(tmp_path) -> None:
+    ledger = ShadowLedger(tmp_path / "ledger.jsonl")
+    for attempt in ("attempt-a", "attempt-b"):
+        ledger.append(
+            "merge_attempt_reserved",
+            attempt,
+            {
+                "attempt_id": attempt,
+                "attempt_nonce": attempt,
+                "evaluation_id": "evaluation-conflict",
+                "worker_identity": "worker",
+                "merge_expected_head_sha": HEAD,
+            },
+        )
+    with pytest.raises(LedgerError, match="MERGE_ATTEMPT_CONFLICT"):
+        ledger.reserve_merge_attempt(
+            evaluation_id="evaluation-conflict",
+            payload_factory=lambda nonce: {
+                "attempt_id": f"attempt:{nonce}",
+                "evaluation_id": "evaluation-conflict",
+            },
+        )
+
+
+def test_integration_digest_must_match_immutable_readiness_lineage(tmp_path) -> None:
+    from tests.review_governance.test_b1_s3a import _fixture, _run
+
+    request, verdict, snapshot, head, integration, verifier, trust = _fixture()
+    evaluation = _run(request, verdict, snapshot, head, integration, verifier, trust).evaluation
+    ledger = ShadowLedger(tmp_path / "ledger.jsonl")
+    ledger.append(
+        "merge_readiness_evaluated",
+        evaluation.evaluation_id,
+        {
+            "repository": request.repository,
+            "pull_request_number": request.pull_request_number,
+            "reviewed_head_sha": request.reviewed_head_sha,
+            "evaluation_id": evaluation.evaluation_id,
+            "head_evidence_identity": head_evidence_digest(head),
+            "integration_evidence_identity": "sha256:" + "0" * 64,
+        },
+    )
+
+    class Snapshot:
+        def resolve(self, **_kwargs):
+            return snapshot
+
+    class Council:
+        def resolve(self, **_kwargs):
+            from city.review_governance.council import CouncilGateB1
+
+            return CouncilGateB1(
+                request.repository, request.pull_request_number, HEAD, "not_required"
+            )
+
+    with pytest.raises(Exception, match="INTEGRATION_EVIDENCE_INVALID"):
+        GitHubFinalMergeStateResolver(
+            request=request,
+            verdict=verdict,
+            evaluation=evaluation,
+            verifier=verifier,
+            snapshot_resolver=Snapshot(),
+            head_evidence_provider=StaticHeadEvidenceProvider(head),
+            integration_evidence_provider=StaticIntegrationEvidenceProvider(integration),
+            producer_trust=trust,
+            council_provider=Council(),
+            ledger=ledger,
+            consumer_core_classifier=lambda _: "non_core",
+        ).resolve()
