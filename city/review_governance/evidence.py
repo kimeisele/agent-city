@@ -200,6 +200,7 @@ class IntegrationEvidenceProvider(Protocol):
         pull_request_number: int,
         reviewed_head_sha: str,
         current_base_sha: str,
+        integration_sha: str | None = None,
     ) -> IntegrationEvidenceResult: ...
 
 
@@ -264,6 +265,7 @@ class StaticIntegrationEvidenceProvider:
         pull_request_number: int,
         reviewed_head_sha: str,
         current_base_sha: str,
+        integration_sha: str | None = None,
     ) -> IntegrationEvidenceResult:
         if self.result is not None:
             return self.result

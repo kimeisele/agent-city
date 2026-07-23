@@ -36,6 +36,17 @@ from .readiness import (
     ShadowReadinessResult,
     evaluate_shadow_readiness,
 )
+from .trust_config import TrustedProducerConfig, TrustConfigError, load_trusted_producers
+from .live_evidence import GitHubJSONClient, GitHubLiveEvidenceProvider, LiveEvidenceError
+from .github_snapshot import GitHubSnapshotResolver, SnapshotError
+from .merge_authority import (
+    CurrentMergeStateB1,
+    DisabledBreakGlass,
+    ExternalMergeObserver,
+    MergeAuthorityError,
+    ReviewGovernanceMergeAuthority,
+    SubprocessGitHubRunner,
+)
 
 __all__ = [
     "EvidenceRefB1",
@@ -72,4 +83,18 @@ __all__ = [
     "ShadowGovernanceDecision",
     "ShadowReadinessResult",
     "evaluate_shadow_readiness",
+    "TrustedProducerConfig",
+    "TrustConfigError",
+    "load_trusted_producers",
+    "GitHubJSONClient",
+    "GitHubLiveEvidenceProvider",
+    "LiveEvidenceError",
+    "GitHubSnapshotResolver",
+    "SnapshotError",
+    "CurrentMergeStateB1",
+    "DisabledBreakGlass",
+    "ExternalMergeObserver",
+    "MergeAuthorityError",
+    "ReviewGovernanceMergeAuthority",
+    "SubprocessGitHubRunner",
 ]

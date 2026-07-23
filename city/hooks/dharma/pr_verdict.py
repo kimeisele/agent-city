@@ -49,7 +49,9 @@ def _record_compliance_report(ctx: PhaseContext, payload: dict, operations: list
     report = {
         "operation": "compliance_report",
         "status": str(payload.get("status", payload.get("compliance", "reported")))[:40],
-        "subject": str(payload.get("subject", payload.get("target", payload.get("rule", "unknown"))))[:120],
+        "subject": str(
+            payload.get("subject", payload.get("target", payload.get("rule", "unknown")))
+        )[:120],
         "source": str(payload.get("source", payload.get("issuer", "steward")))[:80],
         "heartbeat": getattr(ctx, "heartbeat_count", 0),
         "payload": dict(payload),
@@ -66,9 +68,7 @@ def _record_compliance_report(ctx: PhaseContext, payload: dict, operations: list
         ctx.recent_events = events
     events.append(report)
 
-    operations.append(
-        f"compliance_report:{report['status']}:{report['subject'][:40]}"
-    )
+    operations.append(f"compliance_report:{report['status']}:{report['subject'][:40]}")
     logger.info(
         "COMPLIANCE: %s from %s — %s",
         report["status"],
@@ -111,7 +111,11 @@ class PRVerdictHook(BasePhaseHook):
         return 55
 
     def should_run(self, ctx: PhaseContext) -> bool:
-        return ctx.federation_nadi is not None and not ctx.offline_mode and bool(_federation_messages(ctx))
+        return (
+            ctx.federation_nadi is not None
+            and not ctx.offline_mode
+            and bool(_federation_messages(ctx))
+        )
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
         messages = _federation_messages(ctx)
@@ -143,17 +147,26 @@ class PRVerdictHook(BasePhaseHook):
             signature = msg.get("signature")
             public_key = msg.get("signer_key")
             # The payload we sign is the inner federation_payload
-            if not all([identity, signature, public_key]) or not identity.verify(payload, signature, public_key):
-                logger.warning("PR_VERDICT: Signature verification FAILED for PR #%s. Zero Trust rejection.", pr_number)
+            if not all([identity, signature, public_key]) or not identity.verify(
+                payload, signature, public_key
+            ):
+                logger.warning(
+                    "PR_VERDICT: Signature verification FAILED for PR #%s. Zero Trust rejection.",
+                    pr_number,
+                )
                 continue
 
             logger.info(
                 "PR_VERDICT: Processing verified verdict=%s for PR #%d (core=%s)",
-                verdict, pr_number, touches_core,
+                verdict,
+                pr_number,
+                touches_core,
             )
 
             if verdict == "approve":
-                self._handle_approve(ctx, pr_number, title, touches_core, reason, operations, payload)
+                self._handle_approve(
+                    ctx, pr_number, title, touches_core, reason, operations, payload
+                )
             elif verdict == "request_changes":
                 self._handle_request_changes(pr_number, reason, operations)
             elif verdict == "reject":
@@ -173,25 +186,17 @@ class PRVerdictHook(BasePhaseHook):
     ) -> None:
         """Handle an approve verdict — auto-merge or escalate to council."""
         if not touches_core:
-            # Safe to auto-merge
+            # Verdict hooks may report/request governance, but never merge.
             comment = (
-                f"**Steward Approved.** Auto-merging.\n\n"
-                f"Reason: {reason}"
+                f"**Steward Approved.** Merge evaluation requested.\n\n"
+                f"Reason: {reason}\n\n"
+                "A SHA-bound readiness evaluation is required before the central "
+                "PR lifecycle authority may attempt a merge."
             )
             repo = _repo_name()
             _gh_run(["pr", "comment", str(pr_number), "--repo", repo, "--body", comment])
-            result = _gh_run(["pr", "merge", str(pr_number), "--repo", repo, "--merge"])
-            if result is not None:
-                operations.append(f"pr_verdict:merged:#{pr_number}")
-                logger.info("PR_VERDICT: Auto-merged PR #%d", pr_number)
-                
-                # Karma Bridge: Update mission state to COMPLETED
-                nadi_ref = payload.get("origin_nadi_ref")
-                if nadi_ref:
-                    self._update_mission_state(ctx, nadi_ref, "completed")
-            else:
-                operations.append(f"pr_verdict:merge_failed:#{pr_number}")
-                logger.warning("PR_VERDICT: Merge failed for PR #%d", pr_number)
+            operations.append(f"pr_verdict:merge_requested:#{pr_number}")
+            logger.info("PR_VERDICT: Merge evaluation requested for PR #%d", pr_number)
         else:
             # Core files touched — council vote required
             comment = (
@@ -207,13 +212,16 @@ class PRVerdictHook(BasePhaseHook):
                 self._create_council_proposal(ctx, pr_number, title, reason)
 
             # Internal Signal Emission (Social-Blind)
-            self._emit_governance_signal(ctx, {
-                "op": "pr_escalation",
-                "pr_number": pr_number,
-                "title": title,
-                "reason": reason,
-                "status": "council_vote_required"
-            })
+            self._emit_governance_signal(
+                ctx,
+                {
+                    "op": "pr_escalation",
+                    "pr_number": pr_number,
+                    "title": title,
+                    "reason": reason,
+                    "status": "council_vote_required",
+                },
+            )
 
             operations.append(f"pr_verdict:council_vote:#{pr_number}")
             logger.info("PR_VERDICT: Council vote requested for PR #%d", pr_number)
@@ -225,10 +233,7 @@ class PRVerdictHook(BasePhaseHook):
         operations: list[str],
     ) -> None:
         """Post Steward's review as a PR comment requesting changes."""
-        comment = (
-            f"**Steward Review: Changes Requested**\n\n"
-            f"{reason}"
-        )
+        comment = f"**Steward Review: Changes Requested**\n\n{reason}"
         _gh_run(["pr", "comment", str(pr_number), "--repo", _repo_name(), "--body", comment])
         operations.append(f"pr_verdict:changes_requested:#{pr_number}")
         logger.info("PR_VERDICT: Changes requested on PR #%d", pr_number)
@@ -241,19 +246,14 @@ class PRVerdictHook(BasePhaseHook):
         operations: list[str],
     ) -> None:
         """Close the PR with Steward's rejection reason."""
-        comment = (
-            f"**Steward Review: Rejected**\n\n"
-            f"{reason}"
-        )
+        comment = f"**Steward Review: Rejected**\n\n{reason}"
         _gh_run(["pr", "close", str(pr_number), "--repo", _repo_name(), "--comment", comment])
-        
+
         # Internal Signal Emission (Social-Blind)
-        self._emit_governance_signal(ctx, {
-            "op": "pr_rejection",
-            "pr_number": pr_number,
-            "reason": reason,
-            "status": "closed"
-        })
+        self._emit_governance_signal(
+            ctx,
+            {"op": "pr_rejection", "pr_number": pr_number, "reason": reason, "status": "closed"},
+        )
 
         operations.append(f"pr_verdict:rejected:#{pr_number}")
         logger.info("PR_VERDICT: Rejected and closed PR #%d", pr_number)
@@ -299,7 +299,9 @@ class PRVerdictHook(BasePhaseHook):
         # The mayor proposes on behalf of the system
         mayor = getattr(ctx.council, "_elected_mayor", None)
         if not mayor:
-            logger.warning("PR_VERDICT: No mayor elected, cannot create proposal for PR #%d", pr_number)
+            logger.warning(
+                "PR_VERDICT: No mayor elected, cannot create proposal for PR #%d", pr_number
+            )
             return
 
         proposal = ctx.council.propose(
@@ -332,21 +334,27 @@ class PRVerdictHook(BasePhaseHook):
 
         try:
             from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
-            
+
             # Find mission by NADI_REF (implicit matching in registry or searching)
             # For now, we search active missions for the matching ref in metadata
             all_missions = sankalpa.registry.list_missions()
             for m in all_missions:
                 # We assume missions created via NADI have origin_nadi_ref in their metadata/id
-                if nadi_ref in m.id or (hasattr(m, "metadata") and m.metadata.get("nadi_ref") == nadi_ref):
+                if nadi_ref in m.id or (
+                    hasattr(m, "metadata") and m.metadata.get("nadi_ref") == nadi_ref
+                ):
                     m.status = MissionStatus.COMPLETED if status == "completed" else m.status
                     if status == "completed":
                         if not hasattr(m, "metadata") or m.metadata is None:
                             m.metadata = {}
                         m.metadata["nadi_verified"] = True
-                    
+
                     sankalpa.registry.add_mission(m)
-                    logger.info("PR_VERDICT: Karma Bridge — Marked mission %s as %s (verified)", m.id, status)
+                    logger.info(
+                        "PR_VERDICT: Karma Bridge — Marked mission %s as %s (verified)",
+                        m.id,
+                        status,
+                    )
                     break
         except Exception as e:
             logger.warning("PR_VERDICT: Karma Bridge failed updating mission %s: %s", nadi_ref, e)

@@ -367,6 +367,7 @@ def evaluate_shadow_readiness(
                 pull_request_number=request.pull_request_number,
                 reviewed_head_sha=request.reviewed_head_sha,
                 current_base_sha=snapshot.current_base_sha,
+                integration_sha=snapshot.integration_identity,
             )
         else:
             _, integration = _unavailable_results(request, snapshot)
