@@ -50,7 +50,7 @@ def request(**overrides) -> ReviewRequestB1:
         "requested_reviewer_identity": "reviewer-1",
         "requester_identity": "agent-city",
         "requested_at": datetime(2026, 7, 22, 12, tzinfo=timezone.utc),
-        "expires_at": datetime(2026, 7, 24, 12, tzinfo=timezone.utc),
+        "expires_at": datetime(2027, 7, 24, 12, tzinfo=timezone.utc),
         "reason": "please review",
         "id_factory": IDs(),
     }
@@ -95,7 +95,7 @@ def emit(
         reviewer_key_id="key_test",
         signer=signing,
         issued_at=datetime(2026, 7, 22, 13, tzinfo=timezone.utc),
-        expires_at=datetime(2026, 7, 23, 13, tzinfo=timezone.utc),
+        expires_at=datetime(2027, 7, 23, 13, tzinfo=timezone.utc),
         verdict_id=verdict_id,
         **kwargs,
     ), key
@@ -210,7 +210,7 @@ def test_verdict_id_boundary_requires_explicit_or_factory_id():
         reviewer_key_id="key_test",
         signer=signing,
         issued_at=datetime(2026, 7, 22, 13, tzinfo=timezone.utc),
-        expires_at=datetime(2026, 7, 23, 13, tzinfo=timezone.utc),
+        expires_at=datetime(2027, 7, 23, 13, tzinfo=timezone.utc),
     )
     with pytest.raises(EmitterError, match="MISSING_OR_AMBIGUOUS_VERDICT_ID"):
         emit_verdict(record, **common)
@@ -248,7 +248,7 @@ def test_emitter_signer_identity_and_key_mismatch_reject():
             reviewer_key_id="key_test",
             signer=None,
             issued_at=datetime(2026, 7, 22, 13, tzinfo=timezone.utc),
-            expires_at=datetime(2026, 7, 23, 13, tzinfo=timezone.utc),
+            expires_at=datetime(2027, 7, 23, 13, tzinfo=timezone.utc),
             verdict_id="verdict-missing-signer",
         )
     signing, _ = signer()
@@ -263,7 +263,7 @@ def test_emitter_signer_identity_and_key_mismatch_reject():
             reviewer_key_id="key_test",
             signer=signing,
             issued_at=datetime(2026, 7, 22, 13, tzinfo=timezone.utc),
-            expires_at=datetime(2026, 7, 23, 13, tzinfo=timezone.utc),
+            expires_at=datetime(2027, 7, 23, 13, tzinfo=timezone.utc),
             verdict_id="verdict-other",
         )
     with pytest.raises(SignerError):
@@ -289,7 +289,7 @@ def test_emitter_decision_reason_and_evidence_rules():
         reviewer_key_id="key_test",
         signer=signer()[0],
         issued_at=datetime(2026, 7, 22, 13, tzinfo=timezone.utc),
-        expires_at=datetime(2026, 7, 23, 13, tzinfo=timezone.utc),
+        expires_at=datetime(2027, 7, 23, 13, tzinfo=timezone.utc),
         verdict_id="verdict-2",
     )
     assert approved.signature_input() != changed.signature_input()
