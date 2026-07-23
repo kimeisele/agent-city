@@ -70,6 +70,8 @@ def validate_verdict(
     evidence_verifier: Any | None = None,
     scope_entries: list[Mapping[str, Any]] | None = None,
     consumer_core: str | None = None,
+    current_head_sha: str | None = None,
+    expected_evidence_policy: str | None = None,
     now: datetime | None = None,
 ) -> ValidationResult:
     try:
@@ -84,6 +86,19 @@ def validate_verdict(
     if verdict.repository != repository:
         return ValidationResult(
             "rejected", "INVALID_REPOSITORY", "review verdict rejected", schema_valid=True
+        )
+    if current_head_sha is not None and current_head_sha != verdict.reviewed_head_sha:
+        return ValidationResult(
+            "stale", "REVIEWED_HEAD_STALE", "review verdict head is stale", schema_valid=True
+        )
+    if expected_evidence_policy is not None and any(
+        reference.name != expected_evidence_policy for reference in verdict.evidence_refs
+    ):
+        return ValidationResult(
+            "blocked",
+            "EVIDENCE_UNAVAILABLE",
+            "head evidence policy is unavailable",
+            schema_valid=True,
         )
     if scope_entries is not None:
         try:
