@@ -18,6 +18,8 @@ from .validator import DeterministicEvidenceVerifier, Ed25519ReviewerKeyVerifier
 from .evidence import (
     HEAD_POLICY,
     MERGE_POLICY,
+    AllowlistEvidenceProducerTrust,
+    EvidenceProducerTrust,
     HeadEvidenceProvider,
     HeadEvidenceResult,
     IntegrationEvidenceProvider,
@@ -51,6 +53,8 @@ __all__ = [
     "validate_verdict",
     "HEAD_POLICY",
     "MERGE_POLICY",
+    "AllowlistEvidenceProducerTrust",
+    "EvidenceProducerTrust",
     "HeadEvidenceProvider",
     "HeadEvidenceResult",
     "IntegrationEvidenceProvider",

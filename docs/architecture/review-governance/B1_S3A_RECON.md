@@ -25,12 +25,22 @@ decision.
 is evaluated independently from the signed reviewer verdict.  No successful H
 check substitutes for this integration evidence.
 
+Evidence is accepted only when the normalized result also binds the exact
+repository, PR number, provider, producer identity, run/check identity and
+observation time.  An injected allowlist trust policy is required; a provider
+label alone is not authority.  Cross-repository and cross-PR observations are
+therefore unavailable rather than replayable.
+
 ## Shadow boundary
 
 Current-base snapshots, base-delta classifications, Policy-C decisions and
 Council checks are local immutable inputs/results.  Optional ledger events are
 append-only shadow evidence.  No event is merge-authorizing, and
 `merge_completed`/`external_merge_observed` are never emitted by S3A.
+
+The immutable ReviewRequest scope is used for verdict cryptographic validation.
+Mutable current scope is used only for current observation, base-delta/overlap,
+and integration readiness.
 
 Fork or permission failures are represented as unavailable/ambiguous evidence
 and fail closed.  No untrusted PR text is executed and no privileged workflow

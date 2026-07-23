@@ -21,6 +21,34 @@ class BaseDriftEvaluation:
     changed_paths: tuple[str, ...]
     error_code: str | None = None
 
+    def __post_init__(self) -> None:
+        if self.classification not in CLASSIFICATIONS:
+            raise ValueError("INVALID_DRIFT_CLASSIFICATION")
+        if self.overlap not in {"none", "overlap", "unknown"}:
+            raise ValueError("INVALID_DRIFT_OVERLAP")
+        if not isinstance(self.base_moved, bool):
+            raise ValueError("INVALID_DRIFT_STATE")
+        if self.classification == "none" and (
+            self.base_moved or self.overlap != "none" or self.core_paths or self.changed_paths
+        ):
+            raise ValueError("INCONSISTENT_DRIFT")
+        if self.classification == "non_core_non_overlap" and (
+            not self.base_moved
+            or self.overlap != "none"
+            or self.core_paths
+            or not self.changed_paths
+        ):
+            raise ValueError("INCONSISTENT_DRIFT")
+        if self.classification == "core_or_overlap" and (
+            not self.base_moved
+            or not self.changed_paths
+            or (self.overlap != "overlap" and not self.core_paths)
+            or not set(self.core_paths).issubset(self.changed_paths)
+        ):
+            raise ValueError("INCONSISTENT_DRIFT")
+        if self.classification in {"unknown", "conflict"} and not self.base_moved:
+            raise ValueError("INCONSISTENT_DRIFT")
+
 
 @dataclass(frozen=True)
 class PolicyCDecision:
@@ -29,6 +57,20 @@ class PolicyCDecision:
     verdict_usable: bool
     fresh_review_required: bool
     base_drift_classification: str
+
+    def __post_init__(self) -> None:
+        if self.state not in {"verdict_usable", "fresh_review_required", "blocked"}:
+            raise ValueError("INVALID_POLICY_STATE")
+        if self.base_drift_classification not in CLASSIFICATIONS:
+            raise ValueError("INVALID_DRIFT_CLASSIFICATION")
+        if not isinstance(self.reason_code, str) or not self.reason_code:
+            raise ValueError("INVALID_REASON")
+        if self.state == "verdict_usable" and not self.verdict_usable:
+            raise ValueError("INCONSISTENT_POLICY")
+        if self.state == "fresh_review_required" and not self.fresh_review_required:
+            raise ValueError("INCONSISTENT_POLICY")
+        if self.state == "blocked" and (self.verdict_usable or self.fresh_review_required):
+            raise ValueError("INCONSISTENT_POLICY")
 
 
 def _paths(entries: Iterable[Mapping[str, Any]]) -> set[str]:
@@ -60,6 +102,8 @@ def evaluate_base_drift(
         reviewed = canonical_scope(reviewed_scope)
     except ScopeError:
         return BaseDriftEvaluation("unknown", True, "unknown", (), (), "INVALID_SCOPE")
+    if not delta:
+        return BaseDriftEvaluation("unknown", True, "unknown", (), (), "BASE_DELTA_EMPTY")
     changed = _paths(delta)
     reviewed_paths = _paths(reviewed)
     overlap_paths = tuple(sorted(changed & reviewed_paths))
@@ -68,7 +112,7 @@ def evaluate_base_drift(
         for path in (entry["path"], entry.get("previous_path")):
             if path and consumer_core_classifier(path) == "core":
                 core_paths.append(path)
-            elif path and consumer_core_classifier(path) == "unknown":
+            elif path and consumer_core_classifier(path) not in {"core", "non_core"}:
                 return BaseDriftEvaluation(
                     "unknown", True, "unknown", (), tuple(sorted(changed)), "CORE_UNKNOWN"
                 )
@@ -98,7 +142,7 @@ def evaluate_policy_c(
         return PolicyCDecision("blocked", "VERDICT_NOT_USABLE", False, False, drift.classification)
     if not integration_ready:
         return PolicyCDecision(
-            "blocked", "INTEGRATION_EVIDENCE_UNAVAILABLE", True, False, drift.classification
+            "blocked", "INTEGRATION_EVIDENCE_UNAVAILABLE", False, False, drift.classification
         )
     return PolicyCDecision(
         "verdict_usable", "READY_FOR_SHADOW_MERGE", True, False, drift.classification

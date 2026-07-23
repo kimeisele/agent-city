@@ -12,13 +12,15 @@ from .council import CouncilGateB1, council_allows
 from .evidence import (
     HEAD_POLICY,
     MERGE_POLICY,
+    EvidenceProducerTrust,
     EvidenceReferenceVerifier,
     HeadEvidenceProvider,
+    HeadEvidenceResult,
     IntegrationEvidenceProvider,
     IntegrationEvidenceResult,
 )
 from .ledger import ShadowLedger
-from .policy import BaseDriftEvaluation, PolicyCDecision, evaluate_policy_c
+from .policy import BaseDriftEvaluation, PolicyCDecision, evaluate_base_drift, evaluate_policy_c
 from .request import ReviewRequestB1
 from .schema import MergeReadinessEvaluationB1, ReviewVerdictB1
 from .scope import ScopeError, canonical_scope
@@ -40,9 +42,13 @@ class CurrentPRSnapshotB1:
     observed_at: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.repository, str) or not REPOSITORY_RE.fullmatch(self.repository):
+        if not REPOSITORY_RE.fullmatch(self.repository):
             raise ValueError("INVALID_REPOSITORY")
-        if not isinstance(self.pull_request_number, int) or self.pull_request_number <= 0:
+        if (
+            isinstance(self.pull_request_number, bool)
+            or not isinstance(self.pull_request_number, int)
+            or self.pull_request_number <= 0
+        ):
             raise ValueError("INVALID_PR_NUMBER")
         for value in (self.current_head_sha, self.current_base_sha, self.integration_identity):
             if not isinstance(value, str) or not SHA_RE.fullmatch(value):
@@ -56,7 +62,7 @@ class CurrentPRSnapshotB1:
         object.__setattr__(
             self,
             "current_scope_entries",
-            tuple(MappingProxyType(dict(entry)) for entry in normalized),
+            tuple(MappingProxyType(dict(item)) for item in normalized),
         )
 
 
@@ -71,8 +77,56 @@ class ShadowGovernanceDecision:
     merge_authorized: bool = False
 
     def __post_init__(self) -> None:
+        if self.state not in {
+            "shadow_ready",
+            "blocked",
+            "stale_head",
+            "fresh_review_required",
+            "pending_evidence",
+            "invalid_verdict",
+        }:
+            raise ValueError("INVALID_DECISION_STATE")
+        if self.verdict_state not in {"valid", "blocked", "stale", "rejected"}:
+            raise ValueError("INVALID_VERDICT_STATE")
+        if self.head_evidence_state not in {
+            "verified",
+            "unavailable",
+            "pending",
+            "failed",
+            "stale",
+            "mismatched",
+            "ambiguous",
+        }:
+            raise ValueError("INVALID_EVIDENCE_STATE")
+        if self.integration_evidence_state not in {
+            "verified",
+            "unavailable",
+            "pending",
+            "failed",
+            "stale",
+            "mismatched",
+            "ambiguous",
+        }:
+            raise ValueError("INVALID_EVIDENCE_STATE")
+        if self.base_drift_classification not in {
+            "none",
+            "non_core_non_overlap",
+            "core_or_overlap",
+            "conflict",
+            "unknown",
+        }:
+            raise ValueError("INVALID_DRIFT_CLASSIFICATION")
         if self.merge_authorized:
             raise ValueError("SHADOW_DECISION_CANNOT_AUTHORIZE")
+        if self.state == "shadow_ready" and (
+            self.verdict_state != "valid"
+            or self.head_evidence_state != "verified"
+            or self.integration_evidence_state != "verified"
+            or self.base_drift_classification not in {"none", "non_core_non_overlap"}
+        ):
+            raise ValueError("INCONSISTENT_DECISION")
+        if self.state == "stale_head" and self.verdict_state != "stale":
+            raise ValueError("INCONSISTENT_DECISION")
 
 
 @dataclass(frozen=True)
@@ -120,12 +174,11 @@ def _evaluation(
         if decision.state == "verdict_usable"
         else ("invalidated" if decision.state == "fresh_review_required" else "blocked")
     )
-    core_state = "non_core"
-    if council_state == "approved":
-        core_state = "core_approved"
-    elif council_state != "not_required":
-        core_state = "core_pending_council"
-    checks = _check_result(integration)
+    core_state = (
+        "non_core"
+        if council_state == "not_required"
+        else ("core_approved" if council_state == "approved" else "core_pending_council")
+    )
     value = {
         "schema": "merge-readiness-evaluation-b1.1",
         "evaluation_id": evaluation_id,
@@ -135,7 +188,7 @@ def _evaluation(
         "reviewed_head_sha": request.reviewed_head_sha,
         "validated_current_base_sha": snapshot.current_base_sha,
         "integration_check_sha": snapshot.integration_identity,
-        "required_check_results": checks,
+        "required_check_results": _check_result(integration),
         "base_drift_classification": drift.classification,
         "scope_overlap_result": drift.overlap,
         "core_gate_state": core_state,
@@ -147,6 +200,42 @@ def _evaluation(
     return MergeReadinessEvaluationB1.from_mapping(value)
 
 
+def _unavailable_results(
+    request: ReviewRequestB1, snapshot: CurrentPRSnapshotB1
+) -> tuple[HeadEvidenceResult, IntegrationEvidenceResult]:
+    head = HeadEvidenceResult(
+        request.repository,
+        request.pull_request_number,
+        HEAD_POLICY,
+        None,
+        snapshot.current_head_sha,
+        "unknown",
+        "github_check",
+        "unavailable",
+        None,
+        snapshot.observed_at,
+        "unavailable",
+        "REQUEST_LINEAGE_MISMATCH",
+    )
+    integration = IntegrationEvidenceResult(
+        request.repository,
+        request.pull_request_number,
+        MERGE_POLICY,
+        None,
+        snapshot.integration_identity,
+        snapshot.current_head_sha,
+        snapshot.current_base_sha,
+        "unknown",
+        "github_check",
+        "unavailable",
+        None,
+        snapshot.observed_at,
+        "unavailable",
+        "REQUEST_LINEAGE_MISMATCH",
+    )
+    return head, integration
+
+
 def evaluate_shadow_readiness(
     *,
     request: ReviewRequestB1,
@@ -155,109 +244,156 @@ def evaluate_shadow_readiness(
     verifier: Any,
     head_provider: HeadEvidenceProvider,
     integration_provider: IntegrationEvidenceProvider,
-    drift: BaseDriftEvaluation,
+    base_delta_scope: Iterable[Mapping[str, Any]] | None,
+    ancestry_available: bool,
     consumer_core_classifier: Callable[[str], str],
     council_gate: CouncilGateB1 | None,
+    producer_trust: EvidenceProducerTrust | None,
     evaluation_id: str,
     evaluated_at: str,
     ledger: ShadowLedger | None = None,
 ) -> ShadowReadinessResult:
-    """Evaluate B1-S3A predicates and optionally append shadow evidence only."""
-    if isinstance(verdict, ReviewVerdictB1):
-        verdict_obj = verdict
-    else:
-        verdict_obj = (
+    """Compute all S3A predicates.  No caller-supplied drift is authoritative."""
+    verdict_obj = (
+        verdict
+        if isinstance(verdict, ReviewVerdictB1)
+        else (
             ReviewVerdictB1.from_canonical(verdict)
             if isinstance(verdict, bytes)
             else ReviewVerdictB1.from_mapping(verdict)
         )
-    integration = integration_provider.resolve(
-        repository=request.repository,
-        pull_request_number=request.pull_request_number,
-        reviewed_head_sha=request.reviewed_head_sha,
+    )
+    drift = evaluate_base_drift(
+        request_base_sha=request.review_request_base_sha,
         current_base_sha=snapshot.current_base_sha,
+        reviewed_scope=request.scope_entries,
+        base_delta_scope=base_delta_scope,
+        consumer_core_classifier=consumer_core_classifier,
+        ancestry_available=ancestry_available,
     )
-    head = head_provider.resolve(
-        repository=request.repository,
-        pull_request_number=request.pull_request_number,
-        reviewed_head_sha=request.reviewed_head_sha,
-        evidence_refs=verdict_obj.evidence_refs,
+    binding_ok = (
+        request.repository == snapshot.repository
+        and request.pull_request_number == snapshot.pull_request_number
+        and verdict_obj.repository == request.repository
+        and verdict_obj.pull_request_number == request.pull_request_number
+        and verdict_obj.review_request_id == request.review_request_id
+        and verdict_obj.reviewed_head_sha == request.reviewed_head_sha
+        and verdict_obj.review_request_base_sha == request.review_request_base_sha
+        and verdict_obj.scope_digest == request.scope_digest
+        and verdict_obj.reviewed_files == request.reviewed_files
     )
-    refs_are_h_policy = all(
-        ref.kind == "head_security_evidence"
-        and ref.name == HEAD_POLICY
-        and ref.provider in {"github_check", "github_status"}
-        and ref.sha == snapshot.current_head_sha
-        for ref in verdict_obj.evidence_refs
-    )
-    if (
-        snapshot.repository != request.repository
-        or snapshot.pull_request_number != request.pull_request_number
-    ):
-        verdict_state, reason = "rejected", "PR_IDENTITY_MISMATCH"
-    elif snapshot.current_head_sha != verdict_obj.reviewed_head_sha:
-        verdict_state, reason = "stale", "REVIEWED_HEAD_STALE"
-    elif (
-        verdict_obj.review_request_id != request.review_request_id
-        or verdict_obj.scope_digest != request.scope_digest
-    ):
+    if not binding_ok:
+        head, integration = _unavailable_results(request, snapshot)
         verdict_state, reason = "rejected", "REQUEST_LINEAGE_MISMATCH"
-    elif not refs_are_h_policy:
-        verdict_state, reason = "blocked", "EVIDENCE_UNAVAILABLE"
-    elif (
-        head.policy_name != HEAD_POLICY
-        or head.state != "verified"
-        or head.conclusion != "success"
-        or head.provider == "reviewer"
-        or head.observed_sha != snapshot.current_head_sha
-    ):
-        verdict_state = "blocked" if head.state != "mismatched" else "rejected"
-        reason = head.error_code or (
-            "EVIDENCE_SHA_MISMATCH"
-            if head.observed_sha != snapshot.current_head_sha
-            else "EVIDENCE_UNAVAILABLE"
-        )
     else:
-        verification = validate_verdict(
-            verdict_obj.to_mapping(),
+        integration = integration_provider.resolve(
             repository=request.repository,
-            verifier=verifier,
-            evidence_verifier=EvidenceReferenceVerifier(head),
-            scope_entries=[dict(item) for item in snapshot.current_scope_entries],
-            consumer_core=_consumer_core(request.scope_entries, consumer_core_classifier),
-            current_head_sha=snapshot.current_head_sha,
-            expected_evidence_policy=HEAD_POLICY,
-            now=dt.datetime.strptime(snapshot.observed_at, "%Y-%m-%dT%H:%M:%SZ").replace(
-                tzinfo=dt.UTC
-            ),
+            pull_request_number=request.pull_request_number,
+            reviewed_head_sha=request.reviewed_head_sha,
+            current_base_sha=snapshot.current_base_sha,
         )
-        verdict_state, reason = verification.state, verification.error_code or "OK"
+        head = head_provider.resolve(
+            repository=request.repository,
+            pull_request_number=request.pull_request_number,
+            reviewed_head_sha=request.reviewed_head_sha,
+            evidence_refs=verdict_obj.evidence_refs,
+        )
+        refs_are_h_policy = all(
+            ref.kind == "head_security_evidence"
+            and ref.name == HEAD_POLICY
+            and ref.provider in {"github_check", "github_status"}
+            and ref.sha == snapshot.current_head_sha
+            for ref in verdict_obj.evidence_refs
+        )
+        if snapshot.current_head_sha != verdict_obj.reviewed_head_sha:
+            verdict_state, reason = "stale", "REVIEWED_HEAD_STALE"
+        elif not refs_are_h_policy:
+            verdict_state, reason = "blocked", "EVIDENCE_UNAVAILABLE"
+        elif (
+            head.repository != request.repository
+            or head.pull_request_number != request.pull_request_number
+            or head.policy_name != HEAD_POLICY
+            or head.state != "verified"
+            or head.conclusion != "success"
+            or head.provider not in {"github_check", "github_status"}
+            or producer_trust is None
+            or not producer_trust.is_trusted(
+                repository=request.repository,
+                policy_name=HEAD_POLICY,
+                provider=head.provider,
+                producer_identity=head.producer_identity,
+            )
+            or head.observed_sha != snapshot.current_head_sha
+        ):
+            verdict_state = "blocked" if head.state != "mismatched" else "rejected"
+            reason = head.error_code or (
+                "EVIDENCE_SHA_MISMATCH"
+                if head.observed_sha != snapshot.current_head_sha
+                else "EVIDENCE_UNAVAILABLE"
+            )
+        else:
+            verification = validate_verdict(
+                verdict_obj.to_mapping(),
+                repository=request.repository,
+                verifier=verifier,
+                evidence_verifier=EvidenceReferenceVerifier(head),
+                scope_entries=[dict(item) for item in request.scope_entries],
+                consumer_core=_consumer_core(request.scope_entries, consumer_core_classifier),
+                current_head_sha=snapshot.current_head_sha,
+                expected_evidence_policy=HEAD_POLICY,
+                now=dt.datetime.strptime(snapshot.observed_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=dt.UTC
+                ),
+            )
+            verdict_state, reason = verification.state, verification.error_code or "OK"
     consumer_core = _consumer_core(request.scope_entries, consumer_core_classifier)
     effective_core = verdict_obj.core_classification == "core" or consumer_core == "core"
-    council = council_gate or CouncilGateB1(snapshot.current_head_sha, "not_required")
+    council = council_gate or CouncilGateB1(
+        request.repository, request.pull_request_number, snapshot.current_head_sha, "not_required"
+    )
     council_state = (
-        council.state if council.review_head_sha == snapshot.current_head_sha else "unknown"
+        council.state
+        if council_allows(
+            core_classification="core" if effective_core else "non_core",
+            gate=council,
+            repository=request.repository,
+            pull_request_number=request.pull_request_number,
+            review_head_sha=snapshot.current_head_sha,
+        )
+        or (not effective_core and council.review_head_sha == snapshot.current_head_sha)
+        else "unknown"
     )
     integration_ready = (
-        integration.state == "verified"
+        integration.repository == request.repository
+        and integration.pull_request_number == request.pull_request_number
+        and integration.state == "verified"
         and integration.policy_name == MERGE_POLICY
         and integration.observed_sha == snapshot.integration_identity
         and integration.source_head_sha == snapshot.current_head_sha
         and integration.source_base_sha == snapshot.current_base_sha
         and integration.conclusion == "success"
+        and producer_trust is not None
+        and producer_trust.is_trusted(
+            repository=request.repository,
+            policy_name=MERGE_POLICY,
+            provider=integration.provider,
+            producer_identity=integration.producer_identity,
+        )
     )
     decision = evaluate_policy_c(
-        verdict_valid=verdict_state == "valid",
-        drift=drift,
-        integration_ready=integration_ready,
+        verdict_valid=verdict_state == "valid", drift=drift, integration_ready=integration_ready
     )
-    if effective_core and not council_allows(core_classification="core", gate=council):
+    if effective_core and not council_allows(
+        core_classification="core",
+        gate=council,
+        repository=request.repository,
+        pull_request_number=request.pull_request_number,
+        review_head_sha=snapshot.current_head_sha,
+    ):
         decision = PolicyCDecision(
             "blocked", "COUNCIL_REQUIRED", False, False, drift.classification
         )
-    if verdict_state == "stale":
-        decision = PolicyCDecision("blocked", reason, False, False, drift.classification)
-    if verdict_state == "rejected":
+    if verdict_state in {"stale", "rejected", "blocked"}:
         decision = PolicyCDecision("blocked", reason, False, False, drift.classification)
     evaluation = _evaluation(
         request=request,
@@ -265,7 +401,7 @@ def evaluate_shadow_readiness(
         snapshot=snapshot,
         drift=drift,
         decision=decision,
-        council_state=council_state if effective_core else "not_required",
+        council_state=council.state if effective_core else "not_required",
         integration=integration,
         evaluation_id=evaluation_id,
         evaluated_at=evaluated_at,
