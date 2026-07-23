@@ -28,10 +28,23 @@ def _sha(value: Any) -> str:
 class SnapshotSource(Protocol):
     def get(self, path: str) -> Any: ...
 
+    def get_all(
+        self, path: str, *, collection_key: str | None = None, max_pages: int = 20
+    ) -> list[Mapping[str, Any]]: ...
+
 
 @dataclass
 class GitHubSnapshotResolver:
     client: SnapshotSource
+
+    def _all(self, path: str, *, collection_key: str | None = None) -> list[Mapping[str, Any]]:
+        getter = getattr(self.client, "get_all", None)
+        if not callable(getter):
+            raise SnapshotError("PAGINATION_UNAVAILABLE")
+        try:
+            return getter(path, collection_key=collection_key)
+        except LiveEvidenceError as exc:
+            raise SnapshotError(exc.code) from exc
 
     def _tree(self, repository: str, commit_sha: str) -> dict[str, str]:
         commit = self.client.get(f"/repos/{repository}/git/commits/{commit_sha}")
@@ -59,8 +72,6 @@ class GitHubSnapshotResolver:
     ) -> tuple[dict[str, Any], ...]:
         if not isinstance(files, list):
             raise SnapshotError("FILES_RESPONSE_INVALID")
-        if len(files) >= 100:
-            raise SnapshotError("FILES_PAGINATION_INCOMPLETE")
         entries: list[dict[str, Any]] = []
         for item in files:
             if not isinstance(item, Mapping):
@@ -107,9 +118,7 @@ class GitHubSnapshotResolver:
             head = _sha(pr.get("head", {}).get("sha"))
             base = _sha(pr.get("base", {}).get("sha"))
             integration = _sha(pr.get("merge_commit_sha"))
-            files = self.client.get(
-                f"/repos/{repository}/pulls/{pull_request_number}/files?per_page=100"
-            )
+            files = self._all(f"/repos/{repository}/pulls/{pull_request_number}/files?per_page=100")
             scope = self._scope(
                 files,
                 base_blobs=self._tree(repository, base),
@@ -150,8 +159,12 @@ class GitHubSnapshotResolver:
                 raise SnapshotError("ANCESTRY_UNAVAILABLE")
             if value.get("status") == "identical":
                 return ()
+            files = self._all(
+                f"/repos/{repository}/compare/{request_base_sha}...{current_base_sha}?per_page=100",
+                collection_key="files",
+            )
             return self._scope(
-                value.get("files"),
+                files,
                 base_blobs=self._tree(repository, request_base_sha),
                 head_blobs=self._tree(repository, current_base_sha),
             )

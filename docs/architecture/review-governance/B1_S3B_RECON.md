@@ -35,13 +35,24 @@ untrusted checkout is introduced.
 
 `GitHubSnapshotResolver` reads the current PR, exact head/base, file identities,
 and integration identity. `ReviewGovernanceMergeAuthority` requires a fresh
-caller-supplied state read immediately before invoking a structured
+`FinalMergeStateResolver` supplies that complete observation immediately before
+invoking a structured
 `gh pr merge ... --squash --match-head-commit H` command. It records the final
 squash SHA separately after GitHub confirms the merged state.
+
+All Checks, Statuses, PR-file, and compare-file collections use bounded
+pagination. Repeated links, malformed pages, partial failures, and page-limit
+exhaustion fail closed. Missing GitHub provenance timestamps are unavailable;
+the adapter never substitutes local wall-clock time for evidence provenance.
 
 The shadow ledger records readiness and merge-observation events append-only;
 it never rewrites a verdict. External merges are recorded as
 `external_merge_observed`, not as internal completion.
+
+Merge attempts reserve an immutable `merge_attempt_reserved` event before the
+GitHub mutation. Completion is appended afterward. If completion persistence
+fails after GitHub confirms success, the result is `MERGE_SUCCEEDED_AUDIT_PENDING`
+and `reconcile()` can append completion idempotently without a second merge.
 
 ## Activation plan (not performed)
 

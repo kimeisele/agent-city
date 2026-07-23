@@ -35,7 +35,7 @@ class GitHubJSONClient:
         self._token = token or os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
         self.timeout = timeout
 
-    def get(self, path: str) -> Any:
+    def _request(self, path: str) -> tuple[Any, Mapping[str, str]]:
         if not self._token:
             raise LiveEvidenceError("GITHUB_TOKEN_UNAVAILABLE")
         if not path.startswith("/repos/"):
@@ -51,7 +51,7 @@ class GitHubJSONClient:
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                return json.loads(response.read())
+                return json.loads(response.read()), response.headers
         except (
             urllib.error.URLError,
             urllib.error.HTTPError,
@@ -60,21 +60,74 @@ class GitHubJSONClient:
         ) as exc:
             raise LiveEvidenceError("GITHUB_READ_FAILED") from exc
 
+    def get(self, path: str) -> Any:
+        return self._request(path)[0]
+
+    def get_all(
+        self, path: str, *, collection_key: str | None = None, max_pages: int = 20
+    ) -> list[Mapping[str, Any]]:
+        """Retrieve every bounded GitHub collection page or fail closed."""
+        if max_pages <= 0:
+            raise LiveEvidenceError("PAGINATION_INVALID")
+        page_path = path
+        seen: set[str] = set()
+        result: list[Mapping[str, Any]] = []
+        for page_number in range(1, max_pages + 1):
+            if page_path in seen:
+                raise LiveEvidenceError("PAGINATION_REPEATED")
+            seen.add(page_path)
+            value, headers = self._request(page_path)
+            items = (
+                value.get(collection_key)
+                if collection_key and isinstance(value, Mapping)
+                else value
+            )
+            if not isinstance(items, list) or any(not isinstance(item, Mapping) for item in items):
+                raise LiveEvidenceError("PAGINATION_RESPONSE_INVALID")
+            result.extend(items)
+            link = headers.get("Link") or headers.get("link")
+            next_path = None
+            if link:
+                for part in link.split(","):
+                    if 'rel="next"' in part:
+                        start, end = part.find("<"), part.find(">")
+                        if start < 0 or end <= start:
+                            raise LiveEvidenceError("PAGINATION_LINK_INVALID")
+                        next_url = part[start + 1 : end]
+                        parsed = urllib.parse.urlparse(next_url)
+                        next_path = parsed.path + (("?" + parsed.query) if parsed.query else "")
+                        break
+            elif len(items) >= 100:
+                parsed = urllib.parse.urlsplit(page_path)
+                query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+                query["page"] = [str(page_number + 1)]
+                query["per_page"] = [query.get("per_page", ["100"])[0]]
+                next_path = urllib.parse.urlunsplit(
+                    ("", "", parsed.path, urllib.parse.urlencode(query, doseq=True), "")
+                )
+            if next_path is None:
+                return result
+            page_path = next_path
+        raise LiveEvidenceError("PAGINATION_MAX_PAGES")
+
 
 def _now() -> str:
     return dt.datetime.now(dt.UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+UNAVAILABLE_TIMESTAMP = "1970-01-01T00:00:00Z"
+
+
 def _timestamp(value: Any) -> str:
     """Normalize GitHub's RFC-3339 timestamps to the B1 second-precision form."""
     if not isinstance(value, str) or not value:
-        return _now()
+        raise LiveEvidenceError("EVIDENCE_TIMESTAMP_UNAVAILABLE")
     try:
         parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return _now()
+    except ValueError as exc:
+        raise LiveEvidenceError("EVIDENCE_TIMESTAMP_UNAVAILABLE") from exc
     if parsed.tzinfo is None:
-        return _now()
+        raise LiveEvidenceError("EVIDENCE_TIMESTAMP_UNAVAILABLE")
     return parsed.astimezone(dt.UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -98,21 +151,15 @@ class GitHubLiveEvidenceProvider:
     client: GitHubJSONClient
 
     def _checks(self, repository: str, sha: str) -> list[Mapping[str, Any]]:
-        value = self.client.get(
-            "/repos/" + repository + "/commits/" + sha + "/check-runs?per_page=100"
+        return self.client.get_all(
+            "/repos/" + repository + "/commits/" + sha + "/check-runs?per_page=100",
+            collection_key="check_runs",
         )
-        runs = value.get("check_runs") if isinstance(value, Mapping) else None
-        if not isinstance(runs, list):
-            raise LiveEvidenceError("CHECK_RESPONSE_INVALID")
-        return [item for item in runs if isinstance(item, Mapping)]
 
     def _statuses(self, repository: str, sha: str) -> list[Mapping[str, Any]]:
-        value = self.client.get(
+        return self.client.get_all(
             "/repos/" + repository + "/commits/" + sha + "/statuses?per_page=100"
         )
-        if not isinstance(value, list):
-            raise LiveEvidenceError("STATUS_RESPONSE_INVALID")
-        return [item for item in value if isinstance(item, Mapping)]
 
     def resolve(
         self,
@@ -133,7 +180,7 @@ class GitHubLiveEvidenceProvider:
                 evidence_ref.provider,
                 "adapter",
                 None,
-                _now(),
+                UNAVAILABLE_TIMESTAMP,
                 "mismatched",
                 "EVIDENCE_SHA_MISMATCH",
             )
@@ -157,7 +204,7 @@ class GitHubLiveEvidenceProvider:
                         evidence_ref.provider,
                         "github",
                         None,
-                        _now(),
+                        UNAVAILABLE_TIMESTAMP,
                         state,
                         "EVIDENCE_UNAVAILABLE",
                     )
@@ -203,7 +250,7 @@ class GitHubLiveEvidenceProvider:
                         evidence_ref.provider,
                         "github",
                         None,
-                        _now(),
+                        UNAVAILABLE_TIMESTAMP,
                         state,
                         "EVIDENCE_UNAVAILABLE",
                     )
@@ -242,7 +289,7 @@ class GitHubLiveEvidenceProvider:
                 evidence_ref.provider,
                 "github",
                 None,
-                _now(),
+                UNAVAILABLE_TIMESTAMP,
                 "unavailable",
                 exc.code,
             )
@@ -269,7 +316,7 @@ class GitHubLiveEvidenceProvider:
                 "github_check",
                 "github",
                 None,
-                _now(),
+                UNAVAILABLE_TIMESTAMP,
                 "unavailable",
                 "INTEGRATION_IDENTITY_UNAVAILABLE",
             )
@@ -279,6 +326,7 @@ class GitHubLiveEvidenceProvider:
                 not isinstance(pr, Mapping)
                 or pr.get("head", {}).get("sha") != reviewed_head_sha
                 or pr.get("base", {}).get("sha") != current_base_sha
+                or pr.get("merge_commit_sha") != integration_sha
             ):
                 return IntegrationEvidenceResult(
                     repository,
@@ -292,7 +340,7 @@ class GitHubLiveEvidenceProvider:
                     "github_check",
                     "github",
                     None,
-                    _now(),
+                    UNAVAILABLE_TIMESTAMP,
                     "mismatched",
                     "EVIDENCE_SHA_MISMATCH",
                 )
@@ -315,7 +363,7 @@ class GitHubLiveEvidenceProvider:
                     "github_check",
                     "github",
                     None,
-                    _now(),
+                    UNAVAILABLE_TIMESTAMP,
                     state,
                     "EVIDENCE_UNAVAILABLE",
                 )
@@ -357,7 +405,7 @@ class GitHubLiveEvidenceProvider:
                 "github_check",
                 "github",
                 None,
-                _now(),
+                UNAVAILABLE_TIMESTAMP,
                 "unavailable",
                 exc.code,
             )

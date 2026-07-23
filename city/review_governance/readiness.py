@@ -437,6 +437,9 @@ def evaluate_shadow_readiness(
             evaluation_id,
             {
                 "verdict_id": verdict_obj.verdict_id,
+                "repository": request.repository,
+                "pull_request_number": request.pull_request_number,
+                "evaluation_id": evaluation.evaluation_id,
                 "reviewed_head_sha": verdict_obj.reviewed_head_sha,
                 "review_request_base_sha": request.review_request_base_sha,
                 "validated_current_base_sha": snapshot.current_base_sha,

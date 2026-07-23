@@ -26,6 +26,7 @@ EVENTS = frozenset(
         "merge_readiness_evaluated",
         "merge_readiness_invalidated",
         "council_gate_recorded",
+        "merge_attempt_reserved",
         "merge_completed",
         "external_merge_observed",
     }
@@ -102,6 +103,62 @@ class ShadowLedger:
                 return tuple(self._read_unlocked())
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    def find_event(self, event_id: str) -> dict[str, Any] | None:
+        return next((event for event in self.read() if event["event_id"] == event_id), None)
+
+    def readiness_lineage(
+        self,
+        *,
+        repository: str,
+        pull_request_number: int,
+        reviewed_head_sha: str,
+        evaluation_id: str,
+    ) -> tuple[str | None, bool, str | None]:
+        """Resolve latest readiness and later invalidation deterministically."""
+        events = self.read()
+        evaluations: list[dict[str, Any]] = []
+        invalidated = False
+        ledger_head = events[-1]["event_digest"] if events else None
+        for event in events:
+            payload = event["payload"]
+            if event["event_type"] in {
+                "merge_readiness_evaluated",
+                "merge_readiness_invalidated",
+                "review_verdict_stale",
+                "review_verdict_rejected",
+                "council_gate_recorded",
+            } and (
+                "repository" not in payload
+                or "pull_request_number" not in payload
+                or "reviewed_head_sha" not in payload
+            ):
+                raise LedgerError("LEDGER_CORRUPTION")
+            if (
+                payload.get("repository") != repository
+                or payload.get("pull_request_number") != pull_request_number
+            ):
+                continue
+            if payload.get("reviewed_head_sha") != reviewed_head_sha:
+                continue
+            if event["event_type"] == "merge_readiness_evaluated":
+                evaluations.append(event)
+            elif event["event_type"] in {
+                "merge_readiness_invalidated",
+                "review_verdict_stale",
+                "review_verdict_rejected",
+            }:
+                if payload.get("evaluation_id") == evaluation_id or not payload.get(
+                    "evaluation_id"
+                ):
+                    invalidated = True
+            elif (
+                event["event_type"] == "council_gate_recorded"
+                and payload.get("state") != "approved"
+            ):
+                invalidated = True
+        latest = evaluations[-1]["payload"].get("evaluation_id") if evaluations else None
+        return latest, invalidated, ledger_head
 
     def append(self, event_type: str, event_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if event_type not in EVENTS or not event_id or not isinstance(payload, dict):
