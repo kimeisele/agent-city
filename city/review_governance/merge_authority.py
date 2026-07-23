@@ -217,7 +217,7 @@ class ReviewGovernanceMergeAuthority:
         state = final_resolver.resolve()
         if not isinstance(state, FinalMergeSnapshotB1):
             raise MergeAuthorityError("FINAL_RESOLVER_INVALID")
-        self._validate_final_state(evaluation, state)
+        self._validate_final_state(evaluation, state, allow_merged_confirmation=True)
         attempt_id = f"merge-attempt:{evaluation.evaluation_id}"
         completion_id = f"merge:{evaluation.evaluation_id}"
         completion = self.ledger.find_event(completion_id)
@@ -228,6 +228,8 @@ class ReviewGovernanceMergeAuthority:
                 raise MergeAuthorityError("MERGE_CONFIRMATION_MISMATCH")
             return state
         reservation = self.ledger.find_event(attempt_id)
+        if state.merged and reservation is None:
+            raise MergeAuthorityError("EXTERNAL_MERGE_REQUIRES_OBSERVATION")
         if reservation is None:
             try:
                 self.ledger.append(
@@ -259,7 +261,7 @@ class ReviewGovernanceMergeAuthority:
         # Re-resolve after reservation so state changes during the append
         # cannot reach GitHub without a final predicate check.
         state = final_resolver.resolve()
-        self._validate_final_state(evaluation, state)
+        self._validate_final_state(evaluation, state, allow_merged_confirmation=state.merged)
         if state.merged:
             return self.reconcile(
                 evaluation=evaluation,
