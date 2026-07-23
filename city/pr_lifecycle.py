@@ -18,6 +18,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from config import get_config
+from city.review_governance.merge_authority import (
+    ReviewGovernanceMergeAuthority,
+)
 
 logger = logging.getLogger("AGENT_CITY.PR_LIFECYCLE")
 
@@ -87,6 +90,7 @@ class PRLifecycleManager:
     _records: dict[str, PRRecord] = field(default_factory=dict)
     _state_path: Path | None = None
     _dry_run: bool = False
+    _merge_authority: ReviewGovernanceMergeAuthority | None = None
 
     def __post_init__(self) -> None:
         if self._state_path is not None and self._state_path.exists():
@@ -183,10 +187,11 @@ class PRLifecycleManager:
         return "pending"
 
     def _auto_merge(self, pr_url: str) -> bool:
-        """Auto-merge a PR via gh."""
-        pr_ref = pr_url.rstrip("/").split("/")[-1]
-        result = _gh_run(["pr", "merge", pr_ref, "--merge", "--auto"])
-        return result is not None
+        """Request the sole governance authority; absent readiness fails closed."""
+        # A lifecycle poll has no signed verdict/readiness snapshot.  It may
+        # not invent one or fall back to an unbound merge operation.
+        logger.warning("Merge blocked for %s: signed readiness is required", pr_url)
+        return False
 
     def _close_stale_pr(self, pr_url: str) -> None:
         """Close a stale PR with comment."""

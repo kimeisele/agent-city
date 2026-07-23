@@ -103,35 +103,38 @@ class TestPRVerdictHook:
         assert self.hook.should_run(ctx) is False
 
     @patch("city.hooks.dharma.pr_verdict._gh_run")
-    def test_approve_non_core_auto_merges(self, mock_gh):
-        """Approve + non-core → comment + merge."""
-        mock_gh.return_value = "merged"
+    def test_approve_non_core_requests_governed_merge(self, mock_gh):
+        """Approve + non-core → comment and readiness request, never direct merge."""
+        mock_gh.return_value = "ok"
         ctx = _make_ctx()
         ctx.gateway_queue.append(_make_verdict_message("approve", pr_number=10, touches_core=False))
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
 
-        # Should have called gh twice: comment + merge
-        assert mock_gh.call_count == 2
+        # Only the audit comment is sent; the central authority owns merging.
+        assert mock_gh.call_count == 1
         comment_call = mock_gh.call_args_list[0]
-        merge_call = mock_gh.call_args_list[1]
         assert "comment" in comment_call[0][0]
-        assert "merge" in merge_call[0][0]
-        assert "pr_verdict:merged:#10" in ops
+        assert "Merge evaluation requested" in " ".join(comment_call[0][0])
+        assert "pr_verdict:merge_requested:#10" in ops
 
     @patch("city.hooks.dharma.pr_verdict._gh_run")
     def test_approve_core_triggers_council(self, mock_gh):
         """Approve + core files → comment + council proposal, NO merge."""
         mock_gh.return_value = "ok"
         ctx = _make_ctx(has_council=True, mayor="sys_vyasa")
-        ctx.gateway_queue.append(_make_verdict_message("approve", pr_number=20, touches_core=True, title="Big refactor"))
+        ctx.gateway_queue.append(
+            _make_verdict_message("approve", pr_number=20, touches_core=True, title="Big refactor")
+        )
         ops: list[str] = []
 
         # Mock the council import inside _create_council_proposal
         mock_proposal_type = MagicMock()
         mock_proposal_type.POLICY = "policy"
-        with patch.dict("sys.modules", {"city.council": MagicMock(ProposalType=mock_proposal_type)}):
+        with patch.dict(
+            "sys.modules", {"city.council": MagicMock(ProposalType=mock_proposal_type)}
+        ):
             self.hook.execute(ctx, ops)
 
         # Should have posted comment but NOT merged
@@ -153,7 +156,9 @@ class TestPRVerdictHook:
         """Request changes → comment with reason."""
         mock_gh.return_value = "ok"
         ctx = _make_ctx()
-        ctx.gateway_queue.append(_make_verdict_message("request_changes", pr_number=30, reason="Needs tests"))
+        ctx.gateway_queue.append(
+            _make_verdict_message("request_changes", pr_number=30, reason="Needs tests")
+        )
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -169,7 +174,9 @@ class TestPRVerdictHook:
         """Reject → close PR with comment."""
         mock_gh.return_value = "ok"
         ctx = _make_ctx()
-        ctx.gateway_queue.append(_make_verdict_message("reject", pr_number=40, reason="Violates governance"))
+        ctx.gateway_queue.append(
+            _make_verdict_message("reject", pr_number=40, reason="Violates governance")
+        )
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -183,10 +190,9 @@ class TestPRVerdictHook:
     def test_non_verdict_messages_ignored(self):
         """Non-verdict NADI messages are silently skipped."""
         ctx = _make_ctx()
-        ctx.gateway_queue.append({
-            "membrane": {"surface": "federation"},
-            "federation_operation": "heartbeat_sync"
-        })
+        ctx.gateway_queue.append(
+            {"membrane": {"surface": "federation"}, "federation_operation": "heartbeat_sync"}
+        )
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
@@ -199,8 +205,9 @@ class TestPRVerdictHook:
         msg = {
             "membrane": {"surface": "federation"},
             "federation_operation": "pr_review_verdict",
-            "signature": "sig", "signer_key": "key",
-            "federation_payload": {"verdict": "approve", "reason": "ok"}
+            "signature": "sig",
+            "signer_key": "key",
+            "federation_payload": {"verdict": "approve", "reason": "ok"},
         }
         ctx.gateway_queue.append(msg)
         ops: list[str] = []
@@ -223,29 +230,30 @@ class TestPRVerdictHook:
         assert "pr_verdict:council_vote:#50" in ops
 
     @patch("city.hooks.dharma.pr_verdict._gh_run")
-    def test_merge_failure_recorded(self, mock_gh):
-        """Merge returning None → merge_failed operation."""
-        # First call (comment) succeeds, second (merge) fails
-        mock_gh.side_effect = ["ok", None]
+    def test_non_core_request_does_not_report_merge_failure(self, mock_gh):
+        """A readiness request is not a merge attempt and cannot report merge failure."""
+        mock_gh.return_value = "ok"
         ctx = _make_ctx()
         ctx.gateway_queue.append(_make_verdict_message("approve", pr_number=60, touches_core=False))
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)
 
-        assert "pr_verdict:merge_failed:#60" in ops
+        assert ops == ["pr_verdict:merge_requested:#60"]
 
     def test_compliance_report_recorded(self):
         ctx = _make_ctx()
-        ctx.gateway_queue.append({
-            "membrane": {"surface": "federation"},
-            "federation_operation": "compliance_report",
-            "federation_payload": {
-                "status": "warning",
-                "subject": "federation trust drift",
-                "source": "legislator",
+        ctx.gateway_queue.append(
+            {
+                "membrane": {"surface": "federation"},
+                "federation_operation": "compliance_report",
+                "federation_payload": {
+                    "status": "warning",
+                    "subject": "federation trust drift",
+                    "source": "legislator",
+                },
             }
-        })
+        )
         ops: list[str] = []
 
         self.hook.execute(ctx, ops)

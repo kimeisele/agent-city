@@ -56,8 +56,8 @@ def _unsigned(*, head: str = HEAD, core: str = "non_core", provider: str = "revi
         ],
         "reviewer_identity": "reviewer-1",
         "reviewer_key_id": KEY_ID,
-        "issued_at": "2026-07-22T12:00:00Z",
-        "expires_at": "2026-07-23T12:00:00Z",
+        "issued_at": "2027-07-22T12:00:00Z",
+        "expires_at": "2027-07-23T12:00:00Z",
     }
 
 

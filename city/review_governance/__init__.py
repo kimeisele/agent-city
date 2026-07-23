@@ -21,6 +21,7 @@ from .evidence import (
     AllowlistEvidenceProducerTrust,
     EvidenceProducerTrust,
     head_evidence_digest,
+    integration_evidence_digest,
     HeadEvidenceProvider,
     HeadEvidenceResult,
     IntegrationEvidenceProvider,
@@ -36,6 +37,21 @@ from .readiness import (
     ShadowReadinessResult,
     evaluate_shadow_readiness,
 )
+from .trust_config import TrustedProducerConfig, TrustConfigError, load_trusted_producers
+from .live_evidence import GitHubJSONClient, GitHubLiveEvidenceProvider, LiveEvidenceError
+from .github_snapshot import GitHubSnapshotResolver, SnapshotError
+from .merge_authority import (
+    CurrentMergeStateB1,
+    DisabledBreakGlass,
+    ExternalMergeObserver,
+    FinalMergeSnapshotB1,
+    FinalMergeStateResolver,
+    MergeRunResult,
+    MergeAuthorityError,
+    ReviewGovernanceMergeAuthority,
+    SubprocessGitHubRunner,
+)
+from .final_resolver import CouncilStateProvider, FinalResolverError, GitHubFinalMergeStateResolver
 
 __all__ = [
     "EvidenceRefB1",
@@ -57,6 +73,7 @@ __all__ = [
     "AllowlistEvidenceProducerTrust",
     "EvidenceProducerTrust",
     "head_evidence_digest",
+    "integration_evidence_digest",
     "HeadEvidenceProvider",
     "HeadEvidenceResult",
     "IntegrationEvidenceProvider",
@@ -72,4 +89,24 @@ __all__ = [
     "ShadowGovernanceDecision",
     "ShadowReadinessResult",
     "evaluate_shadow_readiness",
+    "TrustedProducerConfig",
+    "TrustConfigError",
+    "load_trusted_producers",
+    "GitHubJSONClient",
+    "GitHubLiveEvidenceProvider",
+    "LiveEvidenceError",
+    "GitHubSnapshotResolver",
+    "SnapshotError",
+    "CurrentMergeStateB1",
+    "FinalMergeSnapshotB1",
+    "FinalMergeStateResolver",
+    "MergeRunResult",
+    "DisabledBreakGlass",
+    "ExternalMergeObserver",
+    "MergeAuthorityError",
+    "ReviewGovernanceMergeAuthority",
+    "SubprocessGitHubRunner",
+    "CouncilStateProvider",
+    "FinalResolverError",
+    "GitHubFinalMergeStateResolver",
 ]
