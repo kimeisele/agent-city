@@ -211,7 +211,7 @@ def _unavailable_results(
         snapshot.current_head_sha,
         "unknown",
         "github_check",
-        "unavailable",
+        "adapter",
         None,
         snapshot.observed_at,
         "unavailable",
@@ -227,7 +227,7 @@ def _unavailable_results(
         snapshot.current_base_sha,
         "unknown",
         "github_check",
-        "unavailable",
+        "adapter",
         None,
         snapshot.observed_at,
         "unavailable",
@@ -282,48 +282,63 @@ def evaluate_shadow_readiness(
         and verdict_obj.scope_digest == request.scope_digest
         and verdict_obj.reviewed_files == request.reviewed_files
     )
+    head_refs = tuple(
+        ref for ref in verdict_obj.evidence_refs if ref.kind == "head_security_evidence"
+    )
     if not binding_ok:
         head, integration = _unavailable_results(request, snapshot)
+        head_state = head.state
         verdict_state, reason = "rejected", "REQUEST_LINEAGE_MISMATCH"
+    elif not head_refs:
+        head, integration = _unavailable_results(request, snapshot)
+        head_state = head.state
+        verdict_state, reason = "blocked", "EVIDENCE_UNAVAILABLE"
     else:
-        integration = integration_provider.resolve(
-            repository=request.repository,
-            pull_request_number=request.pull_request_number,
-            reviewed_head_sha=request.reviewed_head_sha,
-            current_base_sha=snapshot.current_base_sha,
+        head_pairs = tuple(
+            (
+                ref,
+                head_provider.resolve(
+                    repository=request.repository,
+                    pull_request_number=request.pull_request_number,
+                    reviewed_head_sha=request.reviewed_head_sha,
+                    evidence_ref=ref,
+                ),
+            )
+            for ref in head_refs
         )
-        head = head_provider.resolve(
-            repository=request.repository,
-            pull_request_number=request.pull_request_number,
-            reviewed_head_sha=request.reviewed_head_sha,
-            evidence_refs=verdict_obj.evidence_refs,
+        head = head_pairs[0][1]
+        head_state = (
+            "verified"
+            if all(result.state == "verified" for _, result in head_pairs)
+            else next(result.state for _, result in head_pairs if result.state != "verified")
         )
-        refs_are_h_policy = all(
+        refs_are_h_policy = bool(head_refs) and all(
             ref.kind == "head_security_evidence"
             and ref.name == HEAD_POLICY
             and ref.provider in {"github_check", "github_status"}
             and ref.sha == snapshot.current_head_sha
-            for ref in verdict_obj.evidence_refs
+            for ref in head_refs
         )
         if snapshot.current_head_sha != verdict_obj.reviewed_head_sha:
             verdict_state, reason = "stale", "REVIEWED_HEAD_STALE"
         elif not refs_are_h_policy:
             verdict_state, reason = "blocked", "EVIDENCE_UNAVAILABLE"
-        elif (
-            head.repository != request.repository
-            or head.pull_request_number != request.pull_request_number
-            or head.policy_name != HEAD_POLICY
-            or head.state != "verified"
-            or head.conclusion != "success"
-            or head.provider not in {"github_check", "github_status"}
+        elif any(
+            result.repository != request.repository
+            or result.pull_request_number != request.pull_request_number
+            or result.policy_name != HEAD_POLICY
+            or result.state != "verified"
+            or result.conclusion != "success"
+            or result.provider not in {"github_check", "github_status"}
             or producer_trust is None
             or not producer_trust.is_trusted(
                 repository=request.repository,
                 policy_name=HEAD_POLICY,
-                provider=head.provider,
-                producer_identity=head.producer_identity,
+                provider=result.provider,
+                producer_identity=result.producer_identity,
             )
-            or head.observed_sha != snapshot.current_head_sha
+            or result.observed_sha != snapshot.current_head_sha
+            for _, result in head_pairs
         ):
             verdict_state = "blocked" if head.state != "mismatched" else "rejected"
             reason = head.error_code or (
@@ -336,7 +351,7 @@ def evaluate_shadow_readiness(
                 verdict_obj.to_mapping(),
                 repository=request.repository,
                 verifier=verifier,
-                evidence_verifier=EvidenceReferenceVerifier(head),
+                evidence_verifier=EvidenceReferenceVerifier(head_pairs),
                 scope_entries=[dict(item) for item in request.scope_entries],
                 consumer_core=_consumer_core(request.scope_entries, consumer_core_classifier),
                 current_head_sha=snapshot.current_head_sha,
@@ -346,6 +361,15 @@ def evaluate_shadow_readiness(
                 ),
             )
             verdict_state, reason = verification.state, verification.error_code or "OK"
+        if verdict_state == "valid":
+            integration = integration_provider.resolve(
+                repository=request.repository,
+                pull_request_number=request.pull_request_number,
+                reviewed_head_sha=request.reviewed_head_sha,
+                current_base_sha=snapshot.current_base_sha,
+            )
+        else:
+            _, integration = _unavailable_results(request, snapshot)
     consumer_core = _consumer_core(request.scope_entries, consumer_core_classifier)
     effective_core = verdict_obj.core_classification == "core" or consumer_core == "core"
     council = council_gate or CouncilGateB1(
@@ -401,7 +425,7 @@ def evaluate_shadow_readiness(
         snapshot=snapshot,
         drift=drift,
         decision=decision,
-        council_state=council.state if effective_core else "not_required",
+        council_state=council_state if effective_core else "not_required",
         integration=integration,
         evaluation_id=evaluation_id,
         evaluated_at=evaluated_at,
@@ -437,7 +461,7 @@ def evaluate_shadow_readiness(
             outcome,
             decision.reason_code,
             verdict_state,
-            head.state,
+            head_state,
             integration.state,
             drift.classification,
             False,

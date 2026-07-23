@@ -15,6 +15,7 @@ from .evidence import (
     HeadEvidenceResult,
     IntegrationEvidenceResult,
 )
+from .schema import EvidenceRefB1
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 TIME_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
@@ -82,6 +83,60 @@ class GitHubEvidenceAdapter:
             if o.repository == repository
             and o.pull_request_number == pull_request_number
             and o.policy_name == HEAD_POLICY
+        ]
+        if len(matches) != 1:
+            state = "unavailable" if not matches else "ambiguous"
+            return HeadEvidenceResult(
+                repository,
+                pull_request_number,
+                HEAD_POLICY,
+                None,
+                reviewed_head_sha,
+                "unknown",
+                "github_check",
+                "adapter",
+                None,
+                "1970-01-01T00:00:00Z",
+                state,
+                "EVIDENCE_UNAVAILABLE" if not matches else "AMBIGUOUS_EVIDENCE",
+            )
+        item = matches[0]
+        state = (
+            "verified"
+            if item.sha == reviewed_head_sha and item.conclusion == "success"
+            else "mismatched"
+        )
+        return HeadEvidenceResult(
+            repository,
+            pull_request_number,
+            HEAD_POLICY,
+            item.sha,
+            reviewed_head_sha,
+            item.conclusion,
+            item.provider,
+            item.producer_identity,
+            item.run_or_check_identity,
+            item.observed_at,
+            state,
+            None if state == "verified" else "EVIDENCE_SHA_MISMATCH",
+        )
+
+    def resolve(
+        self,
+        *,
+        repository: str,
+        pull_request_number: int,
+        reviewed_head_sha: str,
+        evidence_ref: EvidenceRefB1,
+    ) -> HeadEvidenceResult:
+        matches = [
+            item
+            for item in self._observations
+            if item.repository == repository
+            and item.pull_request_number == pull_request_number
+            and item.policy_name == HEAD_POLICY
+            and item.sha == evidence_ref.sha
+            and item.provider == evidence_ref.provider
         ]
         if len(matches) != 1:
             state = "unavailable" if not matches else "ambiguous"

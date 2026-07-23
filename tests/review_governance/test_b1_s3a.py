@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -20,6 +21,7 @@ from city.review_governance.evidence import (
     IntegrationEvidenceResult,
     StaticHeadEvidenceProvider,
     StaticIntegrationEvidenceProvider,
+    head_evidence_digest,
 )
 from city.review_governance.github_adapter import CheckObservation, GitHubEvidenceAdapter
 from city.review_governance.policy import BaseDriftEvaluation
@@ -67,12 +69,25 @@ def _fixture():
     signer = Ed25519ReviewerSigner(
         reviewer_identity="reviewer-1", reviewer_key_id="key-1", private_key=key
     )
+    head = HeadEvidenceResult(
+        REPOSITORY,
+        42,
+        HEAD_POLICY,
+        HEAD,
+        HEAD,
+        "success",
+        "github_check",
+        "producer-1",
+        "check-1",
+        OBSERVED,
+        "verified",
+    )
     ref = {
         "kind": "head_security_evidence",
         "sha": HEAD,
         "provider": "github_check",
         "name": HEAD_POLICY,
-        "evidence_digest": "sha256:" + "e" * 64,
+        "evidence_digest": head_evidence_digest(head),
     }
     verdict, _ = emit_verdict(
         request,
@@ -88,19 +103,6 @@ def _fixture():
         verdict_id="verdict-1",
     )
     snapshot = CurrentPRSnapshotB1(REPOSITORY, 42, HEAD, BASE, tuple(SCOPE), MERGE, OBSERVED)
-    head = HeadEvidenceResult(
-        REPOSITORY,
-        42,
-        HEAD_POLICY,
-        HEAD,
-        HEAD,
-        "success",
-        "github_check",
-        "producer-1",
-        "check-1",
-        OBSERVED,
-        "verified",
-    )
     integration = IntegrationEvidenceResult(
         REPOSITORY,
         42,
@@ -259,6 +261,63 @@ def test_mismatched_request_snapshot_skips_provider_resolution():
     assert result.decision.reason_code == "REQUEST_LINEAGE_MISMATCH"
 
 
+def test_empty_signed_evidence_blocks_before_provider_assertion():
+    request, verdict, snapshot, head, integration, verifier, trust = _fixture()
+
+    class ExplodingProvider:
+        def resolve(self, **_: object):
+            raise AssertionError("missing signed evidence must not query providers")
+
+    empty = replace(verdict, evidence_refs=())
+    result = _run(
+        request,
+        empty,
+        snapshot,
+        head,
+        integration,
+        verifier,
+        trust,
+        head_provider=ExplodingProvider(),
+        integration_provider=ExplodingProvider(),
+    )
+    assert result.decision.reason_code == "EVIDENCE_UNAVAILABLE"
+
+
+def test_evidence_digest_binds_complete_resolved_observation():
+    request, verdict, snapshot, head, integration, verifier, trust = _fixture()
+    wrong_digest = replace(verdict.evidence_refs[0], evidence_digest="sha256:" + "f" * 64)
+    altered = replace(verdict, evidence_refs=(wrong_digest,))
+    result = _run(request, altered, snapshot, head, integration, verifier, trust)
+    assert result.decision.state == "blocked"
+
+
+def test_multiple_signed_refs_require_independent_corresponding_results():
+    request, verdict, snapshot, head, integration, verifier, trust = _fixture()
+    second = replace(verdict.evidence_refs[0], provider="github_status")
+    altered = replace(verdict, evidence_refs=(verdict.evidence_refs[0], second))
+    result = _run(request, altered, snapshot, head, integration, verifier, trust)
+    assert result.decision.state == "blocked"
+
+
+def test_mismatched_council_is_recorded_unknown_not_approved():
+    request, verdict, snapshot, head, integration, verifier, trust = _fixture()
+    wrong_council = CouncilGateB1("other/repository", 42, HEAD, "approved", "approval-1")
+    result = _run(
+        request,
+        verdict,
+        snapshot,
+        head,
+        integration,
+        verifier,
+        trust,
+        consumer_core_classifier=lambda _: "core",
+        council_gate=wrong_council,
+    )
+    assert result.decision.state == "blocked"
+    assert result.evaluation.council_state == "unknown"
+    assert result.evaluation.core_gate_state == "core_pending_council"
+
+
 def test_wrong_head_is_stale_and_old_verdict_is_not_rewritten():
     request, verdict, snapshot, head, integration, verifier, trust = _fixture()
     moved = CurrentPRSnapshotB1(REPOSITORY, 42, OTHER, BASE, tuple(SCOPE), MERGE, OBSERVED)
@@ -287,7 +346,7 @@ def test_non_core_non_overlap_preserves_verdict_but_requires_new_integration():
         MERGE,
         HEAD,
         BASE,
-        "success",
+        "failure",
         "github_check",
         "producer-1",
         "old",

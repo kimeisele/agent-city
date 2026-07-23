@@ -31,6 +31,11 @@ observation time.  An injected allowlist trust policy is required; a provider
 label alone is not authority.  Cross-repository and cross-PR observations are
 therefore unavailable rather than replayable.
 
+The signed `EvidenceRefB1.evidence_digest` is the SHA-256 digest of that full
+canonical observation projection.  Each signed H reference is resolved
+independently; an empty reference set or an observation without a matching
+reference cannot become verified.
+
 ## Shadow boundary
 
 Current-base snapshots, base-delta classifications, Policy-C decisions and
