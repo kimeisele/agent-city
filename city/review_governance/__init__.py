@@ -21,6 +21,7 @@ from .evidence import (
     AllowlistEvidenceProducerTrust,
     EvidenceProducerTrust,
     head_evidence_digest,
+    integration_evidence_digest,
     HeadEvidenceProvider,
     HeadEvidenceResult,
     IntegrationEvidenceProvider,
@@ -45,10 +46,12 @@ from .merge_authority import (
     ExternalMergeObserver,
     FinalMergeSnapshotB1,
     FinalMergeStateResolver,
+    MergeRunResult,
     MergeAuthorityError,
     ReviewGovernanceMergeAuthority,
     SubprocessGitHubRunner,
 )
+from .final_resolver import CouncilStateProvider, FinalResolverError, GitHubFinalMergeStateResolver
 
 __all__ = [
     "EvidenceRefB1",
@@ -70,6 +73,7 @@ __all__ = [
     "AllowlistEvidenceProducerTrust",
     "EvidenceProducerTrust",
     "head_evidence_digest",
+    "integration_evidence_digest",
     "HeadEvidenceProvider",
     "HeadEvidenceResult",
     "IntegrationEvidenceProvider",
@@ -96,9 +100,13 @@ __all__ = [
     "CurrentMergeStateB1",
     "FinalMergeSnapshotB1",
     "FinalMergeStateResolver",
+    "MergeRunResult",
     "DisabledBreakGlass",
     "ExternalMergeObserver",
     "MergeAuthorityError",
     "ReviewGovernanceMergeAuthority",
     "SubprocessGitHubRunner",
+    "CouncilStateProvider",
+    "FinalResolverError",
+    "GitHubFinalMergeStateResolver",
 ]

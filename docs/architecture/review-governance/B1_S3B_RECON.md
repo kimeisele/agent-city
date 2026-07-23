@@ -40,6 +40,13 @@ invoking a structured
 `gh pr merge ... --squash --match-head-commit H` command. It records the final
 squash SHA separately after GitHub confirms the merged state.
 
+`GitHubFinalMergeStateResolver` is the production composition boundary. It
+fetches the PR snapshot, resolves the signed H reference, recomputes its
+evidence digest, applies the trusted producer policy, resolves H/B/M integration
+evidence, resolves exact-head Council state, and computes current ledger
+lineage. Arbitrary snapshot injection is available only through the explicitly
+named test-only authority method.
+
 All Checks, Statuses, PR-file, and compare-file collections use bounded
 pagination. Repeated links, malformed pages, partial failures, and page-limit
 exhaustion fail closed. Missing GitHub provenance timestamps are unavailable;
@@ -53,6 +60,10 @@ Merge attempts reserve an immutable `merge_attempt_reserved` event before the
 GitHub mutation. Completion is appended afterward. If completion persistence
 fails after GitHub confirms success, the result is `MERGE_SUCCEEDED_AUDIT_PENDING`
 and `reconcile()` can append completion idempotently without a second merge.
+The reservation carries a unique nonce and worker identity. A durable
+`merge_attempt_succeeded` proof, matching GitHub's merge actor and bounded
+merge timestamp, is required for internal completion; otherwise the result is
+classified as external or indeterminate rather than fabricated as internal.
 
 ## Activation plan (not performed)
 

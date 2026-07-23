@@ -5,8 +5,9 @@ from __future__ import annotations
 import datetime as dt
 import re
 import subprocess
+import uuid
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from .ledger import LedgerError, ShadowLedger
 from .schema import MergeReadinessEvaluationB1
@@ -57,6 +58,8 @@ class FinalMergeSnapshotB1:
     merged: bool = False
     final_merge_sha: str | None = None
     observed_at: str = ""
+    merged_by: str | None = None
+    merged_at: str | None = None
 
     def __post_init__(self) -> None:
         _validate_identity(self.repository, self.pull_request_number)
@@ -69,6 +72,15 @@ class FinalMergeSnapshotB1:
         if self.final_merge_sha is not None:
             _validate_sha(self.final_merge_sha)
         if self.merged != (self.final_merge_sha is not None):
+            raise MergeAuthorityError("INCONSISTENT_MERGE_STATE")
+        if self.merged and (
+            not self.merged_by
+            or not ACTOR_RE.fullmatch(self.merged_by)
+            or not self.merged_at
+            or not TIME_RE.fullmatch(self.merged_at)
+        ):
+            raise MergeAuthorityError("MERGE_CAUSALITY_UNAVAILABLE")
+        if not self.merged and (self.merged_by is not None or self.merged_at is not None):
             raise MergeAuthorityError("INCONSISTENT_MERGE_STATE")
         if self.pr_state not in {"open", "closed"}:
             raise MergeAuthorityError("INVALID_PR_STATE")
@@ -105,13 +117,32 @@ CurrentMergeStateB1 = FinalMergeSnapshotB1
 
 
 class MergeRunner(Protocol):
-    def run(self, args: list[str]) -> str | None: ...
+    def run(self, args: list[str]) -> "MergeRunResult | str | None": ...
 
 
 class FinalMergeStateResolver(Protocol):
     """Production boundary for a fresh GitHub/evidence/ledger observation."""
 
     def resolve(self) -> FinalMergeSnapshotB1: ...
+
+
+@dataclass(frozen=True)
+class MergeRunResult:
+    attempt_id: str
+    runner_started_at: str
+    runner_completed_at: str
+    expected_head_sha: str
+    command_succeeded: bool
+    output: str = ""
+
+    def __post_init__(self) -> None:
+        _validate_sha(self.expected_head_sha)
+        if not TIME_RE.fullmatch(self.runner_started_at) or not TIME_RE.fullmatch(
+            self.runner_completed_at
+        ):
+            raise MergeAuthorityError("INVALID_TIMESTAMP")
+        if self.runner_completed_at < self.runner_started_at:
+            raise MergeAuthorityError("INVALID_TIMESTAMP")
 
 
 class SubprocessGitHubRunner:
@@ -139,10 +170,12 @@ class ReviewGovernanceMergeAuthority:
         enabled: bool = False,
         runner: MergeRunner | None = None,
         ledger: ShadowLedger | None = None,
+        resolver_factory: Callable[[], FinalMergeStateResolver] | None = None,
     ):
         self.enabled = enabled
         self.runner = runner or SubprocessGitHubRunner()
         self.ledger = ledger
+        self.resolver_factory = resolver_factory
 
     def _validate_final_state(
         self,
@@ -198,6 +231,42 @@ class ReviewGovernanceMergeAuthority:
         self,
         *,
         evaluation: MergeReadinessEvaluationB1,
+        actor: str,
+        request_base_sha: str,
+        reason: str = "",
+    ) -> FinalMergeSnapshotB1:
+        if self.resolver_factory is None:
+            raise MergeAuthorityError("FINAL_RESOLVER_UNAVAILABLE")
+        return self._merge(
+            evaluation=evaluation,
+            final_resolver=self.resolver_factory(),
+            actor=actor,
+            request_base_sha=request_base_sha,
+            reason=reason,
+        )
+
+    def merge_with_test_resolver(
+        self,
+        *,
+        evaluation: MergeReadinessEvaluationB1,
+        final_resolver: FinalMergeStateResolver,
+        actor: str,
+        request_base_sha: str,
+        reason: str = "",
+    ) -> FinalMergeSnapshotB1:
+        """Explicit test-only injection boundary; never used by production callers."""
+        return self._merge(
+            evaluation=evaluation,
+            final_resolver=final_resolver,
+            actor=actor,
+            request_base_sha=request_base_sha,
+            reason=reason,
+        )
+
+    def _merge(
+        self,
+        *,
+        evaluation: MergeReadinessEvaluationB1,
         final_resolver: FinalMergeStateResolver,
         actor: str,
         request_base_sha: str,
@@ -218,16 +287,24 @@ class ReviewGovernanceMergeAuthority:
         if not isinstance(state, FinalMergeSnapshotB1):
             raise MergeAuthorityError("FINAL_RESOLVER_INVALID")
         self._validate_final_state(evaluation, state, allow_merged_confirmation=True)
-        attempt_id = f"merge-attempt:{evaluation.evaluation_id}"
-        completion_id = f"merge:{evaluation.evaluation_id}"
-        completion = self.ledger.find_event(completion_id)
+        reservation = self.ledger.find_event_by_payload(
+            "merge_attempt_reserved", "evaluation_id", evaluation.evaluation_id
+        )
+        attempt_id = (
+            reservation["payload"]["attempt_id"]
+            if reservation is not None
+            else f"merge-attempt:{evaluation.evaluation_id}:{uuid.uuid4().hex}"
+        )
+        completion = self.ledger.find_event_by_payload(
+            "merge_completed", "evaluation_id", evaluation.evaluation_id
+        )
+        completion_id = completion["event_id"] if completion is not None else f"merge:{attempt_id}"
         if completion is not None:
             if not state.merged or state.final_merge_sha != completion["payload"].get(
                 "final_merge_sha"
             ):
                 raise MergeAuthorityError("MERGE_CONFIRMATION_MISMATCH")
             return state
-        reservation = self.ledger.find_event(attempt_id)
         if state.merged and reservation is None:
             raise MergeAuthorityError("EXTERNAL_MERGE_REQUIRES_OBSERVATION")
         if reservation is None:
@@ -237,6 +314,8 @@ class ReviewGovernanceMergeAuthority:
                     attempt_id,
                     {
                         "attempt_id": attempt_id,
+                        "attempt_nonce": attempt_id.rsplit(":", 1)[-1],
+                        "worker_identity": actor,
                         "repository": evaluation.repository,
                         "pull_request_number": evaluation.pull_request_number,
                         "evaluation_id": evaluation.evaluation_id,
@@ -280,18 +359,69 @@ class ReviewGovernanceMergeAuthority:
             "--match-head-commit",
             evaluation.merge_expected_head_sha,
         ]
-        if self.runner.run(args) is None:
+        runner_started_at = _timestamp()
+        raw_result = self.runner.run(args)
+        runner_completed_at = _timestamp()
+        if raw_result is None:
             raise MergeAuthorityError("MERGE_FAILED")
+        run_result = (
+            raw_result
+            if isinstance(raw_result, MergeRunResult)
+            else MergeRunResult(
+                attempt_id,
+                runner_started_at,
+                runner_completed_at,
+                evaluation.merge_expected_head_sha,
+                True,
+                str(raw_result),
+            )
+        )
+        if (
+            not run_result.command_succeeded
+            or run_result.attempt_id != attempt_id
+            or run_result.expected_head_sha != evaluation.merge_expected_head_sha
+        ):
+            raise MergeAuthorityError("MERGE_RUN_UNATTRIBUTABLE")
+        try:
+            self.ledger.append(
+                "merge_attempt_succeeded",
+                f"merge-success:{attempt_id}",
+                {
+                    "attempt_id": attempt_id,
+                    "attempt_nonce": attempt_id.rsplit(":", 1)[-1],
+                    "evaluation_id": evaluation.evaluation_id,
+                    "repository": evaluation.repository,
+                    "pull_request_number": evaluation.pull_request_number,
+                    "expected_head_sha": run_result.expected_head_sha,
+                    "actor": actor,
+                    "runner_started_at": run_result.runner_started_at,
+                    "runner_completed_at": run_result.runner_completed_at,
+                },
+            )
+        except LedgerError as exc:
+            raise MergeAuthorityError("MERGE_SUCCEEDED_AUDIT_PENDING") from exc
         confirmed = final_resolver.resolve()
         self._validate_final_state(evaluation, confirmed, allow_merged_confirmation=True)
         if not confirmed.merged or not confirmed.final_merge_sha:
             raise MergeAuthorityError("MERGE_CONFIRMATION_UNAVAILABLE")
+        if (
+            confirmed.merged_by != actor
+            or confirmed.merged_at is None
+            or not (
+                run_result.runner_started_at
+                <= confirmed.merged_at
+                <= run_result.runner_completed_at
+            )
+        ):
+            self._record_external_merge(confirmed, reason="MERGE_CAUSALITY_MISMATCH")
+            raise MergeAuthorityError("EXTERNAL_MERGE_OBSERVED")
         try:
             self.ledger.append(
                 "merge_completed",
                 completion_id,
                 {
                     "attempt_id": attempt_id,
+                    "attempt_nonce": attempt_id.rsplit(":", 1)[-1],
                     "repository": evaluation.repository,
                     "pull_request_number": evaluation.pull_request_number,
                     "verdict_id": evaluation.verdict_id,
@@ -311,6 +441,28 @@ class ReviewGovernanceMergeAuthority:
             raise MergeAuthorityError("MERGE_SUCCEEDED_AUDIT_PENDING") from exc
         return confirmed
 
+    def _record_external_merge(self, state: FinalMergeSnapshotB1, *, reason: str) -> None:
+        if self.ledger is None or state.final_merge_sha is None:
+            return
+        event_id = (
+            f"external:{state.repository}:{state.pull_request_number}:{state.final_merge_sha}"
+        )
+        if self.ledger.find_event(event_id) is None:
+            self.ledger.append(
+                "external_merge_observed",
+                event_id,
+                {
+                    "repository": state.repository,
+                    "pull_request_number": state.pull_request_number,
+                    "observed_head_sha": state.current_head_sha,
+                    "final_merge_sha": state.final_merge_sha,
+                    "actor": state.merged_by,
+                    "readiness_current": not state.readiness_invalidated,
+                    "reason": reason,
+                    "observed_at": _timestamp(),
+                },
+            )
+
     def reconcile(
         self,
         *,
@@ -322,9 +474,14 @@ class ReviewGovernanceMergeAuthority:
     ) -> FinalMergeSnapshotB1:
         if self.ledger is None:
             raise MergeAuthorityError("LEDGER_REQUIRED")
-        attempt_id = f"merge-attempt:{evaluation.evaluation_id}"
-        if self.ledger.find_event(attempt_id) is None:
+        reservation = self.ledger.find_event_by_payload(
+            "merge_attempt_reserved", "evaluation_id", evaluation.evaluation_id
+        )
+        if reservation is None:
             raise MergeAuthorityError("NO_MERGE_RESERVATION")
+        attempt_id = reservation["payload"].get("attempt_id")
+        if not isinstance(attempt_id, str) or not attempt_id:
+            raise MergeAuthorityError("LEDGER_CORRUPTION")
         state = final_resolver.resolve()
         if not state.merged or not state.final_merge_sha:
             raise MergeAuthorityError("MERGE_NOT_CONFIRMED")
@@ -337,7 +494,26 @@ class ReviewGovernanceMergeAuthority:
         ):
             raise MergeAuthorityError("MERGE_CONFIRMATION_MISMATCH")
         _validate_sha(state.final_merge_sha)
-        existing = self.ledger.find_event(f"merge:{evaluation.evaluation_id}")
+        proof = self.ledger.find_event_by_payload(
+            "merge_attempt_succeeded", "attempt_id", attempt_id
+        )
+        if proof is None:
+            self._record_external_merge(state, reason="INTERNAL_SUCCESS_PROOF_UNAVAILABLE")
+            raise MergeAuthorityError("EXTERNAL_MERGE_OBSERVED")
+        if (
+            proof["payload"].get("actor") != state.merged_by
+            or proof["payload"].get("expected_head_sha") != state.current_head_sha
+            or not (
+                proof["payload"].get("runner_started_at", "")
+                <= (state.merged_at or "")
+                <= proof["payload"].get("runner_completed_at", "")
+            )
+        ):
+            self._record_external_merge(state, reason="MERGE_CAUSALITY_MISMATCH")
+            raise MergeAuthorityError("EXTERNAL_MERGE_OBSERVED")
+        existing = self.ledger.find_event_by_payload(
+            "merge_completed", "evaluation_id", evaluation.evaluation_id
+        )
         if existing is not None:
             if existing["payload"].get("final_merge_sha") != state.final_merge_sha:
                 raise MergeAuthorityError("MERGE_CONFIRMATION_MISMATCH")
@@ -345,9 +521,10 @@ class ReviewGovernanceMergeAuthority:
         try:
             self.ledger.append(
                 "merge_completed",
-                f"merge:{evaluation.evaluation_id}",
+                f"merge:{attempt_id}",
                 {
                     "attempt_id": attempt_id,
+                    "attempt_nonce": attempt_id.rsplit(":", 1)[-1],
                     "repository": evaluation.repository,
                     "pull_request_number": evaluation.pull_request_number,
                     "verdict_id": evaluation.verdict_id,

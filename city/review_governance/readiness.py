@@ -40,6 +40,12 @@ class CurrentPRSnapshotB1:
     current_scope_entries: tuple[Mapping[str, Any], ...]
     integration_identity: str
     observed_at: str
+    pr_state: str = "open"
+    mergeability_state: str = "mergeable"
+    merged: bool = False
+    final_merge_sha: str | None = None
+    merged_by: str | None = None
+    merged_at: str | None = None
 
     def __post_init__(self) -> None:
         if not REPOSITORY_RE.fullmatch(self.repository):
@@ -55,6 +61,22 @@ class CurrentPRSnapshotB1:
                 raise ValueError("INVALID_SHA")
         if not TIME_RE.fullmatch(self.observed_at):
             raise ValueError("INVALID_TIMESTAMP")
+        if self.pr_state not in {"open", "closed"}:
+            raise ValueError("INVALID_PR_STATE")
+        if self.mergeability_state not in {"mergeable", "conflicting", "unknown"}:
+            raise ValueError("INVALID_MERGEABILITY")
+        if not isinstance(self.merged, bool):
+            raise ValueError("INVALID_MERGE_STATE")
+        if self.final_merge_sha is not None and not SHA_RE.fullmatch(self.final_merge_sha):
+            raise ValueError("INVALID_SHA")
+        if self.merged != (self.final_merge_sha is not None):
+            raise ValueError("INCONSISTENT_MERGE_STATE")
+        if self.merged and (
+            not self.merged_by or not self.merged_at or not TIME_RE.fullmatch(self.merged_at)
+        ):
+            raise ValueError("MERGE_CAUSALITY_UNAVAILABLE")
+        if not self.merged and (self.merged_by is not None or self.merged_at is not None):
+            raise ValueError("INCONSISTENT_MERGE_STATE")
         try:
             normalized = canonical_scope(self.current_scope_entries)
         except ScopeError as exc:

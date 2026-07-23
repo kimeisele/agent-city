@@ -49,6 +49,23 @@ def head_evidence_digest(result: "HeadEvidenceResult") -> str:
     return "sha256:" + hashlib.sha256(canonical_bytes(head_evidence_projection(result))).hexdigest()
 
 
+def integration_evidence_digest(result: "IntegrationEvidenceResult") -> str:
+    projection = {
+        "repository": result.repository,
+        "pull_request_number": result.pull_request_number,
+        "policy_name": result.policy_name,
+        "observed_sha": result.observed_sha,
+        "source_head_sha": result.source_head_sha,
+        "source_base_sha": result.source_base_sha,
+        "provider": result.provider,
+        "producer_identity": result.producer_identity,
+        "run_or_check_identity": result.run_or_check_identity,
+        "conclusion": result.conclusion,
+        "observed_at": result.observed_at,
+    }
+    return "sha256:" + hashlib.sha256(canonical_bytes(projection)).hexdigest()
+
+
 def _sha(value: str | None, *, optional: bool = False) -> str | None:
     if value is None and optional:
         return None

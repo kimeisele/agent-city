@@ -25,6 +25,18 @@ def _sha(value: Any) -> str:
     return value
 
 
+def _timestamp(value: Any) -> str:
+    if not isinstance(value, str):
+        raise SnapshotError("MERGE_CAUSALITY_UNAVAILABLE")
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise SnapshotError("MERGE_CAUSALITY_UNAVAILABLE") from exc
+    if parsed.tzinfo is None:
+        raise SnapshotError("MERGE_CAUSALITY_UNAVAILABLE")
+    return parsed.astimezone(dt.UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 class SnapshotSource(Protocol):
     def get(self, path: str) -> Any: ...
 
@@ -110,10 +122,14 @@ class GitHubSnapshotResolver:
             )
         return tuple(entries)
 
-    def resolve(self, *, repository: str, pull_request_number: int) -> CurrentPRSnapshotB1:
+    def resolve(
+        self, *, repository: str, pull_request_number: int, allow_closed: bool = False
+    ) -> CurrentPRSnapshotB1:
         try:
             pr = self.client.get(f"/repos/{repository}/pulls/{pull_request_number}")
-            if not isinstance(pr, Mapping) or pr.get("state") != "open" or pr.get("merged_at"):
+            if not isinstance(pr, Mapping) or (
+                pr.get("state") != "open" and not (allow_closed and pr.get("merged_at"))
+            ):
                 raise SnapshotError("PR_NOT_OPEN")
             head = _sha(pr.get("head", {}).get("sha"))
             base = _sha(pr.get("base", {}).get("sha"))
@@ -124,6 +140,19 @@ class GitHubSnapshotResolver:
                 base_blobs=self._tree(repository, base),
                 head_blobs=self._tree(repository, head),
             )
+            mergeable = pr.get("mergeable")
+            mergeability = (
+                "mergeable"
+                if mergeable is True
+                else "conflicting"
+                if mergeable is False
+                else "unknown"
+            )
+            merged = bool(pr.get("merged_at"))
+            merged_at = _timestamp(pr.get("merged_at")) if merged else None
+            merged_by = pr.get("merged_by", {}).get("login") if merged else None
+            if merged and (not isinstance(merged_by, str) or not isinstance(merged_at, str)):
+                raise SnapshotError("MERGE_CAUSALITY_UNAVAILABLE")
             return CurrentPRSnapshotB1(
                 repository,
                 pull_request_number,
@@ -132,6 +161,12 @@ class GitHubSnapshotResolver:
                 scope,
                 integration,
                 dt.datetime.now(dt.UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                str(pr.get("state")),
+                mergeability,
+                merged,
+                pr.get("merge_commit_sha") if merged else None,
+                merged_by,
+                merged_at,
             )
         except SnapshotError:
             raise

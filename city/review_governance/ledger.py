@@ -27,6 +27,7 @@ EVENTS = frozenset(
         "merge_readiness_invalidated",
         "council_gate_recorded",
         "merge_attempt_reserved",
+        "merge_attempt_succeeded",
         "merge_completed",
         "external_merge_observed",
     }
@@ -106,6 +107,18 @@ class ShadowLedger:
 
     def find_event(self, event_id: str) -> dict[str, Any] | None:
         return next((event for event in self.read() if event["event_id"] == event_id), None)
+
+    def find_event_by_payload(
+        self, event_type: str, field: str, value: Any
+    ) -> dict[str, Any] | None:
+        return next(
+            (
+                event
+                for event in self.read()
+                if event["event_type"] == event_type and event["payload"].get(field) == value
+            ),
+            None,
+        )
 
     def readiness_lineage(
         self,

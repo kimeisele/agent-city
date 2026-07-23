@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import datetime as dt
 import json
 
 import pytest
@@ -13,9 +14,15 @@ from city.review_governance import (
     TrustConfigError,
     load_trusted_producers,
 )
+from city.review_governance.merge_authority import MergeRunResult
 from city.review_governance.live_evidence import (
     GitHubJSONClient,
     GitHubLiveEvidenceProvider,
+)
+from city.review_governance.final_resolver import GitHubFinalMergeStateResolver
+from city.review_governance.evidence import (
+    StaticHeadEvidenceProvider,
+    StaticIntegrationEvidenceProvider,
 )
 from city.review_governance.schema import EvidenceRefB1
 from city.review_governance.schema import MergeReadinessEvaluationB1
@@ -60,10 +67,23 @@ class Runner:
     def __init__(self, merged: bool = True):
         self.calls: list[list[str]] = []
         self.merged = merged
+        self.timestamp = (
+            dt.datetime.now(dt.UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+        )
+        self.ledger = None
 
-    def run(self, args: list[str]) -> str | None:
+    def run(self, args: list[str]) -> MergeRunResult:
         self.calls.append(args)
-        return "ok" if self.merged else None
+        return MergeRunResult(
+            self.ledger.find_event_by_payload(
+                "merge_attempt_reserved", "evaluation_id", "evaluation-1"
+            )["payload"]["attempt_id"],
+            self.timestamp,
+            self.timestamp,
+            HEAD,
+            self.merged,
+            "ok",
+        )
 
 
 def _state(
@@ -88,12 +108,16 @@ def _state(
         merged,
         final_merge_sha,
         "2026-07-23T12:00:00Z",
+        "test" if merged else None,
+        dt.datetime.now(dt.UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if merged
+        else None,
     )
 
 
 def test_merge_authority_is_disabled_by_default() -> None:
     with pytest.raises(MergeAuthorityError, match="MERGE_AUTHORITY_DISABLED"):
-        ReviewGovernanceMergeAuthority().merge(
+        ReviewGovernanceMergeAuthority().merge_with_test_resolver(
             evaluation=_evaluation(),
             final_resolver=object(),
             actor="test",
@@ -101,11 +125,21 @@ def test_merge_authority_is_disabled_by_default() -> None:
         )
 
 
+def test_production_entry_point_rejects_arbitrary_snapshot_injection(tmp_path) -> None:
+    from city.review_governance.ledger import ShadowLedger
+
+    with pytest.raises(MergeAuthorityError, match="FINAL_RESOLVER_UNAVAILABLE"):
+        ReviewGovernanceMergeAuthority(
+            enabled=True, ledger=ShadowLedger(tmp_path / "ledger.jsonl")
+        ).merge(evaluation=_evaluation(), actor="test", request_base_sha=BASE)
+
+
 def test_merge_is_expected_head_bound_and_records_final_sha(tmp_path) -> None:
     runner = Runner()
     from city.review_governance.ledger import ShadowLedger
 
     ledger = ShadowLedger(tmp_path / "ledger.jsonl")
+    runner.ledger = ledger
     # Seed the readiness lineage required by final revalidation.
     ledger.append(
         "merge_readiness_evaluated",
@@ -146,13 +180,17 @@ def test_merge_is_expected_head_bound_and_records_final_sha(tmp_path) -> None:
             state.merged,
             state.final_merge_sha,
             state.observed_at,
+            state.merged_by,
+            state.merged_at,
         )
 
     class Resolver:
         def resolve(self):
             return final_state()
 
-    result = ReviewGovernanceMergeAuthority(enabled=True, runner=runner, ledger=ledger).merge(
+    result = ReviewGovernanceMergeAuthority(
+        enabled=True, runner=runner, ledger=ledger
+    ).merge_with_test_resolver(
         evaluation=_evaluation(),
         final_resolver=Resolver(),
         actor="test",
@@ -262,3 +300,51 @@ def test_missing_github_timestamp_is_unavailable() -> None:
     )
     assert result.state == "unavailable"
     assert result.error_code == "EVIDENCE_TIMESTAMP_UNAVAILABLE"
+
+
+def test_concrete_final_resolver_recomputes_evidence_and_ledger(tmp_path) -> None:
+    from tests.review_governance.test_b1_s3a import _fixture, _run
+    from city.review_governance.ledger import ShadowLedger
+
+    request, verdict, snapshot, head, integration, verifier, trust = _fixture()
+    evaluation = _run(request, verdict, snapshot, head, integration, verifier, trust).evaluation
+    ledger = ShadowLedger(tmp_path / "ledger.jsonl")
+    ledger.append(
+        "merge_readiness_evaluated",
+        evaluation.evaluation_id,
+        {
+            "repository": request.repository,
+            "pull_request_number": request.pull_request_number,
+            "reviewed_head_sha": request.reviewed_head_sha,
+            "evaluation_id": evaluation.evaluation_id,
+        },
+    )
+
+    class Snapshot:
+        def resolve(self, **_kwargs):
+            return snapshot
+
+    class Council:
+        def resolve(self, **_kwargs):
+            from city.review_governance.council import CouncilGateB1
+
+            return CouncilGateB1(
+                request.repository, request.pull_request_number, HEAD, "not_required"
+            )
+
+    resolved = GitHubFinalMergeStateResolver(
+        request=request,
+        verdict=verdict,
+        evaluation=evaluation,
+        verifier=verifier,
+        snapshot_resolver=Snapshot(),
+        head_evidence_provider=StaticHeadEvidenceProvider(head),
+        integration_evidence_provider=StaticIntegrationEvidenceProvider(integration),
+        producer_trust=trust,
+        council_provider=Council(),
+        ledger=ledger,
+        consumer_core_classifier=lambda _: "non_core",
+    ).resolve()
+    assert resolved.head_evidence_state == "verified"
+    assert resolved.integration_evidence_state == "verified"
+    assert resolved.latest_readiness_evaluation_id == evaluation.evaluation_id
