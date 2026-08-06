@@ -82,6 +82,7 @@ _KIND_TIER: dict[str, ModelTier] = {
     "insight": ModelTier.STANDARD,
     "critique": ModelTier.PRO,
     "discovery": ModelTier.STANDARD,
+    "social_strategy": ModelTier.STANDARD,
 }
 
 # The ONE cheap model on OpenRouter. All tiers use this until Google direct is ready.
