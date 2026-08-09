@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "steward-protocol"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -97,8 +98,14 @@ def test_resolve_issue_mismatch():
     assert 42 in mgr._bound_missions  # Not removed
 
 
-def test_issue_open_and_bound_helpers():
-    """Issue manager exposes read-only helpers for campaign dedupe."""
+@patch("city.issues._gh_run", return_value=None)
+def test_issue_open_and_bound_helpers(mock_gh_run):
+    """Issue manager exposes read-only helpers for campaign dedupe.
+
+    The manager's live-GitHub fallback (Issue #743 fix) is intentionally
+    isolated here so the test deterministically verifies the read-only
+    helpers against its local fixture without ambient gh/network state.
+    """
     mgr = CityIssueManager()
     mgr._issue_cells[42] = object()
     mgr._bound_missions[42] = "issue_42_10"
