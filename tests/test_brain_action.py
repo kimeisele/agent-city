@@ -30,8 +30,8 @@ from city.brain_action import (
 
 
 class TestActionVerb:
-    def test_all_9_verbs(self):
-        assert len(ActionVerb) == 9
+    def test_all_10_verbs(self):
+        assert len(ActionVerb) == 10
 
     def test_string_values_match(self):
         assert ActionVerb.FLAG_BOTTLENECK == "flag_bottleneck"
