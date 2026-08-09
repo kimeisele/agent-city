@@ -365,9 +365,9 @@ def test_mayor_runs_election_in_dharma():
     council = CityCouncil()
     mayor._council = council
 
-    # Run GENESIS + DHARMA
-    results = mayor.run_cycle(2)
-    dharma = results[1]
+    # One heartbeat = full MURALI cycle; the election runs in cycle #0's DHARMA
+    results = mayor.run_cycle(1)
+    dharma = results[0]
     assert dharma["department"] == "MURALI"
 
     # Council should have elected members
@@ -441,8 +441,8 @@ def test_full_rotation_with_council():
     departments = [r["department"] for r in results]
     assert departments == ["MURALI", "MURALI", "MURALI", "MURALI"]
 
-    # DHARMA: election ran
-    dharma = results[1]
+    # DHARMA: election ran in cycle #0 (one heartbeat = full MURALI cycle)
+    dharma = results[0]
     election_ops = [a for a in dharma["governance_actions"] if a.startswith("election:")]
     assert len(election_ops) >= 1
 
@@ -462,7 +462,7 @@ def test_full_rotation_with_council():
 def test_contract_failure_creates_proposal():
     """Failing contract in DHARMA → council proposal submitted."""
     from city.contracts import ContractRegistry, ContractResult, ContractStatus, QualityContract
-    from city.council import CityCouncil
+    from city.council import CityCouncil, ProposalStatus
 
     tmpdir = Path(tempfile.mkdtemp())
     mayor, pdx = _make_mayor(tmpdir)
@@ -489,15 +489,19 @@ def test_contract_failure_creates_proposal():
         )
     )
     mayor._contracts = registry
+    # check_all() requires an explicit invocation (missing_policy short-circuit otherwise)
+    mayor._contract_invocation = registry.new_invocation("full", invocation_id="layer5-full")
 
-    # GENESIS (seed) + DHARMA (election + contract check → proposal)
-    mayor.heartbeat()  # GENESIS
-    mayor.heartbeat()  # DHARMA
+    # One heartbeat = full MURALI cycle: DHARMA runs the failing contract and
+    # submits the proposal; KARMA auto-votes and executes it in the same cycle.
+    mayor.heartbeat()
 
     assert council.member_count > 0, "Council should have members after election"
-    open_proposals = council.get_open_proposals()
-    assert len(open_proposals) >= 1, "Failing contract should create a proposal"
-    assert "test_contract" in open_proposals[0].title
+    proposal = council.get_proposal("GOV-0001")
+    assert proposal is not None, "Failing contract should create a proposal"
+    assert "test_contract" in proposal.title
+    # Lifecycle completes within the same cycle: OPEN → PASSED → EXECUTED
+    assert proposal.status == ProposalStatus.EXECUTED
 
     shutil.rmtree(tmpdir)
 
@@ -533,17 +537,19 @@ def test_auto_vote_and_execute():
     )
     mayor._contracts = registry
     mayor._executor = HealExecutor(_cwd=tmpdir, _dry_run=True)
+    # check_all() requires an explicit invocation (missing_policy short-circuit otherwise)
+    mayor._contract_invocation = registry.new_invocation("full", invocation_id="layer5-full")
 
-    # GENESIS → DHARMA (election + proposal) → KARMA (vote + execute)
-    results = mayor.run_cycle(3)
+    # One heartbeat = full MURALI cycle: DHARMA creates the proposal,
+    # KARMA auto-votes and executes it in the same cycle.
+    results = mayor.run_cycle(1)
+    cycle = results[0]
 
-    # DHARMA created the proposal
-    dharma = results[1]
-    assert any("contract_failing" in a for a in dharma["governance_actions"])
+    # DHARMA ran the failing contract and created the proposal
+    assert any("contract_failing" in a for a in cycle["governance_actions"])
 
     # KARMA executed it
-    karma = results[2]
-    executed_ops = [o for o in karma["operations"] if o.startswith("council_executed:")]
+    executed_ops = [o for o in cycle["operations"] if o.startswith("council_executed:")]
     assert len(executed_ops) >= 1, "Passed proposal should be executed in KARMA"
 
     # Proposal lifecycle: OPEN → PASSED → EXECUTED
@@ -603,23 +609,23 @@ def test_full_feedback_loop():
     )
     mayor._contracts = registry
     mayor._executor = HealExecutor(_cwd=tmpdir, _dry_run=True)
+    # check_all() requires an explicit invocation (missing_policy short-circuit otherwise)
+    mayor._contract_invocation = registry.new_invocation("full", invocation_id="layer5-full")
 
-    # Full MURALI rotation
-    results = mayor.run_cycle(4)
+    # One heartbeat = full MURALI cycle: GENESIS → DHARMA → KARMA → MOKSHA
+    results = mayor.run_cycle(1)
+    cycle = results[0]
 
     # GENESIS: agents seeded from census
-    genesis = results[0]
-    assert len(genesis["discovered"]) == 3, f"Expected 3 seeded agents, got {genesis['discovered']}"
+    assert len(cycle["discovered"]) == 3, f"Expected 3 seeded agents, got {cycle['discovered']}"
 
     # DHARMA: election ran + proposal created
-    dharma = results[1]
     assert council.elected_mayor is not None
     assert council.member_count > 0
-    assert any("contract_failing" in a for a in dharma["governance_actions"])
+    assert any("contract_failing" in a for a in cycle["governance_actions"])
 
     # KARMA: proposal voted and executed
-    karma = results[2]
-    executed = [o for o in karma["operations"] if "council_executed" in o]
+    executed = [o for o in cycle["operations"] if "council_executed" in o]
     assert len(executed) >= 1
 
     # Proposal went through full lifecycle
@@ -629,8 +635,7 @@ def test_full_feedback_loop():
     assert proposal.result_hash != ""
 
     # MOKSHA: reflection still works
-    moksha = results[3]
-    assert moksha["reflection"]["chain_valid"] is True
+    assert cycle["reflection"]["chain_valid"] is True
 
     shutil.rmtree(tmpdir)
 
