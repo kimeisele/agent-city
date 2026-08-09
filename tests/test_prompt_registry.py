@@ -403,12 +403,20 @@ class TestSignalBuilder:
 
 
 class TestGetPromptRegistry:
-    def test_singleton_has_all_6_builders(self):
+    def test_singleton_has_all_7_builders(self):
         from city.brain_prompt import get_prompt_registry
 
         reg = get_prompt_registry()
-        assert len(reg) == 6
-        expected = {"comprehension", "health_check", "reflection", "insight", "critique", "signal"}
+        assert len(reg) == 7
+        expected = {
+            "comprehension",
+            "health_check",
+            "reflection",
+            "insight",
+            "critique",
+            "signal",
+            "discovery",
+        }
         assert set(reg.kinds) == expected
 
     def test_singleton_returns_same_instance(self):
