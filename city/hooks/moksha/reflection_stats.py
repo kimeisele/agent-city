@@ -288,13 +288,30 @@ class BrainReflectionHook(BasePhaseHook):
                 create_improvement_mission(ctx, proposal)
 
             # 6C-1: Post reflection to Brainstream discussion thread
+            # GATE: Grounding check — deterministic Python. Every event claim
+            # in the reflection comprehension must trace to the generation-time
+            # snapshot / outcome_diff metrics; untraceable claims are
+            # suppressed, never posted unverified.
             if ctx.discussions is not None and not ctx.offline_mode:
+                from city.brain_gates import check_grounding
+
                 outcome_diff = reflection.get("outcome_diff")
-                posted = ctx.discussions.post_brainstream_reflection(
-                    cycle_thought, ctx.heartbeat_count, outcome_diff,
+                grounding = check_grounding(
+                    cycle_thought.comprehension,
+                    snapshot=snapshot,
+                    heartbeat=ctx.heartbeat_count,
+                    extra=outcome_diff or {},
                 )
-                if posted:
-                    operations.append(f"brainstream_reflection:#{ctx.heartbeat_count}")
+                if grounding.grounded:
+                    posted = ctx.discussions.post_brainstream_reflection(
+                        cycle_thought, ctx.heartbeat_count, outcome_diff,
+                    )
+                    if posted:
+                        operations.append(f"brainstream_reflection:#{ctx.heartbeat_count}")
+                else:
+                    operations.append(
+                        f"brainstream_reflection:SUPPRESSED:grounding:{grounding.reason}"
+                    )
 
         # Decay stale brain cells, then flush to disk
         if ctx.brain_memory is not None:

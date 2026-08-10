@@ -200,6 +200,34 @@ class BrainVoice:
                 text = str(response)
             title, content = self._parse_response(text)
             if title and content:
+                # GROUNDING GATE: every event claim in the CONTENT must trace
+                # to the generation-time city_stats/events it was given.
+                # Untraceable content is suppressed (fail-closed) — the caller
+                # falls back to deterministic output instead of posting
+                # unverified LLM prose.
+                from city.brain_gates import check_grounding
+
+                # Same derived metrics the system prompt rendered for the LLM:
+                # population = total, alive = active + citizen.
+                extra = {
+                    "events": events,
+                    "agent_count": city_stats.get("total", 0),
+                    "alive_count": (
+                        city_stats.get("active", 0) + city_stats.get("citizen", 0)
+                    ),
+                }
+                grounding = check_grounding(
+                    content,
+                    city_stats=city_stats,
+                    heartbeat=heartbeat,
+                    extra=extra,
+                )
+                if not grounding.grounded:
+                    logger.warning(
+                        "BrainVoice: narration suppressed — untraceable claims: %s",
+                        "; ".join(grounding.untraceable_claims),
+                    )
+                    return "", ""
                 self._post_count += 1
             return title, content
         except Exception as e:
@@ -248,6 +276,22 @@ class BrainVoice:
                 
             title, content = self._parse_response(text)
             if title and content:
+                # GROUNDING GATE: every event claim in the CONTENT must trace
+                # to the generation-time telemetry it was given. Untraceable
+                # content is suppressed (fail-closed) — the caller falls back
+                # to a deterministic technical brief.
+                from city.brain_gates import check_grounding
+
+                grounding = check_grounding(
+                    content,
+                    city_stats=event_telemetry,
+                )
+                if not grounding.grounded:
+                    logger.warning(
+                        "BrainVoice: narrate_event suppressed — untraceable claims: %s",
+                        "; ".join(grounding.untraceable_claims),
+                    )
+                    return "", ""
                 self._post_count += 1
             return title, content
         except Exception as e:
