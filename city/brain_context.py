@@ -562,6 +562,25 @@ def build_context_snapshot(ctx: object) -> ContextSnapshot:
         thread_state = ctx.thread_state  # type: ignore[union-attr]
         if thread_state is not None:
             thread_stats = thread_state.comment_stats()
+            if isinstance(thread_stats, dict):
+                # Aggregate thread metrics for the health prompt. comment_stats()
+                # only returns ledger status/source counts; the health prompt reads
+                # human_comments / agent_responses / unresolved aggregate keys,
+                # which we derive from the active thread snapshots so the health
+                # payload reflects reality instead of always-zero placeholders.
+                try:
+                    threads = list(thread_state.active_threads())
+                    thread_stats["human_comments"] = sum(
+                        getattr(t, "human_comment_count", 0) or 0 for t in threads
+                    )
+                    thread_stats["agent_responses"] = sum(
+                        getattr(t, "response_count", 0) or 0 for t in threads
+                    )
+                    thread_stats["unresolved"] = sum(
+                        1 for t in threads if getattr(t, "unresolved", False)
+                    )
+                except Exception:
+                    pass
     except Exception:
         pass
 

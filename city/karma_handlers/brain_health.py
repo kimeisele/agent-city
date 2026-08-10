@@ -126,24 +126,36 @@ class BrainHealthHandler(BaseKarmaHandler):
             _execute_health_hint(ctx, health_thought, operations)
 
         # Post high-confidence health thoughts to discussions
-        # GATE: Repetition check — deterministic Python, not prompt engineering
+        # GATES: Repetition + Grounding checks — deterministic Python, not
+        # prompt engineering. Grounding verifies every event claim in the
+        # comprehension traces to the generation-time snapshot metrics;
+        # ungrounded output is suppressed, never posted unverified.
         if (
             health_thought.confidence >= 0.7
             and ctx.discussions is not None
             and not ctx.offline_mode
         ):
-            from city.brain_gates import check_repetition
+            from city.brain_gates import check_grounding, check_repetition
 
             verdict = check_repetition(
                 health_thought.action_hint, ctx.brain_memory,
             )
-            if verdict.should_post:
+            grounding = check_grounding(
+                health_thought.comprehension,
+                snapshot=snapshot,
+                heartbeat=ctx.heartbeat_count,
+            )
+            if verdict.should_post and grounding.grounded:
                 ctx.discussions.post_brain_thought(
                     health_thought, ctx.heartbeat_count,
                 )
             else:
+                reasons = [
+                    reason for reason in (verdict.reason, grounding.reason)
+                    if reason
+                ]
                 operations.append(
-                    f"brain_health:SUPPRESSED:{verdict.reason}"
+                    f"brain_health:SUPPRESSED:{'; '.join(reasons) or 'gate'}"
                 )
         # Budget: health check counts as 1 brain call
         ctx._brain_calls = getattr(ctx, "_brain_calls", 0) + 1
@@ -186,24 +198,40 @@ class BrainHealthHandler(BaseKarmaHandler):
                     _execute_critique_hint(ctx, critique, operations)
 
                 # Post high-confidence critiques to brainstream
-                # GATE: Repetition check — deterministic Python, not prompt engineering
+                # GATES: Repetition + Grounding checks — deterministic Python,
+                # not prompt engineering. Grounding evidence = the field digest
+                # (the deterministic digest cells the critique prompt saw) plus
+                # the snapshot; untraceable claims are suppressed, not posted.
                 if (
                     critique.confidence >= 0.6
                     and ctx.discussions is not None
                     and not ctx.offline_mode
                 ):
-                    from city.brain_gates import check_repetition
+                    from city.brain_gates import check_grounding, check_repetition
 
                     critique_verdict = check_repetition(
                         critique.action_hint, ctx.brain_memory,
                     )
-                    if critique_verdict.should_post:
+                    critique_grounding = check_grounding(
+                        critique.comprehension,
+                        snapshot=snapshot,
+                        field_summary=field_summary,
+                        heartbeat=ctx.heartbeat_count,
+                    )
+                    if critique_verdict.should_post and critique_grounding.grounded:
                         ctx.discussions.post_brain_thought(
                             critique, ctx.heartbeat_count,
                         )
                     else:
+                        reasons = [
+                            reason for reason in (
+                                critique_verdict.reason,
+                                critique_grounding.reason,
+                            )
+                            if reason
+                        ]
                         operations.append(
-                            f"brain_critique:SUPPRESSED:{critique_verdict.reason}"
+                            f"brain_critique:SUPPRESSED:{'; '.join(reasons) or 'gate'}"
                         )
 
 

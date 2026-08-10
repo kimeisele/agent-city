@@ -107,6 +107,29 @@ class TestBuildContextSnapshot:
         assert snap.failing_contracts == ()
         assert snap.recent_brain_thoughts == ()
 
+    def test_build_snapshot_thread_stats_aggregates(self):
+        # The health prompt reads human_comments/agent_responses/unresolved from
+        # thread_stats; comment_stats() only returns ledger counts, so the
+        # aggregates must be derived from active thread snapshots.
+        thread_state = MagicMock()
+        thread_state.comment_stats.return_value = {"self:seen": 2, "total": 2}
+        t1 = MagicMock()
+        t1.human_comment_count = 5
+        t1.response_count = 0
+        t1.unresolved = True
+        t2 = MagicMock()
+        t2.human_comment_count = 1
+        t2.response_count = 2
+        t2.unresolved = False
+        thread_state.active_threads.return_value = [t1, t2]
+
+        ctx = self._make_ctx(thread_state=thread_state)
+        snap = build_context_snapshot(ctx)
+        assert snap.thread_stats["human_comments"] == 6
+        assert snap.thread_stats["agent_responses"] == 2
+        assert snap.thread_stats["unresolved"] == 1
+        assert snap.thread_stats["total"] == 2  # ledger keys preserved
+
 
 # ── Snapshot Diffing Tests ────────────────────────────────────────────
 
