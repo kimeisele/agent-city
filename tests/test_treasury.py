@@ -282,7 +282,50 @@ class TestPostAgentInsight:
 
 
 class TestMoltbookOutboundFallback:
-    def test_fallback_path_exists(self):
-        """MoltbookOutboundHook has _post_insight_or_fallback method."""
-        from city.hooks.moksha.outbound import MoltbookOutboundHook
-        assert hasattr(MoltbookOutboundHook, "_post_insight_or_fallback")
+    def test_fallback_enqueues_technical_brief_when_voice_unavailable(self, tmp_dir, monkeypatch):
+        """EventDrivenOutboundHook falls back to a technical brief in the outbox
+        when BrainVoice is unavailable (no LLM provider).
+
+        Current fallback contract (replaced MoltbookOutboundHook._post_insight_or_fallback):
+        technical brief enqueued to the outbox via city.moltbook_outbox and
+        broadcast recorded in SignalStateLedger.
+        """
+        from types import SimpleNamespace
+
+        from city import moltbook_outbox
+        from city.hooks.moksha.outbound import EventDrivenOutboundHook
+        from city.registry import SVC_MOLTBOOK_CLIENT, SVC_SIGNAL_STATE_LEDGER
+        from city.signal_state_ledger import SignalStateLedger
+
+        # Isolate outbox persistence to a temp file (real enqueue path)
+        monkeypatch.setattr(
+            moltbook_outbox, "OUTBOX_FILE", str(tmp_dir / "moltbook_outbox.json")
+        )
+
+        ledger = SignalStateLedger(db_path=str(tmp_dir / "signals.db"))
+        registry = SimpleNamespace(
+            get=lambda key: {
+                SVC_SIGNAL_STATE_LEDGER: ledger,
+                SVC_MOLTBOOK_CLIENT: object(),
+            }[key]
+        )
+        ctx = SimpleNamespace(
+            registry=registry,
+            recent_events=[{"type": "mission_completed", "mission_id": "mission-1"}],
+            heartbeat_count=42,
+            sankalpa=SimpleNamespace(registry={}),
+            moltbook_assistant=None,
+        )
+        operations = []
+
+        EventDrivenOutboundHook().execute(ctx, operations)
+
+        pending = moltbook_outbox.get_pending_messages()
+        assert len(pending) == 1
+        msg = pending[0]
+        assert msg["metadata"]["title"] == "SIGNAL: MISSION_COMPLETED"
+        assert msg["metadata"]["signal_id"] == "mission_completed:mission-1"
+        assert "ID: mission_completed:mission-1" in msg["text"]
+        assert msg["status"] == "pending"
+        assert operations == ["outbound_broadcast:mission_completed:mission-1"]
+        assert ledger.is_broadcasted("mission_completed:mission-1", "moltbook")
