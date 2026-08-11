@@ -19,6 +19,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import shutil
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -29,6 +31,54 @@ from vibe_core.mahamantra.protocols import MALA, SHARANAGATI, TRINITY
 from config import get_config
 
 logger = logging.getLogger("AGENT_CITY.COUNCIL")
+
+# Bounded .bak rotation retained alongside the live state file (Issue #14 Area 1).
+STATE_BACKUPS: int = 5
+
+
+def _backup_paths(path: Path) -> list[Path]:
+    """Newest-first backup candidates for `path` (.bak, .bak.1, .bak.2, ...)."""
+    backups = [Path(f"{path}.bak")]
+    backups.extend(Path(f"{path}.bak.{i}") for i in range(1, STATE_BACKUPS))
+    return backups
+
+
+def _rotate_backups(path: Path) -> None:
+    """Best-effort shift of retained backups one slot older, dropping the oldest.
+
+    The current primary file is copied to `.bak` so a corrupt primary can be
+    recovered from the most recent valid backup on the next load.
+    """
+    try:
+        for i in range(STATE_BACKUPS - 1, 1, -1):
+            older = Path(f"{path}.bak.{i - 1}")
+            if older.exists():
+                older.replace(Path(f"{path}.bak.{i}"))
+        latest = Path(f"{path}.bak")
+        if latest.exists():
+            latest.replace(Path(f"{path}.bak.1"))
+        if path.exists():
+            shutil.copy2(path, latest)
+    except OSError as exc:
+        logger.warning("Council state backup rotation for %s failed: %s", path, exc)
+
+
+def _atomic_write_json(path: Path, data: dict) -> None:
+    """Persist JSON atomically: temp file in the same dir, fsync, then replace.
+
+    Follows the temp+replace pattern already used by FederationNadi/
+    FederationRelay, with backup rotation so a corrupt primary can be
+    recovered on the next load.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _rotate_backups(path)
+    temp = path.with_suffix(".tmp")
+    with open(temp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+        fh.flush()
+        os.fsync(fh.fileno())
+    temp.replace(path)
+
 
 # SSOT: Council seats = SHARANAGATI = KSHETRA // QUARTERS = 24 // 4
 COUNCIL_SEATS: int = SHARANAGATI
@@ -150,21 +200,38 @@ class CityCouncil:
     _commission_override: int | None = None
 
     def __post_init__(self) -> None:
-        """Auto-load state from disk if state_path is set and exists."""
-        if self._state_path is not None and self._state_path.exists():
+        """Auto-load state from disk if state_path is set and exists.
+
+        On a corrupt primary the most recent valid .bak backup is used for
+        recovery instead of silently resetting to empty state (#14 Area 1).
+        """
+        if self._state_path is None or not self._state_path.exists():
+            return
+        for candidate in [self._state_path, *_backup_paths(self._state_path)]:
+            if not candidate.exists():
+                continue
             try:
-                data = json.loads(self._state_path.read_text())
+                data = json.loads(candidate.read_text())
                 self._restore_from_dict(data)
+            except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError):
+                continue
+            if candidate != self._state_path:
+                logger.warning(
+                    "Council state load failed; recovered from backup %s", candidate
+                )
+            else:
                 logger.info("Council state loaded from %s", self._state_path)
-            except (json.JSONDecodeError, KeyError) as e:
-                logger.warning("Council state load failed: %s", e)
+            return
+        logger.warning("Council state load failed; no valid backup — starting empty")
 
     def _auto_save(self) -> None:
         """Persist state to disk after mutations (if state_path is set)."""
         if self._state_path is None:
             return
-        self._state_path.parent.mkdir(parents=True, exist_ok=True)
-        self._state_path.write_text(json.dumps(self.to_dict(), indent=2))
+        try:
+            _atomic_write_json(self._state_path, self.to_dict())
+        except OSError as exc:
+            logger.warning("Council state save failed: %s", exc)
 
     def _restore_from_dict(self, data: dict) -> None:
         """Restore council state from serialized dict."""
