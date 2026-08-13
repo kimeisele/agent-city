@@ -81,6 +81,26 @@ def test_non_stale_pr_not_touched():
     assert mgr._records["url_recent"].status == "open"
 
 
+def test_agent_city_legacy_auto_merge_is_denied(monkeypatch):
+    mgr = PRLifecycleManager()
+    monkeypatch.setattr(
+        "city.pr_lifecycle._gh_run",
+        lambda args: (_ for _ in ()).throw(AssertionError()),
+    )
+
+    assert not mgr._auto_merge("https://github.com/kimeisele/agent-city/pull/42")
+
+
+def test_agent_city_legacy_stale_close_is_denied(monkeypatch):
+    mgr = PRLifecycleManager()
+    monkeypatch.setattr(
+        "city.pr_lifecycle._gh_run",
+        lambda args: (_ for _ in ()).throw(AssertionError()),
+    )
+
+    mgr._close_stale_pr("https://github.com/kimeisele/agent-city/pull/42")
+
+
 if __name__ == "__main__":
     test_track_pr()
     test_pr_record_serialization()

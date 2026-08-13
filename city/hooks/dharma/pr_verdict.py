@@ -1,24 +1,19 @@
-"""
-DHARMA Hook: PR Verdict Handler — Process Steward review verdicts from NADI.
+"""Audit-only containment for legacy federation PR verdict messages.
 
-Reads pr_review_verdict messages from Federation NADI inbox.
-Executes the verdict: auto-merge, request council vote, post changes, or reject.
-
-Priority 55: after MoltbookAssistant (50), before CommunityTriage (60).
-
-    Hare Krishna Hare Krishna Krishna Krishna Hare Hare
-    Hare Rama   Hare Rama   Rama   Rama   Hare Hare
+Legacy ``pr_review_verdict`` messages are retained for observability while the
+B1 consumer is not wired.  They cannot mutate GitHub, Council, or mission
+state.  Compliance reports remain handled as before.
 """
 
 from __future__ import annotations
 
 import logging
-import subprocess
+import os
 from typing import TYPE_CHECKING
 
 from config import get_config
 from city.phase_hook import DHARMA, BasePhaseHook
-from city.registry import SVC_IDENTITY, SVC_SANKALPA
+from city.registry import SVC_IDENTITY
 
 if TYPE_CHECKING:
     from city.phases import PhaseContext
@@ -26,11 +21,30 @@ if TYPE_CHECKING:
 logger = logging.getLogger("AGENT_CITY.HOOKS.DHARMA.PR_VERDICT")
 
 
-def _repo_name() -> str:
-    cfg = get_config().get("discussions", {})
-    owner = cfg.get("owner", "kimeisele")
-    repo = cfg.get("repo", "agent-city")
-    return f"{owner}/{repo}"
+def _trusted_steward_config() -> tuple[str, str] | None:
+    """Return the explicitly pinned legacy Steward identity, if configured."""
+    federation = get_config().get("federation", {})
+    if not isinstance(federation, dict):
+        return None
+    trusted = federation.get("trusted_steward")
+    if trusted is None:
+        identity = os.environ.get("STEWARD_TRUSTED_IDENTITY")
+        public_key = os.environ.get("STEWARD_TRUSTED_PUBLIC_KEY")
+    else:
+        if not isinstance(trusted, dict):
+            return None
+        # A present configuration object is authoritative.  Do not repair a
+        # malformed or incomplete object from ambient environment state.
+        identity = trusted.get("identity")
+        public_key = trusted.get("public_key")
+    if (
+        not isinstance(identity, str)
+        or not identity
+        or not isinstance(public_key, str)
+        or not public_key
+    ):
+        return None
+    return identity, public_key
 
 
 def _federation_messages(ctx: PhaseContext) -> list[dict]:
@@ -39,8 +53,7 @@ def _federation_messages(ctx: PhaseContext) -> list[dict]:
     if queue is None:
         queue = getattr(ctx, "_gateway_queue", [])
     for item in queue:
-        membrane = item.get("membrane", {})
-        if membrane.get("surface") == "federation":
+        if item.get("membrane", {}).get("surface") == "federation":
             messages.append(item)
     return messages
 
@@ -61,13 +74,11 @@ def _record_compliance_report(ctx: PhaseContext, payload: dict, operations: list
         reports = []
     reports.append(report)
     ctx._compliance_reports = reports
-
     events = getattr(ctx, "recent_events", None)
     if not isinstance(events, list):
         events = []
         ctx.recent_events = events
     events.append(report)
-
     operations.append(f"compliance_report:{report['status']}:{report['subject'][:40]}")
     logger.info(
         "COMPLIANCE: %s from %s — %s",
@@ -77,26 +88,8 @@ def _record_compliance_report(ctx: PhaseContext, payload: dict, operations: list
     )
 
 
-def _gh_run(args: list[str]) -> str | None:
-    """Run a gh CLI command. Returns stdout or None on failure."""
-    try:
-        result = subprocess.run(
-            ["gh"] + args,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            logger.warning("gh %s failed: %s", " ".join(args[:3]), result.stderr.strip())
-            return None
-        return result.stdout.strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-        logger.warning("gh CLI unavailable or timed out: %s", e)
-        return None
-
-
 class PRVerdictHook(BasePhaseHook):
-    """Process Steward PR review verdicts received via Federation NADI."""
+    """Process legacy verdicts without granting them mutation authority."""
 
     @property
     def name(self) -> str:
@@ -118,243 +111,63 @@ class PRVerdictHook(BasePhaseHook):
         )
 
     def execute(self, ctx: PhaseContext, operations: list[str]) -> None:
-        messages = _federation_messages(ctx)
-
-        for msg in messages:
+        for msg in _federation_messages(ctx):
             operation = msg.get("federation_operation", "")
             payload = msg.get("federation_payload", {})
-
             if operation == "compliance_report":
                 if isinstance(payload, dict):
                     _record_compliance_report(ctx, payload, operations)
                 continue
-
-            if operation != "pr_review_verdict":
+            if operation != "pr_review_verdict" or not isinstance(payload, dict):
                 continue
 
             pr_number = payload.get("pr_number")
-            verdict = payload.get("verdict", "")
-            reason = payload.get("reason", "No reason provided.")
-            title = payload.get("title", f"PR #{pr_number}")
-            touches_core = payload.get("touches_core", False)
-
-            if not pr_number:
-                logger.warning("PR_VERDICT: Missing pr_number in verdict message")
+            if not isinstance(pr_number, int) or isinstance(pr_number, bool) or pr_number <= 0:
+                logger.warning("PR_VERDICT: missing or malformed pr_number")
                 continue
-
-            # 0. Zero Trust Signature Verification
+            touches_core = payload.get("touches_core")
             identity = ctx.registry.get(SVC_IDENTITY)
             signature = msg.get("signature")
-            public_key = msg.get("signer_key")
-            # The payload we sign is the inner federation_payload
-            if not all([identity, signature, public_key]) or not identity.verify(
-                payload, signature, public_key
+            supplied_key = msg.get("signer_key")
+            signer_identity = msg.get("signer_identity") or payload.get("signer_identity")
+            trusted = _trusted_steward_config()
+            if (
+                trusted is None
+                or identity is None
+                or not isinstance(signature, str)
+                or not isinstance(supplied_key, str)
+                or supplied_key != trusted[1]
+                or signer_identity != trusted[0]
+                or not identity.verify(payload, signature, trusted[1])
             ):
                 logger.warning(
-                    "PR_VERDICT: Signature verification FAILED for PR #%s. Zero Trust rejection.",
+                    "PR_VERDICT: pinned Steward trust verification failed for #%s",
                     pr_number,
                 )
+                operations.append(f"pr_verdict:blocked:#%s" % pr_number)
+                continue
+            if not isinstance(touches_core, bool):
+                logger.warning(
+                    "PR_VERDICT: missing or malformed touches_core blocks #%s",
+                    pr_number,
+                )
+                operations.append(f"pr_verdict:blocked:#%s" % pr_number)
                 continue
 
-            logger.info(
-                "PR_VERDICT: Processing verified verdict=%s for PR #%d (core=%s)",
-                verdict,
-                pr_number,
-                touches_core,
-            )
-
-            if verdict == "approve":
-                self._handle_approve(
-                    ctx, pr_number, title, touches_core, reason, operations, payload
-                )
-            elif verdict == "request_changes":
-                self._handle_request_changes(pr_number, reason, operations)
-            elif verdict == "reject":
-                self._handle_reject(ctx, pr_number, reason, operations)
-            else:
-                logger.warning("PR_VERDICT: Unknown verdict %r for PR #%d", verdict, pr_number)
-
-    def _handle_approve(
-        self,
-        ctx: PhaseContext,
-        pr_number: int,
-        title: str,
-        touches_core: bool,
-        reason: str,
-        operations: list[str],
-        payload: dict,
-    ) -> None:
-        """Handle an approve verdict — auto-merge or escalate to council."""
-        if not touches_core:
-            # Verdict hooks may report/request governance, but never merge.
-            comment = (
-                f"**Steward Approved.** Merge evaluation requested.\n\n"
-                f"Reason: {reason}\n\n"
-                "A SHA-bound readiness evaluation is required before the central "
-                "PR lifecycle authority may attempt a merge."
-            )
-            repo = _repo_name()
-            _gh_run(["pr", "comment", str(pr_number), "--repo", repo, "--body", comment])
-            operations.append(f"pr_verdict:merge_requested:#{pr_number}")
-            logger.info("PR_VERDICT: Merge evaluation requested for PR #%d", pr_number)
-        else:
-            # Core files touched — council vote required
-            comment = (
-                f"**Steward Approved.** Council vote required for core files.\n\n"
-                f"Reason: {reason}\n\n"
-                f"This PR touches protected core files and requires council approval "
-                f"before merge. A governance proposal has been created."
-            )
-            _gh_run(["pr", "comment", str(pr_number), "--repo", _repo_name(), "--body", comment])
-
-            # Create council proposal if council is available
-            if ctx.council is not None:
-                self._create_council_proposal(ctx, pr_number, title, reason)
-
-            # Internal Signal Emission (Social-Blind)
-            self._emit_governance_signal(
-                ctx,
-                {
-                    "op": "pr_escalation",
-                    "pr_number": pr_number,
-                    "title": title,
-                    "reason": reason,
-                    "status": "council_vote_required",
-                },
-            )
-
-            operations.append(f"pr_verdict:council_vote:#{pr_number}")
-            logger.info("PR_VERDICT: Council vote requested for PR #%d", pr_number)
-
-    def _handle_request_changes(
-        self,
-        pr_number: int,
-        reason: str,
-        operations: list[str],
-    ) -> None:
-        """Post Steward's review as a PR comment requesting changes."""
-        comment = f"**Steward Review: Changes Requested**\n\n{reason}"
-        _gh_run(["pr", "comment", str(pr_number), "--repo", _repo_name(), "--body", comment])
-        operations.append(f"pr_verdict:changes_requested:#{pr_number}")
-        logger.info("PR_VERDICT: Changes requested on PR #%d", pr_number)
-
-    def _handle_reject(
-        self,
-        ctx: PhaseContext,
-        pr_number: int,
-        reason: str,
-        operations: list[str],
-    ) -> None:
-        """Close the PR with Steward's rejection reason."""
-        comment = f"**Steward Review: Rejected**\n\n{reason}"
-        _gh_run(["pr", "close", str(pr_number), "--repo", _repo_name(), "--comment", comment])
-
-        # Internal Signal Emission (Social-Blind)
-        self._emit_governance_signal(
-            ctx,
-            {"op": "pr_rejection", "pr_number": pr_number, "reason": reason, "status": "closed"},
-        )
-
-        operations.append(f"pr_verdict:rejected:#{pr_number}")
-        logger.info("PR_VERDICT: Rejected and closed PR #%d", pr_number)
-
-    def _emit_governance_signal(self, ctx: PhaseContext, payload: dict) -> None:
-        """Emit a generic governance event to the internal recent_events bus."""
-        event = {
-            "type": "internal_governance_signal",
-            "heartbeat": getattr(ctx, "heartbeat_count", 0),
-            "payload": payload,
-        }
-        events = getattr(ctx, "recent_events", None)
-        if not isinstance(events, list):
-            events = []
-            ctx.recent_events = events
-        events.append(event)
-
-    def _emit_governance_signal(self, ctx: PhaseContext, payload: dict) -> None:
-        """Emit a generic governance event to the internal recent_events bus."""
-        event = {
-            "type": "internal_governance_signal",
-            "heartbeat": getattr(ctx, "heartbeat_count", 0),
-            "payload": payload,
-        }
-        events = getattr(ctx, "recent_events", None)
-        if not isinstance(events, list):
-            events = []
-            ctx.recent_events = events
-        events.append(event)
-
-    def _create_council_proposal(
-        self,
-        ctx: PhaseContext,
-        pr_number: int,
-        title: str,
-        reason: str,
-    ) -> None:
-        """Create a council governance proposal for core-file PR."""
-        import time
-
-        from city.council import ProposalType
-
-        # The mayor proposes on behalf of the system
-        mayor = getattr(ctx.council, "_elected_mayor", None)
-        if not mayor:
-            logger.warning(
-                "PR_VERDICT: No mayor elected, cannot create proposal for PR #%d", pr_number
-            )
-            return
-
-        proposal = ctx.council.propose(
-            title=f"PR #{pr_number}: {title}",
-            description=(
-                f"Steward-approved PR that touches core files.\n\n"
-                f"Steward reason: {reason}\n\n"
-                f"Requires council vote before merge."
-            ),
-            proposer=mayor,
-            proposal_type=ProposalType.POLICY,
-            action={
-                "type": "pr_merge",
+            audit = {
+                "type": "legacy_pr_verdict_audit",
                 "pr_number": pr_number,
-                "repo": _repo_name(),
-            },
-            timestamp=time.time(),
-            heartbeat=ctx.heartbeat_count,
-        )
-        if proposal:
-            logger.info("PR_VERDICT: Council proposal created for PR #%d", pr_number)
-        else:
-            logger.warning("PR_VERDICT: Council proposal failed for PR #%d", pr_number)
-
-    def _update_mission_state(self, ctx: PhaseContext, nadi_ref: str, status: str) -> None:
-        """Update mission state in Sankalpa registry based on NADI_REF."""
-        sankalpa = ctx.registry.get(SVC_SANKALPA)
-        if not sankalpa:
-            return
-
-        try:
-            from vibe_core.mahamantra.protocols.sankalpa.types import MissionStatus
-
-            # Find mission by NADI_REF (implicit matching in registry or searching)
-            # For now, we search active missions for the matching ref in metadata
-            all_missions = sankalpa.registry.list_missions()
-            for m in all_missions:
-                # We assume missions created via NADI have origin_nadi_ref in their metadata/id
-                if nadi_ref in m.id or (
-                    hasattr(m, "metadata") and m.metadata.get("nadi_ref") == nadi_ref
-                ):
-                    m.status = MissionStatus.COMPLETED if status == "completed" else m.status
-                    if status == "completed":
-                        if not hasattr(m, "metadata") or m.metadata is None:
-                            m.metadata = {}
-                        m.metadata["nadi_verified"] = True
-
-                    sankalpa.registry.add_mission(m)
-                    logger.info(
-                        "PR_VERDICT: Karma Bridge — Marked mission %s as %s (verified)",
-                        m.id,
-                        status,
-                    )
-                    break
-        except Exception as e:
-            logger.warning("PR_VERDICT: Karma Bridge failed updating mission %s: %s", nadi_ref, e)
+                "verdict": payload.get("verdict"),
+                "reason": str(payload.get("reason", ""))[:2000],
+                "touches_core": touches_core,
+                "signer_identity": trusted[0],
+                "mutation": "none",
+                "heartbeat": getattr(ctx, "heartbeat_count", 0),
+            }
+            events = getattr(ctx, "recent_events", None)
+            if not isinstance(events, list):
+                events = []
+                ctx.recent_events = events
+            events.append(audit)
+            operations.append(f"pr_verdict:audit_only:#{pr_number}")
+            logger.info("PR_VERDICT: legacy verdict recorded audit-only for #%s", pr_number)

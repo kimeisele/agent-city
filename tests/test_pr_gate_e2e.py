@@ -16,7 +16,6 @@ This proves the fourth membrane surface works end-to-end.
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -125,10 +124,8 @@ class TestE2EPRGatePipeline:
         assert "city/immigration.py" in payload["core_files"]
         assert payload["is_citizen"] is False
 
-    @patch("city.hooks.dharma.pr_verdict._gh_run")
-    def test_verdict_reads_from_real_nadi_inbox(self, mock_gh, tmp_path):
-        """DHARMA: Verdict handler reads from NADI inbox → auto-merges."""
-        mock_gh.return_value = "merged"
+    def test_verdict_reads_from_real_nadi_inbox(self, tmp_path):
+        """DHARMA: legacy verdict is blocked without pinned B1 trust."""
 
         ctx = _make_ctx_with_real_nadi(tmp_path)
 
@@ -155,19 +152,14 @@ class TestE2EPRGatePipeline:
         # DHARMA phase: verdict handler runs
         handler.execute(ctx, ops)
 
-        # Should have auto-merged (comment + merge)
-        assert mock_gh.call_count == 2
-        assert "pr_verdict:merged:#99" in ops
+        assert "pr_verdict:blocked:#99" in ops
 
-    @patch("city.hooks.dharma.pr_verdict._gh_run")
     @patch.object(PRScannerHook, "_fetch_open_prs")
-    def test_full_pipeline_scanner_to_verdict(self, mock_fetch, mock_gh, tmp_path):
-        """FULL E2E: Scanner → NADI outbox → (simulate transport) → NADI inbox → Verdict → Action.
+    def test_full_pipeline_scanner_to_verdict(self, mock_fetch, tmp_path):
+        """FULL E2E: Scanner → NADI outbox → blocked legacy verdict.
 
         This is the money test. Proves the fourth membrane surface works.
         """
-        mock_gh.return_value = "merged"
-
         # ── Step 1: GENESIS — Scanner detects PR ──
         mock_fetch.return_value = [{
             "number": 42,
@@ -223,34 +215,17 @@ class TestE2EPRGatePipeline:
         handler.execute(ctx, dharma_ops)
 
         # ── Step 5: Verify end state ──
-        # Comment posted + PR merged
-        assert mock_gh.call_count == 2
-
-        # Check the comment contains steward's reason
-        comment_args = mock_gh.call_args_list[0][0][0]
-        assert "comment" in comment_args
-        body_idx = comment_args.index("--body")
-        assert "Steward Approved" in comment_args[body_idx + 1]
-        assert "citizen author" in comment_args[body_idx + 1]
-
-        # Check merge was called
-        merge_args = mock_gh.call_args_list[1][0][0]
-        assert "merge" in merge_args
-        assert "42" in merge_args
-
-        assert "pr_verdict:merged:#42" in dharma_ops
+        assert "pr_verdict:blocked:#42" in dharma_ops
 
         # Full pipeline proven:
         # Scanner → NADI outbox ✓
         # (Steward processes) simulated ✓
         # NADI inbox → Verdict handler ✓
-        # Auto-merge executed ✓
+        # Legacy mutation was blocked ✓
 
-    @patch("city.hooks.dharma.pr_verdict._gh_run")
     @patch.object(PRScannerHook, "_fetch_open_prs")
-    def test_full_pipeline_core_file_escalation(self, mock_fetch, mock_gh, tmp_path):
-        """FULL E2E with core files: Scanner → NADI → Steward approve → Council escalation."""
-        mock_gh.return_value = "ok"
+    def test_full_pipeline_core_file_escalation(self, mock_fetch, tmp_path):
+        """Core legacy verdicts are blocked pending the B1 consumer."""
 
         # ── GENESIS: Scanner detects PR touching core ──
         mock_fetch.return_value = [{
@@ -292,26 +267,17 @@ class TestE2EPRGatePipeline:
 
         FederationNadiHook().execute(ctx, genesis_ops)
 
-        # ── DHARMA: Verdict handler escalates to council ──
+        # ── DHARMA: legacy verdict is audit-only/blocked ──
         handler = PRVerdictHook()
         dharma_ops: list[str] = []
 
         handler.execute(ctx, dharma_ops)
 
-        # Should NOT have merged — only commented
-        assert mock_gh.call_count == 1
-        comment_args = mock_gh.call_args_list[0][0][0]
-        assert "comment" in comment_args
-        body_idx = comment_args.index("--body")
-        assert "Council vote required" in comment_args[body_idx + 1]
+        assert "pr_verdict:blocked:#77" in dharma_ops
 
-        assert "pr_verdict:council_vote:#77" in dharma_ops
-
-    @patch("city.hooks.dharma.pr_verdict._gh_run")
     @patch.object(PRScannerHook, "_fetch_open_prs")
-    def test_full_pipeline_rejection(self, mock_fetch, mock_gh, tmp_path):
-        """FULL E2E rejection: Scanner → NADI → Steward rejects → PR closed."""
-        mock_gh.return_value = "ok"
+    def test_full_pipeline_rejection(self, mock_fetch, tmp_path):
+        """Legacy rejection verdicts are blocked without a B1 consumer."""
 
         # ── GENESIS ──
         mock_fetch.return_value = [{
@@ -348,15 +314,10 @@ class TestE2EPRGatePipeline:
 
         FederationNadiHook().execute(ctx, genesis_ops)
 
-        # ── DHARMA: PR closed ──
+        # ── DHARMA: legacy mutation is blocked ──
         handler = PRVerdictHook()
         dharma_ops: list[str] = []
 
         handler.execute(ctx, dharma_ops)
 
-        assert mock_gh.call_count == 1
-        close_args = mock_gh.call_args_list[0][0][0]
-        assert "close" in close_args
-        assert "13" in close_args
-
-        assert "pr_verdict:rejected:#13" in dharma_ops
+        assert "pr_verdict:blocked:#13" in dharma_ops
