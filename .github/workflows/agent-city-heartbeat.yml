@@ -135,7 +135,7 @@ jobs:
           # (content-addressed), never mutable main. The blob SHA survives hub
           # history rewrites; the digest is verified before execution.
           curl -sL -H "Authorization: token ${GH_TOKEN}" \
-            "https://api.github.com/repos/kimeisele/steward-federation/git/blobs/47d8e3bbd9cb4256612df1e21ded38b3beb48aa3" \
+            "https://raw.githubusercontent.com/kimeisele/steward-federation/v0.1.2/nadi_kit.py" \
             | python3 -c "import base64,json,sys; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)['content']))" \
             > nadi_kit.py
           [ "$(git hash-object nadi_kit.py)" = "47d8e3bbd9cb4256612df1e21ded38b3beb48aa3" ] \
