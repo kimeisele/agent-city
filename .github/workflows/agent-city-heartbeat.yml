@@ -131,7 +131,15 @@ jobs:
           GH_TOKEN: ${{ secrets.FEDERATION_PAT || secrets.GITHUB_TOKEN }}
         run: |
           python -m pip install cryptography
-          curl -sL -H "Authorization: token ${GH_TOKEN}" "https://raw.githubusercontent.com/kimeisele/steward-federation/main/nadi_kit.py" -o nadi_kit.py
+          # S1 (program slice 0b): fetch nadi_kit.py at a pinned blob SHA
+          # (content-addressed), never mutable main. The blob SHA survives hub
+          # history rewrites; the digest is verified before execution.
+          curl -sL -H "Authorization: token ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimeisele/steward-federation/git/blobs/47d8e3bbd9cb4256612df1e21ded38b3beb48aa3" \
+            | python3 -c "import base64,json,sys; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)['content']))" \
+            > nadi_kit.py
+          [ "$(git hash-object nadi_kit.py)" = "47d8e3bbd9cb4256612df1e21ded38b3beb48aa3" ] \
+            || { echo "nadi_kit.py digest mismatch (S1 pin)"; exit 1; }
 
       - name: Sign federation heartbeat with nadi-kit
         env:
